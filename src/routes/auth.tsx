@@ -30,6 +30,27 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
+  const [resending, setResending] = useState(false);
+
+  async function resendConfirmation() {
+    if (!email) {
+      toast.error("Enter your email address first.");
+      return;
+    }
+    setResending(true);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    setResending(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("If that account is still unconfirmed, a new link is on its way.");
+  }
+
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
