@@ -84,7 +84,7 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   atr_period: 14,
   swing_lookback: 5,
   displacement_min_atr: 1.0,
-  grades: { A_PLUS: 90, A: 80, B: 70 },
+  grades: { A_PLUS: 95, A: 90, B: 80 },
 };
 
 export type Candidate = {
