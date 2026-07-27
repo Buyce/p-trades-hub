@@ -1,84 +1,91 @@
-## Goal
+## P-Trades — Build Programme 5–15 Roadmap
 
-Treat `P-Trades_Current_Code_Function_Map.md` as a functional specification only, prove the TypeScript scanner already meets it with a real test suite, and close the two gaps that specification exposes: missing spec-named pure functions, and grade thresholds that don't match the Master Handoff.
+One phase per turn. Every phase begins with the mandatory audit (files, functions, DB objects, duplicates) and ends with the mandatory report naming real files, functions, tables, policies and tests. Shadow mode stays on until Phase 15 explicitly clears it. No trade-execution path is ever added.
 
-No Python infrastructure is imported, executed or deployed. Nothing from that document's `MetaTrader5` package, FastAPI app, SQLite schema, Windows paths, local terminal adapter, Cloudflare Tunnel or webhook notifier is reproduced — those are already superseded by the MetaApi + Lovable Cloud architecture.
+### Ground rules for every phase
+- The TypeScript cloud scanner is the only live engine. Python is reference/replay only, delivered as an export under `handoff/python-reference/` for manual transfer to `Buyce/P-Trades`; never wired to production MetaApi or scheduling.
+- Keep the current `src/lib/ptrades/*` layout and enforce the documented boundaries inside it instead of moving to `src/domain`, `src/data`, `src/services`: no direct backend calls in pages, one repository module per domain, one typed `AppError`.
+- Fail closed. No invented data, no mock fallback in production.
+- Reuse before adding. A second implementation of an existing function or table counts as a defect.
 
-## Current state (verified)
+### Three conflicts to settle before Phase 7 code
+The prompts contradict decisions already locked into the codebase and tests:
 
-Every documented calculation already exists as a server-only module under `src/lib/ptrades/scanner/`:
+| Item | Prompt 7 says | Current code (tested) |
+| --- | --- | --- |
+| ATR | Simple moving average | Wilder smoothing |
+| Confirmed swing window | 3 candles each side | 5 |
+| Setup family names | `LIQUIDITY_SWEEP_REVERSAL`, `BREAKOUT_RETEST_CONTINUATION`, `BEARISH_PULLBACK_CONTINUATION`, `SUPPORT_BREAK_RETEST` | `SWEEP_DISPLACEMENT_RETEST`, `PULLBACK_CONTINUATION`, `BREAK_RETEST` |
 
-| Spec function | Existing implementation |
-| --- | --- |
-| `true_range` | inlined inside `atr()` in `atr.server.ts` |
-| `atr` | `atr.server.ts` (Wilder) |
-| `bars(closed_only=True)` | `closedCandlesOnly` in `candles.server.ts` |
-| `mark_swings` | `swingHighs` / `swingLows` in `swings.server.ts` |
-| `latest_liquidity_sweep` | `detectSweep` in `sweep.server.ts` |
-| `latest_displacement` | `detectDisplacement` in `displacement.server.ts` |
-| `simple_trend_bias` | `higherTimeframeBias` in `bias.server.ts` |
-| `reward_to_risk` | computed inline in `run.server.ts` |
-| `apply_hard_gates` | 13 gates in `gates.server.ts` |
-| `total_score` | `scoreCandidate` in `scoring.server.ts` |
-| `grade_for_score` | grade branch inside `scoreCandidate` |
-| `save_decision` / `count_actionable_today` | `persist.server.ts` |
+Proposed resolution: make all three rulebook-driven rather than hard-coded (`atr_method`, `swing_window`, family registry), default them to the current tuned values so live behaviour does not change, and adopt the prompt's four-family naming with a data migration of stored `setup_type` values. Confirmed with you at the start of Phase 7.
 
-There is currently **no test runner installed** — that is the main missing piece.
+---
 
-## What will be built
+### Phase 5 — Auth, database, RLS, shared contracts, Python models
+- Audit table of every table, policy and helper function; flag duplicates and obsolete objects.
+- Reconcile schema against the prompt's required list. Candidate gaps: `scanner_errors`, `audit_log`, signal constraints (direction/grade/status enums, score 0–100, `qualified` only for A/A+), trade planned-vs-actual and mistake-tag columns.
+- Add `is_admin()` alongside `is_staff()`/`has_role()`, or consolidate to one helper.
+- Prove browser immutability of scanner data with regression tests.
+- Create `contracts/*.schema.json` (candle, market-snapshot, rulebook, candidate, signal, scanner-result, macro-event, trade); TypeScript validates against them.
+- Export `handoff/python-reference/` skeleton with Pydantic models and contract tests.
 
-### 1. Test infrastructure
+### Phase 6 — Data access, adapters, normalisation
+- Consolidate backend reads behind repository modules (`signals`, `decisions`, `trades`, `health`, `rulebooks`). Pages call services, never the backend client.
+- One `AppError` shape; one time utility module (`toUtcIso`, `formatInUserTimezone`, `getUtcDayBoundary`, `isClosedCandle`); one symbol mapper backed by `instruments`.
+- One server-side candle normaliser; malformed candles rejected and recorded.
+- Shared fixtures under `fixtures/` consumed by both TypeScript and Python tests.
+- Mock adapter isolated and provably inert in production.
 
-Add `vitest` (dev dependency) plus a `test` config in `vite.config.ts` scoped to `src/**/*.test.ts`, running in the Node environment so `*.server.ts` modules load directly. No browser/jsdom setup is needed — every module under test is pure.
+### Phase 7 — MetaApi read-only adapter + feature engine
+- Single `ReadOnlyMarketDataClient` interface; no raw SDK object escapes the adapter; timeouts, safe-read retries, redacted errors.
+- Grep report for `order|trade|position|closePosition|create*Order|modifyPosition|cancelOrder`, each match classified safe/obsolete/prohibited.
+- Consolidate feature functions into one folder with the prompt's naming; remove duplicate indicator implementations.
+- Golden fixtures under `fixtures/golden/*` shared with the Python reference core.
 
-### 2. Tests describing expected behaviour (written first)
+### Phase 8 — Setup builders, gates, scoring, scheduler, replay
+- Four setup builders behind one `SetupBuilder` interface; documented call graph; obsolete branches removed.
+- One authoritative hard-gate function covering all 15 listed gates, storing passes and failures.
+- Verify and lock scoring weights and bands (20/20/15/15/15/10/5; 95/90/80) by test.
+- Scheduler flow verified against the existing lock and atomic daily-slot claim.
+- Python replay engine export with the 11 golden scenarios; TypeScript and Python must agree.
 
-One file per spec area, using small hand-built candle fixtures with known answers:
+### Phase 9 — Journal, trade events, decisions, reconciliation
+- Extend `trades` with planned vs actual entry/stop, partial exits, followed-plan flag, mistake tags; add the seven trade-event types with stop-widening detection.
+- One authoritative result-in-R function; MAE/MFE return null when no price path exists.
+- Read-only reconciliation contract for MetaApi historical deals; suggestions only, user confirms.
+- Journal filters and CSV export in UTC.
 
-- `true-range.test.ts` — the three true-range components, gap up, gap down, first-bar handling.
-- `atr.test.ts` — known-value Wilder series, insufficient data returns `null`, non-finite input returns `null`.
-- `candles.test.ts` — the forming candle is excluded, out-of-order input is sorted, NaN bars are dropped, `dataAgeSeconds` maths.
-- `swings.test.ts` — a confirmed centre pivot is found, an unconfirmed edge pivot is not, equal highs do not count, `lastSwing` ordering.
-- `sweep.test.ts` — swing low taken and reclaimed = LONG, swing high taken and rejected = SHORT, a wick that does not close back inside is not a sweep, the sweeping candle's own swing is excluded.
-- `displacement.test.ts` — body at or above the ATR multiple qualifies, a counter-direction candle never does, missing ATR returns not-found.
-- `bias.test.ts` — HH/HL = LONG, LH/LL = SHORT, mixed = NEUTRAL, D1 arbitrates when H4 is neutral and vice versa.
-- `reward-to-risk.test.ts` — 2R and 3R geometry both long and short, zero or inverted risk returns `null`.
-- `gates.test.ts` — one test per gate for both the pass and fail branch, asserting the stored plain-English reason exists; plus the fail-closed rule that a null input rejects.
-- `scoring.test.ts` — determinism (same input, same score), component boundaries, and grade assignment at each band edge.
-- `fingerprint.test.ts` — identical geometry yields one fingerprint, a different day or direction yields another, ATR-relative rounding tolerance.
+### Phase 10 — Performance engine
+- Metric-definition table first, then one canonical implementation per metric (server-side or SQL view).
+- Add missing analytics: session, day-of-week, time-of-day, taken vs skipped, late-entry cost, premature-exit cost, mistakes.
+- Sample-size guardrails: `<10 Insufficient sample`, `10–29 Preliminary`, `30+ More reliable`.
 
-Target: the whole suite runs offline in under a second, with no network, no MetaApi and no database.
+### Phase 11 — Health and rulebook governance
+- Full health surface (MetaApi, last candle per symbol/timeframe, run, lock, schedule, providers, mode, rulebook version) with admin-only refresh and single shadow scan.
+- Rulebook lifecycle with checksum; every signal stores version + checksum; remove hard-coded trading constants in favour of rulebook values.
 
-### 3. Spec-named pure functions extracted
+### Phase 12 — Notifications
+- Four alert types, explicit suppression list, shadow-mode records marked `suppressed_shadow_mode` with the exact payload that would have been sent.
+- Deduplication on fingerprint + type + channel + cooldown, enforced by a unique constraint.
+- Management actions KEEP / MOVE_STOP / TAKE_PARTIAL / EXIT_EARLY / CANCEL; never suggests widening a stop.
+- Preferences: in-app, email/web-push placeholders, quiet hours, symbol filters.
 
-To match the specification's surface without changing behaviour:
+### Phase 13 — Testing, security, parity, duplicate elimination
+- Unit, integration, replay, RLS and end-to-end layers; duplicate and dead-code sweep; secret-in-bundle scan; security scan run and findings resolved.
 
-- export `trueRange(candles)` from `atr.server.ts` and have `atr()` consume it;
-- add `rewardToRisk(entry, stop, target)` to a new `risk.server.ts` and call it from `run.server.ts` in place of the inline calculation;
-- export `gradeForScore(score, rulebook)` from `scoring.server.ts` and call it from `scoreCandidate`.
+### Phase 14 — Repository structure, Python handoff, CI
+- Finalise `handoff/python-reference/` with pyproject, tests and transfer instructions; CI running typecheck, lint, tests and parity fixtures.
 
-Calculation defaults stay exactly as they are today — Wilder ATR, 5-bar fractal swings, current thresholds — as you chose.
+### Phase 15 — Production readiness and live-alert decision
+- Final consistency audit and readiness checklist. Shadow mode is turned off only on your explicit instruction, never automatically.
 
-### 4. Grade bands corrected to the Master Handoff
+---
 
-`DEFAULT_RULEBOOK.grades` becomes `A_PLUS: 95, A: 90, B: 80`.
+### Technical notes
+- Migrations follow the required order: `CREATE TABLE` → `GRANT` → `ENABLE RLS` → policies. New scanner-internal tables (`scanner_errors`, `audit_log`) are service-role write, staff read.
+- Setup-family renaming needs a data migration for existing `signal_candidates.setup_type` and `signals.setup_type` rows; historical rows are remapped, not deleted.
+- The Python export cannot be pushed to `Buyce/P-Trades` from here; each phase reports "generated for manual transfer" with the file list.
+- Each phase ends with the full test suite run and the numbers reported (currently 158 passing).
 
-The current score components can total 115, not 100, which would make those bands mean something different from the handoff. So the component weights are rescaled to the handoff's 100-point budget — HTF alignment 20, liquidity quality 20, structure confirmation 15, displacement 15, retest 15, macro 10 (reserved, scores 0 until macro lands), execution quality 5 — with reward-to-risk folded into structure/execution quality rather than carrying its own 30 points. Relative ordering of candidates is preserved; only the scale changes.
-
-A migration inserts a new active `rulebook_versions` row (`v1.1.0-shadow`) recording the corrected bands and weights, and deactivates the previous row. Historical candidates keep their original `rulebook_version` stamp, so nothing already journalled is rewritten.
-
-Consequence: until macro alignment and full retest scoring are implemented, realistic scores land in the B band, so the scanner will journal candidates and emit no A/A+ alerts. That is the intended fail-closed behaviour and is safe because shadow mode is still on.
-
-### 5. Documentation
-
-Update `docs/PROJECT_KNOWLEDGE.md` and the rulebook memory to record the corrected bands, the new weights, and to close backlog item 1. Add a short note that the function map is a specification reference and that its Python infrastructure is explicitly out of scope.
-
-## Out of scope
-
-Not touched in this change: the session-filter gate, setup families 7.3 and 7.4, the macro/news provider, the `/signals` route, journal schema expansion, and analytics. Those remain on the backlog. Shadow mode stays on; no execution path is introduced anywhere.
-
-## Verification
-
-- `vitest run` — full suite green.
-- `tsgo --noEmit` — clean.
-- One live scan invocation afterwards to confirm the pipeline still runs end to end and that grades now fall in the expected band.
+### Suggested start
+Phase 5, then stop for your review before Phase 6.
