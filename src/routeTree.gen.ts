@@ -20,8 +20,6 @@ import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenti
 import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_authenticated/signals.$signalId'
-import { Route as ApiPublicIngestSignalRouteImport } from './routes/api/public/ingest/signal'
-import { Route as ApiPublicIngestHeartbeatRouteImport } from './routes/api/public/ingest/heartbeat'
 import { Route as ApiPublicHooksScanMarketsRouteImport } from './routes/api/public/hooks/scan-markets'
 
 const AuthRoute = AuthRouteImport.update({
@@ -81,17 +79,6 @@ const AuthenticatedSignalsSignalIdRoute =
     path: '/signals/$signalId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const ApiPublicIngestSignalRoute = ApiPublicIngestSignalRouteImport.update({
-  id: '/api/public/ingest/signal',
-  path: '/api/public/ingest/signal',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiPublicIngestHeartbeatRoute =
-  ApiPublicIngestHeartbeatRouteImport.update({
-    id: '/api/public/ingest/heartbeat',
-    path: '/api/public/ingest/heartbeat',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiPublicHooksScanMarketsRoute =
   ApiPublicHooksScanMarketsRouteImport.update({
     id: '/api/public/hooks/scan-markets',
@@ -111,8 +98,6 @@ export interface FileRoutesByFullPath {
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
-  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
-  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -126,8 +111,6 @@ export interface FileRoutesByTo {
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
-  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
-  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -143,8 +126,6 @@ export interface FileRoutesById {
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
-  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
-  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -160,8 +141,6 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/signals/$signalId'
     | '/api/public/hooks/scan-markets'
-    | '/api/public/ingest/heartbeat'
-    | '/api/public/ingest/signal'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -175,8 +154,6 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/signals/$signalId'
     | '/api/public/hooks/scan-markets'
-    | '/api/public/ingest/heartbeat'
-    | '/api/public/ingest/signal'
   id:
     | '__root__'
     | '/'
@@ -191,8 +168,6 @@ export interface FileRouteTypes {
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
     | '/api/public/hooks/scan-markets'
-    | '/api/public/ingest/heartbeat'
-    | '/api/public/ingest/signal'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -200,8 +175,6 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ApiPublicHooksScanMarketsRoute: typeof ApiPublicHooksScanMarketsRoute
-  ApiPublicIngestHeartbeatRoute: typeof ApiPublicIngestHeartbeatRoute
-  ApiPublicIngestSignalRoute: typeof ApiPublicIngestSignalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -283,20 +256,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSignalsSignalIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/api/public/ingest/signal': {
-      id: '/api/public/ingest/signal'
-      path: '/api/public/ingest/signal'
-      fullPath: '/api/public/ingest/signal'
-      preLoaderRoute: typeof ApiPublicIngestSignalRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/ingest/heartbeat': {
-      id: '/api/public/ingest/heartbeat'
-      path: '/api/public/ingest/heartbeat'
-      fullPath: '/api/public/ingest/heartbeat'
-      preLoaderRoute: typeof ApiPublicIngestHeartbeatRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/public/hooks/scan-markets': {
       id: '/api/public/hooks/scan-markets'
       path: '/api/public/hooks/scan-markets'
@@ -337,8 +296,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ApiPublicHooksScanMarketsRoute: ApiPublicHooksScanMarketsRoute,
-  ApiPublicIngestHeartbeatRoute: ApiPublicIngestHeartbeatRoute,
-  ApiPublicIngestSignalRoute: ApiPublicIngestSignalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
