@@ -1,18 +1,72 @@
+/**
+ * Cloud scanner link status.
+ *
+ * Replaces the old external FastAPI bridge: the scanner now runs inside this
+ * app and reads MetaTrader 5 data through MetaApi Cloud, read-only.
+ *
+ * This module is a thin wrapper — server-function declarations only.
+ * It never returns tokens, passwords, balances or any trade capability.
+ */
+
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
-import type { Json } from "@/integrations/supabase/types";
-import { callBackend, type BackendResult } from "./backend.server";
 
-export type BackendPayload = { [key: string]: Json | undefined };
+export type ScannerLink = {
+  configured: boolean;
+  /** True when MetaApi reports the account deployed and connected. */
+  connected: boolean;
+  region: string | null;
+  state: string | null;
+  connectionStatus: string | null;
+  /** Broker login identifier only — never a password. */
+  login: string | null;
+  server: string | null;
+  reliability: string | null;
+  /** True when METAAPI_ACCOUNT_ID did not resolve and a fallback was used. */
+  accountIdMismatch: boolean;
+  message: string | null;
+};
 
-export const getBackendHealth = createServerFn({ method: "GET" })
+export const getScannerLink = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async (): Promise<BackendResult<BackendPayload>> => callBackend("/health"));
+  .handler(async (): Promise<ScannerLink> => {
+    const empty: ScannerLink = {
+      configured: false,
+      connected: false,
+      region: null,
+      state: null,
+      connectionStatus: null,
+      login: null,
+      server: null,
+      reliability: null,
+      accountIdMismatch: false,
+      message: null,
+    };
 
-export const getBackendConfiguration = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async (): Promise<BackendResult<BackendPayload>> => callBackend("/configuration"));
+    const { getAccountInfo, isMetaApiConfigured } = await import("./scanner/metaapi.server");
+    if (!isMetaApiConfigured()) {
+      return { ...empty, message: "MetaApi is not configured." };
+    }
 
-export const getMt5Status = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async (): Promise<BackendResult<BackendPayload>> => callBackend("/mt5/status"));
+    try {
+      const info = await getAccountInfo();
+      return {
+        configured: true,
+        connected: info.state === "DEPLOYED" && info.connectionStatus === "CONNECTED",
+        region: info.region,
+        state: info.state ?? null,
+        connectionStatus: info.connectionStatus ?? null,
+        login: info.login ?? null,
+        server: info.server ?? null,
+        reliability: info.reliability ?? null,
+        accountIdMismatch: info.accountIdMismatch ?? false,
+        message: info.lookupError ?? null,
+      };
+    } catch (error) {
+      return {
+        ...empty,
+        configured: true,
+        message: error instanceof Error ? error.message : "Account lookup failed.",
+      };
+    }
+  });
