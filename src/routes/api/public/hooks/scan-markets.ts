@@ -44,6 +44,28 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
           return Response.json({ ok: false, error: message }, { status: 500 });
         }
       },
+      // Read-only diagnostic: reports whether the market-data account is
+      // reachable and deployed. Returns no secrets and no account credentials.
+      GET: async ({ request }) => {
+        const publishable = process.env.SUPABASE_PUBLISHABLE_KEY;
+        if (!publishable || request.headers.get("apikey") !== publishable) {
+          return Response.json({ error: "Unauthorized" }, { status: 401 });
+        }
+        const { getAccountInfo, isMetaApiConfigured } = await import(
+          "@/lib/ptrades/scanner/metaapi.server"
+        );
+        if (!isMetaApiConfigured()) {
+          return Response.json({ configured: false });
+        }
+        const info = await getAccountInfo(true);
+        return Response.json({
+          configured: true,
+          region: info.region,
+          state: info.state ?? null,
+          connectionStatus: info.connectionStatus ?? null,
+        });
+      },
+
     },
   },
 });
