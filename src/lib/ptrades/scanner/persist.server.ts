@@ -1,0 +1,245 @@
+import type { Candidate, GateResult } from "./types";
+
+/**
+ * Persistence for the scanner. Every candidate and every rejection is stored,
+ * whether it qualified or not. All writes are service-role, server-side only.
+ */
+
+type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
+
+export function tradingDayUtc(now = new Date()): string {
+  return now.toISOString().slice(0, 10);
+}
+
+export async function startRun(
+  admin: Admin,
+  symbols: string[],
+  rulebookVersion: string,
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from("scanner_runs")
+    .insert({
+      status: "RUNNING",
+      symbols_scanned: symbols,
+      rulebook_version: rulebookVersion,
+    })
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("scanner run insert failed", error.message);
+    return null;
+  }
+  return data?.id ?? null;
+}
+
+export async function finishRun(
+  admin: Admin,
+  runId: string | null,
+  patch: {
+    status: string;
+    signals_emitted: number;
+    rejections: unknown;
+    error_message?: string | null;
+  },
+) {
+  if (!runId) return;
+  const { error } = await admin
+    .from("scanner_runs")
+    .update({
+      finished_at: new Date().toISOString(),
+      status: patch.status,
+      signals_emitted: patch.signals_emitted,
+      rejections: patch.rejections as never,
+      error_message: patch.error_message ?? null,
+    })
+    .eq("id", runId);
+  if (error) console.error("scanner run update failed", error.message);
+}
+
+export async function saveCandidate(
+  admin: Admin,
+  candidate: Candidate,
+  meta: { runId: string | null; rulebookVersion: string; shadowMode: boolean },
+): Promise<string | null> {
+  const { data, error } = await admin
+    .from("signal_candidates")
+    .insert({
+      scanner_run_id: meta.runId,
+      instrument: candidate.instrument,
+      broker_symbol: candidate.broker_symbol,
+      timeframe: candidate.timeframe,
+      direction: candidate.direction,
+      setup_type: candidate.setup_type,
+      bias: candidate.bias,
+      entry_zone_low: candidate.entry_zone_low,
+      entry_zone_high: candidate.entry_zone_high,
+      stop_loss: candidate.stop_loss,
+      targets: candidate.targets as never,
+      rr_tp1: candidate.rr_tp1,
+      atr: candidate.atr,
+      spread: candidate.spread,
+      score: candidate.score,
+      grade: candidate.grade,
+      score_components: candidate.score_components as never,
+      gate_results: candidate.gate_results as never,
+      reasons: candidate.reasons as never,
+      qualified: candidate.qualified,
+      fingerprint: candidate.fingerprint,
+      shadow_mode: meta.shadowMode,
+      rulebook_version: meta.rulebookVersion,
+      candle_time_utc: candidate.candle_time_utc,
+      trading_day_utc: tradingDayUtc(),
+    })
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error("candidate insert failed", error.message);
+    return null;
+  }
+  return data?.id ?? null;
+}
+
+export async function saveRejections(
+  admin: Admin,
+  rows: GateResult[],
+  meta: { candidateId: string | null; runId: string | null; instrument: string; timeframe: string },
+) {
+  if (rows.length === 0) return;
+  const { error } = await admin.from("signal_rejections").insert(
+    rows.map((r) => ({
+      candidate_id: meta.candidateId,
+      scanner_run_id: meta.runId,
+      instrument: meta.instrument,
+      timeframe: meta.timeframe,
+      gate_code: r.code,
+      reason: r.reason,
+      detail: (r.detail ?? {}) as never,
+      trading_day_utc: tradingDayUtc(),
+    })),
+  );
+  if (error) console.error("rejection insert failed", error.message);
+}
+
+export async function promoteToSignal(
+  admin: Admin,
+  candidate: Candidate,
+  meta: {
+    candidateId: string | null;
+    runId: string | null;
+    rulebookVersion: string;
+    shadowMode: boolean;
+  },
+): Promise<string | null> {
+  const entry =
+    candidate.entry_zone_low !== null && candidate.entry_zone_high !== null
+      ? (candidate.entry_zone_low + candidate.entry_zone_high) / 2
+      : null;
+
+  const { data, error } = await admin
+    .from("signals")
+    .upsert(
+      {
+        external_id: candidate.fingerprint,
+        candidate_id: meta.candidateId,
+        fingerprint: candidate.fingerprint,
+        instrument: candidate.instrument,
+        broker_symbol: candidate.broker_symbol,
+        direction: candidate.direction,
+        setup_type: candidate.setup_type,
+        timeframe: candidate.timeframe,
+        entry_zone_low: candidate.entry_zone_low,
+        entry_zone_high: candidate.entry_zone_high,
+        stop_loss: candidate.stop_loss,
+        targets: candidate.targets as never,
+        rr_tp1: candidate.rr_tp1,
+        score: candidate.score,
+        grade: candidate.grade,
+        score_components: candidate.score_components as never,
+        reasons: candidate.reasons as never,
+        rejection_reasons: [] as never,
+        macro_context: {} as never,
+        spread: candidate.spread,
+        // Shadow mode can never emit an actionable alert.
+        is_actionable: meta.shadowMode ? false : true,
+        shadow_mode: meta.shadowMode,
+        status: "ACTIVE",
+        rulebook_version: meta.rulebookVersion,
+        scanner_run_id: meta.runId,
+        signal_time_utc: new Date().toISOString(),
+        trading_day_utc: tradingDayUtc(),
+      },
+      { onConflict: "external_id", ignoreDuplicates: false },
+    )
+    .select("id")
+    .maybeSingle();
+
+  if (error) {
+    console.error("signal upsert failed", error.message, { entry });
+    return null;
+  }
+  if (data?.id && meta.candidateId) {
+    await admin
+      .from("signal_candidates")
+      .update({ promoted_signal_id: data.id })
+      .eq("id", meta.candidateId);
+  }
+  return data?.id ?? null;
+}
+
+export async function actionableCountToday(admin: Admin): Promise<number> {
+  const { data } = await admin
+    .from("daily_alert_counters")
+    .select("actionable_count")
+    .eq("trading_day_utc", tradingDayUtc())
+    .maybeSingle();
+  return data?.actionable_count ?? 0;
+}
+
+export async function incrementActionableCount(admin: Admin, max: number) {
+  const day = tradingDayUtc();
+  const current = await actionableCountToday(admin);
+  const { error } = await admin
+    .from("daily_alert_counters")
+    .upsert(
+      { trading_day_utc: day, actionable_count: current + 1, max_allowed: max },
+      { onConflict: "trading_day_utc" },
+    );
+  if (error) console.error("daily counter update failed", error.message);
+}
+
+export async function cacheCandle(
+  admin: Admin,
+  instrument: string,
+  timeframe: string,
+  candle: { time: string; open: number; high: number; low: number; close: number; volume: number | null },
+) {
+  const { error } = await admin.from("candles_cache").upsert(
+    {
+      instrument,
+      timeframe,
+      candle_time_utc: candle.time,
+      open: candle.open,
+      high: candle.high,
+      low: candle.low,
+      close: candle.close,
+      volume: candle.volume,
+      fetched_at: new Date().toISOString(),
+    },
+    { onConflict: "instrument,timeframe" },
+  );
+  if (error) console.error("candle cache upsert failed", error.message);
+}
+
+export async function fingerprintExistsToday(
+  admin: Admin,
+  fingerprint: string | null,
+): Promise<boolean> {
+  if (!fingerprint) return false;
+  const { data } = await admin
+    .from("signal_candidates")
+    .select("id")
+    .eq("fingerprint", fingerprint)
+    .eq("trading_day_utc", tradingDayUtc())
+    .limit(1);
+  return Boolean(data && data.length > 0);
+}
