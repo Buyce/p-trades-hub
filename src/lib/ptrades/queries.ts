@@ -24,7 +24,7 @@ export function utcTradingDay(date = new Date()): string {
   return date.toISOString().slice(0, 10);
 }
 
-async function unwrap<T>(p: PromiseLike<{ data: T | null; error: { message: string } | null }>) {
+async function unwrap<T>(p: PromiseLike<{ data: T; error: { message: string } | null }>): Promise<T> {
   const { data, error } = await p;
   if (error) throw new Error(error.message);
   return data;
