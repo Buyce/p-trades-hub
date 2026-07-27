@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getBackendHealth, getMt5Status } from "@/lib/ptrades/backend.functions";
+import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import {
   heartbeatHistoryQuery,
   scannerRunsQuery,
