@@ -12,6 +12,7 @@
 import type { Candle, Timeframe } from "./types";
 
 const READ_ONLY_PATHS: RegExp[] = [
+  /^\/users\/current\/accounts$/,
   /^\/users\/current\/accounts\/[^/]+$/,
   /^\/users\/current\/accounts\/[^/]+\/historical-market-data\/symbols\/[^/]+\/timeframes\/[^/]+\/candles$/,
   /^\/users\/current\/accounts\/[^/]+\/symbols\/[^/]+\/specification$/,
@@ -118,6 +119,22 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
       lookupError: error instanceof Error ? error.message : "account lookup failed",
     };
   }
+}
+
+/** Lists accounts visible to the token, so a wrong account id is easy to spot. */
+export async function listAccounts(): Promise<
+  Array<{ id: string; name?: string; region?: string; state?: string }>
+> {
+  const raw = await get<Array<{ _id?: string; id?: string; name?: string; region?: string; state?: string }>>(
+    PROVISIONING_HOST,
+    "/users/current/accounts",
+  );
+  return (Array.isArray(raw) ? raw : []).map((a) => ({
+    id: a._id ?? a.id ?? "",
+    name: a.name,
+    region: a.region,
+    state: a.state,
+  }));
 }
 
 async function activeRegion(): Promise<string> {
