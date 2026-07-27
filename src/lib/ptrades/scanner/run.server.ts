@@ -76,12 +76,8 @@ async function activeLockouts(admin: Admin): Promise<string[]> {
   return (data ?? []).map((e) => e.title);
 }
 
-function targetsFrom(entry: number, stop: number, direction: "LONG" | "SHORT"): number[] {
-  const risk = Math.abs(entry - stop);
-  const sign = direction === "LONG" ? 1 : -1;
-  return [entry + sign * risk * 2, entry + sign * risk * 3, entry + sign * risk * 4].map((v) =>
-    Number(v.toFixed(6)),
-  );
+function scanTargets(entry: number, stop: number, direction: "LONG" | "SHORT"): number[] {
+  return targetsFrom(entry, stop, direction, [2, 3, 4]).map((v) => Number(v.toFixed(6)));
 }
 
 async function fetchTimeframes(symbol: string): Promise<Record<Timeframe, Candle[]>> {
