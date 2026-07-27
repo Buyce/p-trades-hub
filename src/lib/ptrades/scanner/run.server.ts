@@ -7,7 +7,9 @@ import {
   isMetaApiConfigured,
 } from "./metaapi.server";
 
-import { closedCandlesOnly, dataAgeSeconds, lastClosed } from "./candles.server";
+import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
+import { recordScannerError } from "./errors.server";
+import { AppError } from "../errors";
 import { atr } from "./atr.server";
 import { higherTimeframeBias } from "./bias.server";
 import { checkLateEntry } from "./late-entry.server";
@@ -90,14 +92,30 @@ function scanTargets(entry: number, stop: number, direction: "LONG" | "SHORT"): 
   return targetsFrom(entry, stop, direction, [2, 3, 4]).map((v) => Number(v.toFixed(6)));
 }
 
-async function fetchTimeframes(symbol: string): Promise<Record<Timeframe, Candle[]>> {
+type FetchedCandles = {
+  candles: Record<Timeframe, Candle[]>;
+  rejects: Array<{ timeframe: Timeframe; rejects: CandleReject[] }>;
+};
+
+/**
+ * Fetches every required timeframe and pushes it through the single
+ * normaliser. Malformed candles are dropped and reported, never repaired.
+ */
+async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
+  const rejects: FetchedCandles["rejects"] = [];
   const entries = await Promise.all(
     REQUIRED.map(async (tf) => {
       const raw = await getCandles(symbol, tf, tf === "1d" ? 120 : 200);
-      return [tf, closedCandlesOnly(raw, tf)] as const;
+      const normalised = normaliseCandles(raw, tf);
+      const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
+      if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
+      return [tf, normalised.candles] as const;
     }),
   );
-  return Object.fromEntries(entries) as Record<Timeframe, Candle[]>;
+  return {
+    candles: Object.fromEntries(entries) as Record<Timeframe, Candle[]>,
+    rejects,
+  };
 }
 
 type Evaluation = {
@@ -113,6 +131,7 @@ async function evaluateInstrument(
   rulebook: Rulebook,
   macroEvents: MacroEvent[],
   actionableToday: number,
+  runId: string | null,
 ): Promise<Evaluation> {
   const gates: GateResult[] = [];
   const now = new Date();
@@ -132,8 +151,28 @@ async function evaluateInstrument(
 
   let candles: Record<Timeframe, Candle[]>;
   try {
-    candles = await fetchTimeframes(symbol);
+    const fetched = await fetchTimeframes(symbol);
+    candles = fetched.candles;
+    for (const entry of fetched.rejects) {
+      await recordScannerError(admin, {
+        runId,
+        instrument: instrument.symbol,
+        stage: "NORMALISATION",
+        error: new AppError(
+          "VALIDATION",
+          `${entry.rejects.length} malformed candle(s) dropped on ${TIMEFRAME_LABEL[entry.timeframe]}`,
+        ),
+        detail: { broker_symbol: symbol, rejects: entry.rejects.slice(0, 20) },
+      });
+    }
   } catch (error) {
+    await recordScannerError(admin, {
+      runId,
+      instrument: instrument.symbol,
+      stage: "MARKET_DATA",
+      error,
+      detail: { broker_symbol: symbol },
+    });
     gates.push(
       missingData(false, {
         error: error instanceof Error ? error.message : "fetch failed",
@@ -439,6 +478,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
         rulebook,
         macroEvents,
         actionableToday,
+        runId,
       );
       const failed = failedGates(result.gates);
       rejectionCount += failed.length;
@@ -518,6 +558,12 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
     } catch (error) {
       metaapiConnected = false;
       errorMessage = error instanceof Error ? error.message : "scan failed";
+      await recordScannerError(admin, {
+        runId,
+        instrument: instrument.symbol,
+        stage: "EVALUATION",
+        error,
+      });
       console.error(`scan failed for ${instrument.symbol}`, errorMessage);
     }
   }

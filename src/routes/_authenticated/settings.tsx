@@ -2,6 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { updateProfile } from "@/lib/ptrades/queries";
+import { userMessageOf } from "@/lib/ptrades/errors";
 import { useIsStaff, useProfile, useSessionUser } from "@/lib/ptrades/session";
 import { TIMEZONES } from "@/lib/ptrades/format";
 import { DataRow, PageHeader, SectionCard } from "@/components/ptrades/primitives";
@@ -50,17 +52,17 @@ function Settings() {
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!user) throw new Error("Not signed in");
-      const { error } = await supabase
-        .from("profiles")
-        .upsert({ id: user.id, display_name: displayName.trim() || null, timezone });
-      if (error) throw new Error(error.message);
+      await updateProfile({
+        userId: user?.id,
+        displayName: displayName.trim() || null,
+        timezone,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["profile"] });
       toast.success("Preferences saved");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
   });
 
   async function signOut() {

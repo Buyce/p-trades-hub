@@ -2,8 +2,8 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { ArrowLeft } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { myDecisionsQuery, signalQuery } from "@/lib/ptrades/queries";
+import { myDecisionsQuery, recordDecision, signalQuery } from "@/lib/ptrades/queries";
+import { userMessageOf } from "@/lib/ptrades/errors";
 import { useSessionUser, useTimezone } from "@/lib/ptrades/session";
 import { field, formatTime, num, rr, score } from "@/lib/ptrades/format";
 import {
@@ -61,24 +61,18 @@ function SignalDetail() {
 
   const saveDecision = useMutation({
     mutationFn: async (decision: DecisionValue) => {
-      if (!user) throw new Error("Not signed in");
-      const { error } = await supabase.from("signal_decisions").upsert(
-        {
-          user_id: user.id,
-          signal_id: signalId,
-          decision,
-          note: note.trim() || existing?.note || null,
-          decided_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id,signal_id" },
-      );
-      if (error) throw new Error(error.message);
+      await recordDecision({
+        userId: user?.id,
+        signalId,
+        decision,
+        note: note.trim() || existing?.note || null,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["signal_decisions"] });
       toast.success("Decision recorded");
     },
-    onError: (error: Error) => toast.error(error.message),
+    onError: (error: unknown) => toast.error(userMessageOf(error)),
   });
 
   if (isPending) return <p className="text-sm text-muted-foreground">Loading signal…</p>;
