@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p-trades.local/contracts/candidate.schema.json",
+  "title": "SignalCandidate",
+  "description": "One evaluated setup with its gate results and score. A candidate is not an alert.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["instrument", "direction", "setup_type", "gate_results", "qualified"],
+  "properties": {
+    "instrument": { "type": "string", "minLength": 1 },
+    "broker_symbol": { "type": ["string", "null"] },
+    "timeframe": { "type": ["string", "null"] },
+    "direction": { "type": "string", "enum": ["LONG", "SHORT"] },
+    "setup_type": { "type": "string", "minLength": 1 },
+    "bias": { "type": "string", "enum": ["LONG", "SHORT", "NEUTRAL"] },
+    "entry_zone_low": { "type": ["number", "null"] },
+    "entry_zone_high": { "type": ["number", "null"] },
+    "stop_loss": { "type": ["number", "null"] },
+    "targets": { "type": "array", "items": { "type": "number" } },
+    "rr_tp1": { "type": ["number", "null"], "minimum": 0 },
+    "atr": { "type": ["number", "null"], "minimum": 0 },
+    "spread": { "type": ["number", "null"], "minimum": 0 },
+    "score": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+    "grade": { "type": ["string", "null"], "enum": ["A_PLUS", "A", "B", null] },
+    "score_components": {
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "gate_results": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/gateResult" }
+    },
+    "reasons": { "type": "array", "items": { "type": "string" } },
+    "qualified": { "type": "boolean" },
+    "fingerprint": { "type": ["string", "null"] },
+    "candle_time_utc": { "type": ["string", "null"], "format": "date-time" }
+  },
+  "$defs": {
+    "gateResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "passed", "reason"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "MISSING_DATA",
+            "STALE_DATA",
+            "SPREAD",
+            "NEWS_LOCKOUT",
+            "BIAS_CONFLICT",
+            "NO_SWEEP",
+            "NO_DISPLACEMENT",
+            "NO_RETEST",
+            "INVALID_STOP",
+            "RR_BELOW_MIN",
+            "LATE_ENTRY",
+            "DUPLICATE",
+            "DAILY_CAP",
+            "SESSION",
+            "CANDLE_SANITY",
+            "EXPIRED",
+            "NO_SETUP"
+          ]
+        },
+        "passed": { "type": "boolean" },
+        "reason": { "type": "string", "minLength": 1 },
+        "detail": { "type": "object" }
+      }
+    }
+  }
+}

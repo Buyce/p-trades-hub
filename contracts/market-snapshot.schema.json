@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p-trades.local/contracts/market-snapshot.schema.json",
+  "title": "MarketSnapshot",
+  "description": "Everything the scanner read for one instrument during one run. Read-only market data.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["instrument", "fetched_at_utc", "candles"],
+  "properties": {
+    "instrument": { "type": "string", "minLength": 1 },
+    "broker_symbol": { "type": ["string", "null"] },
+    "fetched_at_utc": { "type": "string", "format": "date-time" },
+    "bid": { "type": ["number", "null"] },
+    "ask": { "type": ["number", "null"] },
+    "spread": { "type": ["number", "null"], "minimum": 0 },
+    "data_age_seconds": { "type": ["number", "null"], "minimum": 0 },
+    "candles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "M5": { "$ref": "#/$defs/series" },
+        "M15": { "$ref": "#/$defs/series" },
+        "1h": { "$ref": "#/$defs/series" },
+        "4h": { "$ref": "#/$defs/series" },
+        "1d": { "$ref": "#/$defs/series" }
+      }
+    }
+  },
+  "$defs": {
+    "series": {
+      "type": "array",
+      "items": { "$ref": "candle.schema.json" }
+    }
+  }
+}

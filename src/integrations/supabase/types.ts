@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_log: {
+        Row: {
+          action: string
+          actor_kind: string
+          actor_user_id: string | null
+          created_at: string
+          detail: Json
+          entity_id: string | null
+          entity_type: string | null
+          id: string
+        }
+        Insert: {
+          action: string
+          actor_kind?: string
+          actor_user_id?: string | null
+          created_at?: string
+          detail?: Json
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+        }
+        Update: {
+          action?: string
+          actor_kind?: string
+          actor_user_id?: string | null
+          created_at?: string
+          detail?: Json
+          entity_id?: string | null
+          entity_type?: string | null
+          id?: string
+        }
+        Relationships: []
+      }
       candles_cache: {
         Row: {
           candle_time_utc: string
@@ -265,6 +298,42 @@ export type Database = {
           rules?: Json
           summary?: string | null
           version?: string
+        }
+        Relationships: []
+      }
+      scanner_errors: {
+        Row: {
+          created_at: string
+          detail: Json
+          error_code: string
+          id: string
+          instrument: string | null
+          message: string
+          occurred_at: string
+          scanner_run_id: string | null
+          stage: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: Json
+          error_code: string
+          id?: string
+          instrument?: string | null
+          message: string
+          occurred_at?: string
+          scanner_run_id?: string | null
+          stage: string
+        }
+        Update: {
+          created_at?: string
+          detail?: Json
+          error_code?: string
+          id?: string
+          instrument?: string | null
+          message?: string
+          occurred_at?: string
+          scanner_run_id?: string | null
+          stage?: string
         }
         Relationships: []
       }
@@ -722,18 +791,31 @@ export type Database = {
       }
       trades: {
         Row: {
+          actual_entry: number | null
+          actual_stop: number | null
           closed_at: string | null
           created_at: string
           direction: string
           entry_price: number | null
           exit_price: number | null
+          followed_plan: boolean | null
+          grade: Database["public"]["Enums"]["signal_grade"] | null
           id: string
           instrument: string
+          mae_r: number | null
+          mfe_r: number | null
+          mistake_tags: string[]
           notes: string | null
           opened_at: string
           outcome: string | null
+          partial_exits: Json
+          planned_entry: number | null
+          planned_stop: number | null
           r_multiple: number | null
+          result_cash: number | null
           risk_amount: number | null
+          session: string | null
+          setup_type: string | null
           signal_id: string | null
           status: string
           stop_price: number | null
@@ -741,18 +823,31 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          actual_entry?: number | null
+          actual_stop?: number | null
           closed_at?: string | null
           created_at?: string
           direction: string
           entry_price?: number | null
           exit_price?: number | null
+          followed_plan?: boolean | null
+          grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument: string
+          mae_r?: number | null
+          mfe_r?: number | null
+          mistake_tags?: string[]
           notes?: string | null
           opened_at?: string
           outcome?: string | null
+          partial_exits?: Json
+          planned_entry?: number | null
+          planned_stop?: number | null
           r_multiple?: number | null
+          result_cash?: number | null
           risk_amount?: number | null
+          session?: string | null
+          setup_type?: string | null
           signal_id?: string | null
           status?: string
           stop_price?: number | null
@@ -760,18 +855,31 @@ export type Database = {
           user_id: string
         }
         Update: {
+          actual_entry?: number | null
+          actual_stop?: number | null
           closed_at?: string | null
           created_at?: string
           direction?: string
           entry_price?: number | null
           exit_price?: number | null
+          followed_plan?: boolean | null
+          grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument?: string
+          mae_r?: number | null
+          mfe_r?: number | null
+          mistake_tags?: string[]
           notes?: string | null
           opened_at?: string
           outcome?: string | null
+          partial_exits?: Json
+          planned_entry?: number | null
+          planned_stop?: number | null
           r_multiple?: number | null
+          result_cash?: number | null
           risk_amount?: number | null
+          session?: string | null
+          setup_type?: string | null
           signal_id?: string | null
           status?: string
           stop_price?: number | null
@@ -829,6 +937,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_admin: { Args: never; Returns: boolean }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
       release_scanner_lock: { Args: { _key: string }; Returns: undefined }
     }

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p-trades.local/contracts/scanner-result.schema.json",
+  "title": "ScannerResult",
+  "description": "Summary of one scan run. Written by the scheduled run, read by the health surface.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ok", "started_at_utc", "symbols_scanned", "candidates", "alerts", "shadow_mode"],
+  "properties": {
+    "ok": { "type": "boolean" },
+    "run_id": { "type": ["string", "null"] },
+    "started_at_utc": { "type": "string", "format": "date-time" },
+    "finished_at_utc": { "type": ["string", "null"], "format": "date-time" },
+    "status": { "type": "string", "enum": ["RUNNING", "OK", "PARTIAL", "ERROR", "SKIPPED"] },
+    "symbols_scanned": { "type": "array", "items": { "type": "string" } },
+    "candidates": { "type": "integer", "minimum": 0 },
+    "rejections": { "type": "integer", "minimum": 0 },
+    "alerts": { "type": "integer", "minimum": 0 },
+    "shadow_mode": { "type": "boolean" },
+    "rulebook_version": { "type": ["string", "null"] },
+    "error": { "type": ["string", "null"] }
+  }
+}
