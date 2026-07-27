@@ -178,8 +178,7 @@ export async function getCandles(
   timeframe: Timeframe,
   limit = 200,
 ): Promise<Candle[]> {
-  const { accountId } = env();
-  const region = await activeRegion();
+  const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/historical-market-data/symbols/${encodeURIComponent(
     symbol,
   )}/timeframes/${timeframe}/candles`;
@@ -202,15 +201,13 @@ export type SymbolSpec = {
 };
 
 export async function getSymbolSpec(symbol: string): Promise<SymbolSpec> {
-  const { accountId } = env();
-  const region = await activeRegion();
+  const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/symbols/${encodeURIComponent(symbol)}/specification`;
   return get<SymbolSpec>(clientHost(region), path);
 }
 
 export async function getCurrentSpread(symbol: string): Promise<number | null> {
-  const { accountId } = env();
-  const region = await activeRegion();
+  const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/symbols/${encodeURIComponent(symbol)}/current-price`;
   const price = await get<{ bid?: number; ask?: number }>(clientHost(region), path, {
     keepSubscription: "false",
@@ -221,8 +218,7 @@ export async function getCurrentSpread(symbol: string): Promise<number | null> {
 
 /** Symbol discovery, used to resolve the NAS100 broker symbol. Read-only. */
 export async function listSymbols(): Promise<string[]> {
-  const { accountId } = env();
-  const region = await activeRegion();
+  const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/symbols`;
   const symbols = await get<string[]>(clientHost(region), path);
   return Array.isArray(symbols) ? symbols : [];
