@@ -8,6 +8,7 @@ import {
   Activity,
   BookOpen,
   Settings as SettingsIcon,
+  UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useIsStaff } from "@/lib/ptrades/session";
@@ -18,6 +19,7 @@ const NAV = [
   { to: "/journal", label: "Journal", icon: NotebookPen, staff: false },
   { to: "/performance", label: "Performance", icon: BarChart3, staff: false },
   { to: "/scanner-health", label: "Scanner", icon: Activity, staff: true },
+  { to: "/admin-invites", label: "Invites", icon: UserPlus, staff: true },
   { to: "/rulebook", label: "Rulebook", icon: BookOpen, staff: false },
   { to: "/settings", label: "Settings", icon: SettingsIcon, staff: false },
 ] as const;
