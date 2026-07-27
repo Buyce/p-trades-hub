@@ -74,7 +74,7 @@ export type Rulebook = {
 };
 
 export const DEFAULT_RULEBOOK: Rulebook = {
-  version: "v1.0.0-shadow",
+  version: "v1.1.0-shadow",
   closed_candles_only: true,
   min_rr_tp1: 2.0,
   max_daily_actionable: 2,
