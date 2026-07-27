@@ -1,0 +1,1 @@
+REVOKE INSERT ON public.notifications FROM authenticated;
