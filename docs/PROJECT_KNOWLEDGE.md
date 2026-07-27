@@ -96,6 +96,14 @@ Journal, trade-management and analytics requirements: see
 Shadow mode is ON. Signals persist with `is_actionable` false and notifications
 are suppressed. The scanner runs every minute against live MetaApi data.
 
+Build programme: the 11-phase roadmap (prompts 5–15) is recorded in
+`.lovable/plan.md`. **Phase 5 is complete** — see `docs/PHASE5_REPORT.md`.
+Shared contracts live in `contracts/` and are the single source of truth for
+both the live TypeScript scanner and the offline Python reference engine in
+`handoff/python-reference/`. Scanner data is now read-only to the browser at
+the privilege layer as well as through RLS.
+
+
 ## 8. Open conformance backlog
 
 Recorded, not yet implemented:
