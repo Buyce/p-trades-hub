@@ -1,38 +1,47 @@
-## What the JSON tells us
+## Goal
 
-The value currently stored in `METAAPI_ACCOUNT_ID` (`067203c067c11bc7d5a60157395637f2`) is the `userId` field from that payload — your MetaApi *user* ID, not the trading account ID. That's why the account lookup returns 404 and the scanner has been falling back to the single deployed account it finds under your token.
+Record the Master Handoff as the governing product and trading document, with the MetaApi + Lovable Cloud architecture overriding its local-backend sections. No application code, database schema or scanner behaviour changes in this step. Shadow mode stays on and alerts stay suppressed.
 
-The account this JSON describes is the same one the fallback already found:
+## Authority order to be written down
 
-- Account ID: `f6a72106-7709-4835-8022-75cad470a505`
-- Region: `london`
-- Name: `boatengampomah@gmail.com`
-- Login `5053558014` on `MetaQuotes-Demo`, `cloud-g2`, state `DEPLOYED`, connection `CONNECTED`
+1. MetaApi + Lovable Cloud migration plan (architecture)
+2. Master Handoff non-negotiable trading and security rules
+3. Phased build prompts
+4. Current code function map (reference only)
 
-So the scanner is already reading the correct account — it's just doing it via the fallback path instead of the configured one.
+## Superseded, recorded as never-to-implement
 
-## Plan
+Local Windows Python scanner as production backend; FastAPI as production API; Cloudflare Tunnel; `P_TRADES_API_BASE_URL`; `P_TRADES_API_TOKEN`; local SQLite as the cloud database; external Python-to-Lovable ingestion.
 
-1. **Correct the secrets**
-   - Set `METAAPI_ACCOUNT_ID` to `f6a72106-7709-4835-8022-75cad470a505`.
-   - Confirm `METAAPI_REGION` is `london`.
-   - `METAAPI_TOKEN` stays unchanged.
+Current architecture of record:
 
-2. **Tighten account resolution** in `src/lib/ptrades/scanner/metaapi.server.ts`
-   - Keep the provisioning lookup that resolves the live region from the account itself.
-   - Keep the single-deployed-account fallback as a safety net, but surface it loudly: when it fires, the heartbeat detail records `accountIdMismatch: true` plus the resolved ID, so a wrong secret is visible on the Scanner Health screen rather than silently absorbed.
-   - Add a guard that rejects an account ID that isn't a UUID with a clear message ("this looks like a MetaApi user ID, not a trading account ID"), so this specific mix-up can't recur unnoticed.
+```text
+MT5 account -> MetaApi Cloud (read-only) -> scan-markets server route (pg_cron, 1/min)
+  -> Postgres (candidates, rejections, signals, runs, heartbeats) -> P-Trades Dashboard
+```
 
-3. **Record account context in heartbeats**
-   - Store non-sensitive account metadata (`login`, `server`, `region`, `state`, `connectionStatus`, `reliability`) in the `system_heartbeats.detail` payload each run. No token, no password, no balance.
+## Files to be written
 
-4. **Surface it on Scanner Health**
-   - Show broker server, login, region and connection status alongside the existing run stats, plus a warning row if the configured account ID doesn't match the resolved one.
+- `mem://index.md` — Core rules: read-only assistant, never place trades, no client-side signal calculation, no B-grade as actionable, 0–2 actionable alerts per UTC day, min 2.0R at TP1, shadow mode on, dark institutional style, no casino visuals.
+- `mem://architecture/cloud-scanner` — the flow above, the superseded list, secret names in use (`METAAPI_TOKEN`, `METAAPI_ACCOUNT_ID`, `METAAPI_REGION`, `P_TRADES_INGEST_SECRET`), and the read-only GET-only allowlist rule.
+- `mem://trading/rulebook` — instruments and timeframe model, candle rule, setup families (implemented vs planned), the 14 hard rejection gates, score weights, grade bands, fail-closed principle.
+- `mem://trading/journal-performance` — required candidate/decision/trade fields and the full analytics list, marked as target state.
+- `mem://constraints/never-do` — the "Lovable must never" list from section 24.
+- `docs/PROJECT_KNOWLEDGE.md` — human-readable consolidation of the above, with an explicit "superseded sections" table so the original handoff can still be read safely.
+- Security memory updated to state: read-only market assistant, no trade endpoint may ever exist, MetaApi credentials are server-only, MT5 access is investor/read-only.
 
-5. **Verify**
-   - Hit the diagnostic endpoint and confirm `lookupError` is null and `resolvedFromToken` is false.
-   - Run one scan and confirm candidates are still produced from live candles with no rejections of type `MISSING_DATA`.
+## Known conformance gaps to be recorded (not fixed in this step)
 
-## Unchanged boundaries
+Written into the knowledge doc as an open backlog so the next build has a checklist:
 
-Still read-only throughout: the GET-only path allowlist stays, no order/position/trade endpoint is added, shadow mode remains on and alerts remain suppressed.
+- Grade bands in code (`A+ 90 / A 80 / B 70`) differ from the handoff (`A+ 95–100 / A 90–94.99 / B 80–89.99`).
+- Session filter gate is not implemented; the other 13 gates are.
+- Setup families 7.3 and 7.4 (GBPAUD models) are not implemented.
+- No `/signals` list route yet, though navigation calls for a Signals tab.
+- Watchlist lacks bid/ask, spread, regime, news-lockout and freshness fields.
+- Trades table lacks planned-vs-actual, partials, stop modifications, MAE/MFE, followed-plan and mistake tags; performance analytics cover a subset of the required list.
+- Macro/news provider and notification delivery are not yet wired.
+
+## Verification
+
+Read back each written file, confirm the superseded list contains no live references in code (`grep` for `P_TRADES_API`, `fastapi`, `cloudflare`), and confirm no schema or scanner file was touched.
