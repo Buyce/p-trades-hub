@@ -80,18 +80,38 @@ function clientHost(region: string) {
 }
 
 export type AccountInfo = {
+  accountId: string;
   region: string;
   state?: string;
   connectionStatus?: string;
   name?: string;
   lookupError?: string;
+  resolvedFromToken?: boolean;
 };
 
 let cachedAccount: { at: number; info: AccountInfo } | null = null;
 
+/** Lists accounts visible to the token, so a wrong account id is easy to spot. */
+export async function listAccounts(): Promise<
+  Array<{ id: string; name?: string; region?: string; state?: string }>
+> {
+  const raw = await get<
+    Array<{ _id?: string; id?: string; name?: string; region?: string; state?: string }>
+  >(PROVISIONING_HOST, "/users/current/accounts");
+  return (Array.isArray(raw) ? raw : []).map((a) => ({
+    id: a._id ?? a.id ?? "",
+    name: a.name,
+    region: a.region,
+    state: a.state,
+  }));
+}
+
 /**
- * Resolves the account's real region from the provisioning API, so a mismatched
- * METAAPI_REGION cannot silently break every request. Read-only metadata only.
+ * Resolves the account's real id and region from the provisioning API, so a
+ * mismatched METAAPI_REGION or account id cannot silently break every request.
+ * If the configured id is not found and the token exposes exactly one deployed
+ * account, that account is used and the substitution is reported. Read-only
+ * metadata only — no credentials are read or returned.
  */
 export async function getAccountInfo(force = false): Promise<AccountInfo> {
   const { accountId, region } = env();
@@ -106,6 +126,7 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
       name?: string;
     }>(PROVISIONING_HOST, `/users/current/accounts/${accountId}`);
     const info: AccountInfo = {
+      accountId,
       region: raw.region || region,
       state: raw.state,
       connectionStatus: raw.connectionStatus,
@@ -114,32 +135,31 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
     cachedAccount = { at: Date.now(), info };
     return info;
   } catch (error) {
-    return {
-      region,
-      lookupError: error instanceof Error ? error.message : "account lookup failed",
-    };
+    const lookupError = error instanceof Error ? error.message : "account lookup failed";
+    const deployed = await listAccounts()
+      .then((accounts) => accounts.filter((a) => a.id && a.state === "DEPLOYED"))
+      .catch(() => []);
+    if (deployed.length === 1) {
+      const info: AccountInfo = {
+        accountId: deployed[0].id,
+        region: deployed[0].region || region,
+        state: deployed[0].state,
+        name: deployed[0].name,
+        lookupError,
+        resolvedFromToken: true,
+      };
+      cachedAccount = { at: Date.now(), info };
+      return info;
+    }
+    return { accountId, region, lookupError };
   }
 }
 
-/** Lists accounts visible to the token, so a wrong account id is easy to spot. */
-export async function listAccounts(): Promise<
-  Array<{ id: string; name?: string; region?: string; state?: string }>
-> {
-  const raw = await get<Array<{ _id?: string; id?: string; name?: string; region?: string; state?: string }>>(
-    PROVISIONING_HOST,
-    "/users/current/accounts",
-  );
-  return (Array.isArray(raw) ? raw : []).map((a) => ({
-    id: a._id ?? a.id ?? "",
-    name: a.name,
-    region: a.region,
-    state: a.state,
-  }));
+async function account(): Promise<{ accountId: string; region: string }> {
+  const info = await getAccountInfo();
+  return { accountId: info.accountId, region: info.region };
 }
 
-async function activeRegion(): Promise<string> {
-  return (await getAccountInfo()).region;
-}
 
 
 type RawCandle = {
