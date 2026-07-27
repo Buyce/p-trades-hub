@@ -12,10 +12,13 @@ export const Route = createFileRoute("/auth")({
       { title: "Sign in — P-Trades" },
       {
         name: "description",
-        content: "Invite-only access to the P-Trades discretionary trading cockpit.",
+        content: "Sign in or create an account for the P-Trades discretionary trading cockpit.",
       },
       { property: "og:title", content: "Sign in — P-Trades" },
-      { property: "og:description", content: "Invite-only access to the P-Trades cockpit." },
+      {
+        property: "og:description",
+        content: "Sign in or create an account for the P-Trades cockpit.",
+      },
     ],
   }),
   component: AuthPage,
@@ -23,6 +26,7 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
+  const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
@@ -33,9 +37,30 @@ function AuthPage() {
     });
   }, [navigate]);
 
-  async function signIn(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setPending(true);
+
+    if (mode === "signup") {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: { emailRedirectTo: window.location.origin },
+      });
+      setPending(false);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      if (data.session) {
+        navigate({ to: "/dashboard", replace: true });
+        return;
+      }
+      toast.success("Check your email to confirm your account.");
+      setMode("signin");
+      return;
+    }
+
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     setPending(false);
     if (error) {
@@ -45,16 +70,20 @@ function AuthPage() {
     navigate({ to: "/dashboard", replace: true });
   }
 
+  const isSignup = mode === "signup";
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
       <div className="w-full max-w-sm">
         <p className="num text-xs uppercase tracking-[0.2em] text-muted-foreground">P-Trades</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Trading cockpit</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          Access is invite-only. Sign in with the credentials issued to you.
+          {isSignup
+            ? "Create an account to access the read-only trading cockpit."
+            : "Sign in to your P-Trades account."}
         </p>
 
-        <form onSubmit={signIn} className="mt-8 space-y-4">
+        <form onSubmit={submit} className="mt-8 space-y-4">
           <div className="space-y-1.5">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -72,17 +101,32 @@ function AuthPage() {
             <Input
               id="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete={isSignup ? "new-password" : "current-password"}
               required
+              minLength={isSignup ? 8 : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="h-12"
             />
           </div>
           <Button type="submit" className="h-12 w-full" disabled={pending}>
-            {pending ? "Signing in…" : "Sign in"}
+            {pending
+              ? isSignup
+                ? "Creating account…"
+                : "Signing in…"
+              : isSignup
+                ? "Create account"
+                : "Sign in"}
           </Button>
         </form>
+
+        <button
+          type="button"
+          onClick={() => setMode(isSignup ? "signin" : "signup")}
+          className="mt-5 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          {isSignup ? "Already have an account? Sign in" : "No account? Create one"}
+        </button>
 
         <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
           P-Trades is read-only. It never places orders and never modifies your MT5 account.
@@ -91,3 +135,4 @@ function AuthPage() {
     </main>
   );
 }
+
