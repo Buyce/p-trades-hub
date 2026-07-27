@@ -27,6 +27,7 @@ const APP_FILES = [...ROUTE_FILES, ...walk("src/lib/ptrades")].filter(
 /** Auth session handling is the one legitimate direct use of the client. */
 const AUTH_ALLOWED = [
   "src/routes/auth.tsx",
+  "src/routes/reset-password.tsx",
   "src/routes/_authenticated/route.tsx",
   "src/routes/_authenticated/settings.tsx",
   "src/lib/ptrades/session.ts",
