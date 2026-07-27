@@ -45,22 +45,3 @@ export async function notifyQualifiedSignal(
   }
   return { sent: profiles.length, suppressed: false };
 }
-
-export async function heartbeat(
-  admin: Admin,
-  payload: {
-    status: string;
-    metaapiConnected: boolean | null;
-    rulebookVersion: string | null;
-    detail: Record<string, unknown>;
-  },
-) {
-  const { error } = await admin.from("system_heartbeats").insert({
-    source: "cloud-scanner",
-    status: payload.status,
-    mt5_connected: payload.metaapiConnected,
-    rulebook_version: payload.rulebookVersion,
-    detail: payload.detail as never,
-  });
-  if (error) console.error("heartbeat insert failed", error.message);
-}
