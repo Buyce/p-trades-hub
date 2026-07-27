@@ -30,6 +30,27 @@ function AuthPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
+  const [resending, setResending] = useState(false);
+
+  async function resendConfirmation() {
+    if (!email) {
+      toast.error("Enter your email address first.");
+      return;
+    }
+    setResending(true);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: window.location.origin },
+    });
+    setResending(false);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success("If that account is still unconfirmed, a new link is on its way.");
+  }
+
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -154,6 +175,18 @@ function AuthPage() {
           </button>
         )}
 
+        {!isForgot && (
+
+          <button
+            type="button"
+            onClick={resendConfirmation}
+            disabled={resending}
+            className="mt-3 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-60"
+          >
+            {resending ? "Sending confirmation email…" : "Didn't get the confirmation email? Resend"}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={() => setMode(isSignup || isForgot ? "signin" : "signup")}
@@ -161,6 +194,7 @@ function AuthPage() {
         >
           {isSignup || isForgot ? "Back to sign in" : "No account? Create one"}
         </button>
+
 
 
         <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
