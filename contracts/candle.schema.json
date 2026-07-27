@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p-trades.local/contracts/candle.schema.json",
+  "title": "Candle",
+  "description": "One closed OHLC candle. The forming candle is never represented here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["time", "open", "high", "low", "close"],
+  "properties": {
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Candle open time, UTC ISO-8601."
+    },
+    "open": { "type": "number" },
+    "high": { "type": "number" },
+    "low": { "type": "number" },
+    "close": { "type": "number" },
+    "volume": { "type": ["number", "null"] }
+  }
+}
