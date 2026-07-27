@@ -10,18 +10,27 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const expected = process.env.P_TRADES_INGEST_SECRET;
-        const provided =
+        // Accepted callers: the scheduled job (publishable apikey header) or an
+        // operator holding the ingest secret. Never a browser with a user session.
+        const publishable = process.env.SUPABASE_PUBLISHABLE_KEY;
+        const ingestSecret = process.env.P_TRADES_INGEST_SECRET;
+        const apiKey = request.headers.get("apikey") ?? "";
+        const bearer =
           request.headers.get("x-scanner-secret") ??
           request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
           "";
 
-        if (!expected || provided !== expected) {
+        const authorized =
+          (Boolean(publishable) && apiKey === publishable) ||
+          (Boolean(ingestSecret) && bearer === ingestSecret);
+
+        if (!authorized) {
           return new Response(JSON.stringify({ error: "Unauthorized" }), {
             status: 401,
             headers: { "Content-Type": "application/json" },
           });
         }
+
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { runScan } = await import("@/lib/ptrades/scanner/run.server");
