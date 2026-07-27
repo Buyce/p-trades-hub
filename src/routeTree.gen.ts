@@ -21,6 +21,7 @@ import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_authenticated/signals.$signalId'
 import { Route as ApiPublicIngestSignalRouteImport } from './routes/api/public/ingest/signal'
+import { Route as ApiPublicIngestHeartbeatRouteImport } from './routes/api/public/ingest/heartbeat'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -84,6 +85,12 @@ const ApiPublicIngestSignalRoute = ApiPublicIngestSignalRouteImport.update({
   path: '/api/public/ingest/signal',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicIngestHeartbeatRoute =
+  ApiPublicIngestHeartbeatRouteImport.update({
+    id: '/api/public/ingest/heartbeat',
+    path: '/api/public/ingest/heartbeat',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,6 +103,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
   '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRoutesByTo {
@@ -109,6 +117,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
   '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRoutesById {
@@ -124,6 +133,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
   '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRouteTypes {
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/ingest/heartbeat'
     | '/api/public/ingest/signal'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -152,6 +163,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/ingest/heartbeat'
     | '/api/public/ingest/signal'
   id:
     | '__root__'
@@ -166,6 +178,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
+    | '/api/public/ingest/heartbeat'
     | '/api/public/ingest/signal'
   fileRoutesById: FileRoutesById
 }
@@ -173,6 +186,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicIngestHeartbeatRoute: typeof ApiPublicIngestHeartbeatRoute
   ApiPublicIngestSignalRoute: typeof ApiPublicIngestSignalRoute
 }
 
@@ -262,6 +276,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicIngestSignalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/ingest/heartbeat': {
+      id: '/api/public/ingest/heartbeat'
+      path: '/api/public/ingest/heartbeat'
+      fullPath: '/api/public/ingest/heartbeat'
+      preLoaderRoute: typeof ApiPublicIngestHeartbeatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -294,6 +315,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicIngestHeartbeatRoute: ApiPublicIngestHeartbeatRoute,
   ApiPublicIngestSignalRoute: ApiPublicIngestSignalRoute,
 }
 export const routeTree = rootRouteImport
