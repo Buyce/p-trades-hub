@@ -83,6 +83,7 @@ export type AccountInfo = {
   state?: string;
   connectionStatus?: string;
   name?: string;
+  lookupError?: string;
 };
 
 let cachedAccount: { at: number; info: AccountInfo } | null = null;
@@ -111,8 +112,11 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
     };
     cachedAccount = { at: Date.now(), info };
     return info;
-  } catch {
-    return { region };
+  } catch (error) {
+    return {
+      region,
+      lookupError: error instanceof Error ? error.message : "account lookup failed",
+    };
   }
 }
 
