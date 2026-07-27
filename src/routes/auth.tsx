@@ -168,6 +168,17 @@ function AuthPage() {
         {!isForgot && (
           <button
             type="button"
+            onClick={() => setMode("forgot")}
+            className="mt-5 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Forgot your password?
+          </button>
+        )}
+
+        {!isForgot && (
+
+          <button
+            type="button"
             onClick={resendConfirmation}
             disabled={resending}
             className="mt-3 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-60"
