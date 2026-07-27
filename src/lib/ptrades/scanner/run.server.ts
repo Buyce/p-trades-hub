@@ -10,32 +10,39 @@ import {
 import { closedCandlesOnly, dataAgeSeconds, lastClosed } from "./candles.server";
 import { atr } from "./atr.server";
 import { higherTimeframeBias } from "./bias.server";
-import { detectSweep } from "./sweep.server";
-import { detectDisplacement } from "./displacement.server";
-import { detectRetest } from "./retest.server";
 import { checkLateEntry } from "./late-entry.server";
 import { fingerprint } from "./fingerprint.server";
 import { scoreCandidate } from "./scoring.server";
 import { rewardToRisk, targetsFrom } from "./risk.server";
+import { detectSetup } from "./setups.server";
+import { checkCandleSanity } from "./sanity.server";
+import { sessionAt } from "./sessions.server";
+import { currenciesFor, macroContextFor, type MacroEvent } from "./macro.server";
+import { resolveSymbol, roundToDigits, type InstrumentRow } from "./symbols.server";
+import { acquireScanLock, releaseScanLock } from "./lock.server";
 import {
   biasConflict,
+  candleSanity,
   dailyCap,
   duplicate,
+  expiry,
   failedGates,
   invalidStop,
   lateEntry,
   missingData,
   newsLockout,
+  noSetup,
   rrGate,
+  sessionGate,
   spreadGate,
   staleData,
 } from "./gates.server";
 import {
   actionableCountToday,
   cacheCandle,
+  claimActionableSlot,
   fingerprintExistsToday,
   finishRun,
-  incrementActionableCount,
   promoteToSignal,
   saveCandidate,
   saveRejections,
@@ -67,14 +74,16 @@ function parseRulebook(row: { version: string; rules: unknown } | null): Ruleboo
   return { ...DEFAULT_RULEBOOK, ...rules, version: row.version };
 }
 
-async function activeLockouts(admin: Admin): Promise<string[]> {
-  const nowIso = new Date().toISOString();
+async function loadMacroEvents(admin: Admin): Promise<MacroEvent[]> {
+  const now = Date.now();
+  const from = new Date(now - 6 * 3600_000).toISOString();
+  const to = new Date(now + 6 * 3600_000).toISOString();
   const { data } = await admin
     .from("macro_events")
-    .select("title, lockout_start_utc, lockout_end_utc")
-    .lte("lockout_start_utc", nowIso)
-    .gte("lockout_end_utc", nowIso);
-  return (data ?? []).map((e) => e.title);
+    .select("title, currency, impact, event_time_utc, lockout_start_utc, lockout_end_utc, symbols")
+    .gte("event_time_utc", from)
+    .lte("event_time_utc", to);
+  return (data ?? []) as MacroEvent[];
 }
 
 function scanTargets(entry: number, stop: number, direction: "LONG" | "SHORT"): number[] {
@@ -91,99 +100,144 @@ async function fetchTimeframes(symbol: string): Promise<Record<Timeframe, Candle
   return Object.fromEntries(entries) as Record<Timeframe, Candle[]>;
 }
 
+type Evaluation = {
+  candidate: Candidate | null;
+  gates: GateResult[];
+  macroContext: Record<string, unknown>;
+};
+
 /** Evaluates a single instrument and returns its candidate plus every gate result. */
 async function evaluateInstrument(
   admin: Admin,
-  instrument: {
-    symbol: string;
-    broker_symbol: string | null;
-    min_rr: number;
-    max_spread: number | null;
-  },
+  instrument: InstrumentRow,
   rulebook: Rulebook,
-  lockouts: string[],
+  macroEvents: MacroEvent[],
   actionableToday: number,
-): Promise<{ candidate: Candidate; gates: GateResult[] } | { gates: GateResult[]; candidate: null }> {
-  const symbol = instrument.broker_symbol ?? instrument.symbol;
+): Promise<Evaluation> {
   const gates: GateResult[] = [];
+  const now = new Date();
+
+  // Session gate first: outside its allowed sessions an instrument is not
+  // scanned for entries at all.
+  const session = sessionAt(now);
+  const allowedSessions =
+    instrument.sessions && instrument.sessions.length > 0
+      ? instrument.sessions
+      : rulebook.allowed_sessions;
+  gates.push(sessionGate(session, allowedSessions));
+
+  // Symbol mapping: canonical name -> broker symbol.
+  const resolved = await resolveSymbol(instrument);
+  const symbol = resolved.broker;
 
   let candles: Record<Timeframe, Candle[]>;
   try {
     candles = await fetchTimeframes(symbol);
   } catch (error) {
     gates.push(
-      missingData(false, { error: error instanceof Error ? error.message : "fetch failed" }),
+      missingData(false, {
+        error: error instanceof Error ? error.message : "fetch failed",
+        broker_symbol: symbol,
+      }),
     );
-    return { candidate: null, gates };
+    return { candidate: null, gates, macroContext: {} };
   }
 
   const haveAll = REQUIRED.every((tf) => candles[tf].length >= rulebook.atr_period + 2);
   gates.push(
-    missingData(
-      haveAll,
-      Object.fromEntries(REQUIRED.map((tf) => [TIMEFRAME_LABEL[tf], candles[tf].length])),
-    ),
+    missingData(haveAll, {
+      broker_symbol: symbol,
+      resolved_from: resolved.resolvedFrom,
+      ...Object.fromEntries(REQUIRED.map((tf) => [TIMEFRAME_LABEL[tf], candles[tf].length])),
+    }),
   );
-  if (!haveAll) return { candidate: null, gates };
+  if (!haveAll) return { candidate: null, gates, macroContext: {} };
 
   const entryCandles = candles[ENTRY_TF];
   const last = lastClosed(entryCandles)!;
   await cacheCandle(admin, instrument.symbol, TIMEFRAME_LABEL[ENTRY_TF], last);
 
-  gates.push(
-    staleData(dataAgeSeconds(entryCandles, ENTRY_TF), rulebook.max_data_age_seconds),
+  const sanity = checkCandleSanity(
+    entryCandles,
+    ENTRY_TF,
+    60,
+    rulebook.max_candle_gap_multiple,
   );
-  gates.push(newsLockout(lockouts.length > 0, lockouts));
+  gates.push(candleSanity(sanity.ok, sanity.problems));
+
+  const maxAge = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
+  gates.push(staleData(dataAgeSeconds(entryCandles, ENTRY_TF), maxAge));
+
+  // Macro lockout scoped to the currencies this instrument actually trades.
+  const currencies = currenciesFor(
+    instrument.symbol,
+    instrument.base_currency,
+    instrument.quote_currency,
+  );
+  const macro = macroContextFor(
+    macroEvents,
+    instrument.symbol,
+    currencies,
+    now.getTime(),
+    rulebook.macro_lookahead_minutes,
+  );
+  gates.push(newsLockout(macro.locked, macro.events.map((e) => e.title)));
 
   const atrValue = atr(entryCandles, rulebook.atr_period);
   const { bias, d1 } = higherTimeframeBias(candles["4h"], candles["1d"], rulebook.swing_lookback);
 
-  const sweep = detectSweep(entryCandles, rulebook.swing_lookback);
+  const setup = detectSetup({
+    candles: entryCandles,
+    atr: atrValue,
+    bias: bias as Bias,
+    swingLookback: rulebook.swing_lookback,
+    displacementMinAtr: rulebook.displacement_min_atr,
+  });
+  gates.push(noSetup(setup.found, setup.setupType, setup.detail));
+
+  const direction: "LONG" | "SHORT" =
+    setup.direction ?? (bias === "SHORT" ? "SHORT" : "LONG");
+
   gates.push({
     code: "NO_SWEEP",
-    passed: sweep.found,
-    reason: sweep.found
-      ? `Liquidity swept at ${sweep.level} and reclaimed.`
-      : "No liquidity sweep of a prior swing on the entry timeframe.",
-    detail: { level: sweep.level, sweptAt: sweep.sweptAt },
+    passed: setup.sweepFound || setup.setupType !== "SWEEP_DISPLACEMENT_RETEST",
+    reason: setup.sweepFound
+      ? `Liquidity swept at ${setup.level} and reclaimed.`
+      : setup.setupType === "SWEEP_DISPLACEMENT_RETEST"
+        ? "No liquidity sweep of a prior swing on the entry timeframe."
+        : `${setup.setupType} does not require a liquidity sweep.`,
+    detail: { level: setup.level, ...setup.detail },
   });
-
-  const direction: "LONG" | "SHORT" = sweep.direction ?? (bias === "SHORT" ? "SHORT" : "LONG");
-
-  const displacement = detectDisplacement(
-    entryCandles,
-    direction,
-    atrValue,
-    rulebook.displacement_min_atr,
-  );
   gates.push({
     code: "NO_DISPLACEMENT",
-    passed: displacement.found,
-    reason: displacement.found
-      ? `Displacement candle of ${displacement.bodyAtr?.toFixed(2)} ATR in the ${direction} direction.`
-      : "No displacement candle of sufficient size.",
-    detail: { bodyAtr: displacement.bodyAtr, at: displacement.at },
+    passed:
+      setup.displacementAtr !== null && setup.displacementAtr >= rulebook.displacement_min_atr,
+    reason:
+      setup.displacementAtr !== null
+        ? `Displacement candle of ${setup.displacementAtr.toFixed(2)} ATR in the ${direction} direction.`
+        : "No displacement candle of sufficient size.",
+    detail: { bodyAtr: setup.displacementAtr, minAtr: rulebook.displacement_min_atr },
   });
-
-  const retest = detectRetest(entryCandles, direction, sweep.level, atrValue);
   gates.push({
     code: "NO_RETEST",
-    passed: retest.found,
-    reason: retest.found
-      ? `Broken level ${retest.level} retested and held.`
+    passed: setup.retestFound,
+    reason: setup.retestFound
+      ? `Broken level ${setup.level} retested and held.`
       : "The broken level has not been retested and held on a closed candle.",
-    detail: { level: retest.level, at: retest.at },
+    detail: { level: setup.level, ...setup.detail },
   });
 
-  const entryLow = retest.entryLow;
-  const entryHigh = retest.entryHigh;
+  const entryLow = roundToDigits(setup.entryLow, resolved.digits);
+  const entryHigh = roundToDigits(setup.entryHigh, resolved.digits);
   const entry = entryLow !== null && entryHigh !== null ? (entryLow + entryHigh) / 2 : null;
-  const stop =
-    sweep.extreme !== null && atrValue
+  const stop = roundToDigits(
+    setup.extreme !== null && atrValue
       ? direction === "LONG"
-        ? sweep.extreme - atrValue * 0.2
-        : sweep.extreme + atrValue * 0.2
-      : null;
+        ? setup.extreme - atrValue * 0.2
+        : setup.extreme + atrValue * 0.2
+      : null,
+    resolved.digits,
+  );
 
   gates.push(biasConflict(bias as Bias, direction));
   gates.push(invalidStop(entry, stop, direction, atrValue));
@@ -198,7 +252,10 @@ async function evaluateInstrument(
     spreadGate(spread, atrValue, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null),
   );
 
-  const targets = entry !== null && stop !== null ? scanTargets(entry, stop, direction) : [];
+  const targets =
+    entry !== null && stop !== null
+      ? scanTargets(entry, stop, direction).map((t) => roundToDigits(t, resolved.digits) as number)
+      : [];
   const rr = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
   const minRr = Math.max(instrument.min_rr, rulebook.min_rr_tp1);
   gates.push(rrGate(rr, minRr));
@@ -212,10 +269,15 @@ async function evaluateInstrument(
   );
   gates.push(lateEntry(late.late, late.distanceAtr));
 
+  // Expiry: a setup confirmed too long ago is no longer tradable.
+  const triggerTime =
+    (setup.detail.retestAt as string | undefined) ?? last.time ?? null;
+  gates.push(expiry(triggerTime, rulebook.signal_expiry_minutes, now.getTime()));
+
   const print = fingerprint({
     instrument: instrument.symbol,
     direction,
-    setupType: "SWEEP_DISPLACEMENT_RETEST",
+    setupType: setup.setupType,
     timeframe: TIMEFRAME_LABEL[ENTRY_TF],
     tradingDayUtc: tradingDayUtc(),
     entry,
@@ -231,11 +293,12 @@ async function evaluateInstrument(
       rr,
       biasAligned: bias === direction,
       d1Aligned: d1 === direction,
-      displacementAtr: displacement.bodyAtr,
-      sweepFound: sweep.found,
-      retestFound: retest.found,
+      displacementAtr: setup.displacementAtr,
+      sweepFound: setup.sweepFound || setup.structureType !== null,
+      retestFound: setup.retestFound,
       spreadRatio,
       lateDistanceAtr: late.distanceAtr,
+      macroAligned: macro.aligned,
     },
     rulebook,
   );
@@ -245,10 +308,10 @@ async function evaluateInstrument(
 
   const candidate: Candidate = {
     instrument: instrument.symbol,
-    broker_symbol: instrument.broker_symbol,
+    broker_symbol: symbol,
     timeframe: TIMEFRAME_LABEL[ENTRY_TF],
     direction,
-    setup_type: "SWEEP_DISPLACEMENT_RETEST",
+    setup_type: setup.setupType,
     bias: bias as Bias,
     entry_zone_low: entryLow,
     entry_zone_high: entryHigh,
@@ -267,7 +330,17 @@ async function evaluateInstrument(
     candle_time_utc: last.time,
   };
 
-  return { candidate, gates };
+  return {
+    candidate,
+    gates,
+    macroContext: {
+      session,
+      currencies,
+      locked: macro.locked,
+      events: macro.events,
+      upcoming: macro.upcoming,
+    },
+  };
 }
 
 /** One full scan across every enabled instrument. */
@@ -279,6 +352,17 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     .maybeSingle();
   const shadowMode = settings?.shadow_mode ?? true;
 
+  const empty = (message: string, ok = true): ScanSummary => ({
+    ok,
+    shadowMode,
+    scanned: [],
+    candidates: 0,
+    qualified: 0,
+    actionable: 0,
+    rejections: 0,
+    message,
+  });
+
   if (settings && settings.scanning_enabled === false) {
     await writeHeartbeat(admin, {
       status: "IDLE",
@@ -286,16 +370,7 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
       rulebookVersion: settings.rulebook_version ?? null,
       detail: { reason: "Scanning disabled in scanner settings." },
     });
-    return {
-      ok: true,
-      shadowMode,
-      scanned: [],
-      candidates: 0,
-      qualified: 0,
-      actionable: 0,
-      rejections: 0,
-      message: "Scanning disabled",
-    };
+    return empty("Scanning disabled");
   }
 
   if (!isMetaApiConfigured()) {
@@ -305,18 +380,26 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
       rulebookVersion: settings?.rulebook_version ?? null,
       detail: { reason: "MetaApi is not configured." },
     });
-    return {
-      ok: false,
-      shadowMode,
-      scanned: [],
-      candidates: 0,
-      qualified: 0,
-      actionable: 0,
-      rejections: 0,
-      message: "MetaApi is not configured",
-    };
+    return { ...empty("MetaApi is not configured"), ok: false };
   }
 
+  // Overlap protection: a slow run must never race the next scheduled tick.
+  const locked = await acquireScanLock(admin, {
+    ttlSeconds: 180,
+    holder: new Date().toISOString(),
+  });
+  if (!locked) {
+    return empty("A scan is already running");
+  }
+
+  try {
+    return await runScanLocked(admin, shadowMode);
+  } finally {
+    await releaseScanLock(admin);
+  }
+}
+
+async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSummary> {
   const { data: rulebookRow } = await admin
     .from("rulebook_versions")
     .select("version, rules")
@@ -328,13 +411,16 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
 
   const { data: instruments } = await admin
     .from("instruments")
-    .select("symbol, broker_symbol, min_rr, max_spread")
+    .select(
+      "symbol, broker_symbol, aliases, digits, point_size, contract_size, base_currency, quote_currency, sessions, min_rr, max_spread, max_data_age_seconds",
+    )
     .eq("enabled", true)
     .order("sort_order");
 
-  const symbols = (instruments ?? []).map((i) => i.symbol);
+  const rows = (instruments ?? []) as InstrumentRow[];
+  const symbols = rows.map((i) => i.symbol);
   const runId = await startRun(admin, symbols, rulebook.version);
-  const lockouts = await activeLockouts(admin);
+  const macroEvents = await loadMacroEvents(admin);
 
   let candidates = 0;
   let qualifiedCount = 0;
@@ -344,14 +430,14 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   let metaapiConnected = true;
   let errorMessage: string | null = null;
 
-  for (const instrument of instruments ?? []) {
-    let actionableToday = await actionableCountToday(admin);
+  for (const instrument of rows) {
+    const actionableToday = await actionableCountToday(admin);
     try {
       const result = await evaluateInstrument(
         admin,
         instrument,
         rulebook,
-        lockouts,
+        macroEvents,
         actionableToday,
       );
       const failed = failedGates(result.gates);
@@ -386,16 +472,39 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
       if (!result.candidate.qualified) continue;
       qualifiedCount += 1;
 
+      // Shadow mode never issues an actionable alert and never consumes a slot.
+      if (shadowMode) {
+        await promoteToSignal(admin, result.candidate, {
+          candidateId,
+          runId,
+          rulebookVersion: rulebook.version,
+          shadowMode,
+          macroContext: result.macroContext,
+        });
+        continue;
+      }
+
+      // Live mode: claim a slot atomically BEFORE promoting, so concurrent work
+      // can never exceed the daily cap.
+      const claimed = await claimActionableSlot(admin, rulebook.max_daily_actionable);
+      if (!claimed) {
+        runRejections.push({
+          instrument: instrument.symbol,
+          gate: "DAILY_CAP",
+          reason: "Daily actionable cap already claimed.",
+        });
+        continue;
+      }
+
       const signalId = await promoteToSignal(admin, result.candidate, {
         candidateId,
         runId,
         rulebookVersion: rulebook.version,
         shadowMode,
+        macroContext: result.macroContext,
       });
 
-      if (signalId && !shadowMode) {
-        await incrementActionableCount(admin, rulebook.max_daily_actionable);
-        actionableToday += 1;
+      if (signalId) {
         actionable += 1;
         await notifyQualifiedSignal(admin, {
           shadowMode,
@@ -430,11 +539,12 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     rulebookVersion: rulebook.version,
     detail: {
       shadow_mode: shadowMode,
+      session: sessionAt(new Date()),
       instruments: symbols,
       candidates,
       qualified: qualifiedCount,
       rejections: rejectionCount,
-      lockouts,
+      macro_events: macroEvents.length,
       account: accountInfo
         ? {
             login: accountInfo.login ?? null,
@@ -448,7 +558,6 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
         : null,
     },
   });
-
 
   return {
     ok: true,
