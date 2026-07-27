@@ -28,10 +28,6 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
 
         try {
           const summary = await runScan(supabaseAdmin);
-          await supabaseAdmin
-            .from("scanner_settings")
-            .update({ last_scan_at: new Date().toISOString() })
-            .eq("id", true);
           return Response.json(summary, { status: summary.ok ? 200 : 503 });
         } catch (error) {
           const message = error instanceof Error ? error.message : "scan failed";

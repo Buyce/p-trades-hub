@@ -22,6 +22,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_authenticated/signals.$signalId'
 import { Route as ApiPublicIngestSignalRouteImport } from './routes/api/public/ingest/signal'
 import { Route as ApiPublicIngestHeartbeatRouteImport } from './routes/api/public/ingest/heartbeat'
+import { Route as ApiPublicHooksScanMarketsRouteImport } from './routes/api/public/hooks/scan-markets'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -91,6 +92,12 @@ const ApiPublicIngestHeartbeatRoute =
     path: '/api/public/ingest/heartbeat',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksScanMarketsRoute =
+  ApiPublicHooksScanMarketsRouteImport.update({
+    id: '/api/public/hooks/scan-markets',
+    path: '/api/public/hooks/scan-markets',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -103,6 +110,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
   '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
@@ -117,6 +125,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
   '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
@@ -133,6 +142,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
   '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
@@ -149,6 +159,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/hooks/scan-markets'
     | '/api/public/ingest/heartbeat'
     | '/api/public/ingest/signal'
   fileRoutesByTo: FileRoutesByTo
@@ -163,6 +174,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/hooks/scan-markets'
     | '/api/public/ingest/heartbeat'
     | '/api/public/ingest/signal'
   id:
@@ -178,6 +190,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
+    | '/api/public/hooks/scan-markets'
     | '/api/public/ingest/heartbeat'
     | '/api/public/ingest/signal'
   fileRoutesById: FileRoutesById
@@ -186,6 +199,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicHooksScanMarketsRoute: typeof ApiPublicHooksScanMarketsRoute
   ApiPublicIngestHeartbeatRoute: typeof ApiPublicIngestHeartbeatRoute
   ApiPublicIngestSignalRoute: typeof ApiPublicIngestSignalRoute
 }
@@ -283,6 +297,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicIngestHeartbeatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/scan-markets': {
+      id: '/api/public/hooks/scan-markets'
+      path: '/api/public/hooks/scan-markets'
+      fullPath: '/api/public/hooks/scan-markets'
+      preLoaderRoute: typeof ApiPublicHooksScanMarketsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -315,6 +336,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicHooksScanMarketsRoute: ApiPublicHooksScanMarketsRoute,
   ApiPublicIngestHeartbeatRoute: ApiPublicIngestHeartbeatRoute,
   ApiPublicIngestSignalRoute: ApiPublicIngestSignalRoute,
 }
