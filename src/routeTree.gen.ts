@@ -13,11 +13,15 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWatchlistRouteImport } from './routes/_authenticated/watchlist'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedScannerHealthRouteImport } from './routes/_authenticated/scanner-health'
+import { Route as AuthenticatedRulebookRouteImport } from './routes/_authenticated/rulebook'
 import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenticated/performance'
 import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_authenticated/signals.$signalId'
+import { Route as ApiPublicIngestSignalRouteImport } from './routes/api/public/ingest/signal'
+import { Route as ApiPublicIngestHeartbeatRouteImport } from './routes/api/public/ingest/heartbeat'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -38,12 +42,22 @@ const AuthenticatedWatchlistRoute = AuthenticatedWatchlistRouteImport.update({
   path: '/watchlist',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedScannerHealthRoute =
   AuthenticatedScannerHealthRouteImport.update({
     id: '/scanner-health',
     path: '/scanner-health',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRulebookRoute = AuthenticatedRulebookRouteImport.update({
+  id: '/rulebook',
+  path: '/rulebook',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPerformanceRoute =
   AuthenticatedPerformanceRouteImport.update({
     id: '/performance',
@@ -66,6 +80,17 @@ const AuthenticatedSignalsSignalIdRoute =
     path: '/signals/$signalId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ApiPublicIngestSignalRoute = ApiPublicIngestSignalRouteImport.update({
+  id: '/api/public/ingest/signal',
+  path: '/api/public/ingest/signal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicIngestHeartbeatRoute =
+  ApiPublicIngestHeartbeatRouteImport.update({
+    id: '/api/public/ingest/heartbeat',
+    path: '/api/public/ingest/heartbeat',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -73,9 +98,13 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/journal': typeof AuthenticatedJournalRoute
   '/performance': typeof AuthenticatedPerformanceRoute
+  '/rulebook': typeof AuthenticatedRulebookRoute
   '/scanner-health': typeof AuthenticatedScannerHealthRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
+  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -83,9 +112,13 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/journal': typeof AuthenticatedJournalRoute
   '/performance': typeof AuthenticatedPerformanceRoute
+  '/rulebook': typeof AuthenticatedRulebookRoute
   '/scanner-health': typeof AuthenticatedScannerHealthRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
+  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -95,9 +128,13 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/journal': typeof AuthenticatedJournalRoute
   '/_authenticated/performance': typeof AuthenticatedPerformanceRoute
+  '/_authenticated/rulebook': typeof AuthenticatedRulebookRoute
   '/_authenticated/scanner-health': typeof AuthenticatedScannerHealthRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/heartbeat': typeof ApiPublicIngestHeartbeatRoute
+  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -107,9 +144,13 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/journal'
     | '/performance'
+    | '/rulebook'
     | '/scanner-health'
+    | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/ingest/heartbeat'
+    | '/api/public/ingest/signal'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -117,9 +158,13 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/journal'
     | '/performance'
+    | '/rulebook'
     | '/scanner-health'
+    | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/ingest/heartbeat'
+    | '/api/public/ingest/signal'
   id:
     | '__root__'
     | '/'
@@ -128,15 +173,21 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/journal'
     | '/_authenticated/performance'
+    | '/_authenticated/rulebook'
     | '/_authenticated/scanner-health'
+    | '/_authenticated/settings'
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
+    | '/api/public/ingest/heartbeat'
+    | '/api/public/ingest/signal'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicIngestHeartbeatRoute: typeof ApiPublicIngestHeartbeatRoute
+  ApiPublicIngestSignalRoute: typeof ApiPublicIngestSignalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -169,11 +220,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedWatchlistRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/scanner-health': {
       id: '/_authenticated/scanner-health'
       path: '/scanner-health'
       fullPath: '/scanner-health'
       preLoaderRoute: typeof AuthenticatedScannerHealthRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/rulebook': {
+      id: '/_authenticated/rulebook'
+      path: '/rulebook'
+      fullPath: '/rulebook'
+      preLoaderRoute: typeof AuthenticatedRulebookRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/performance': {
@@ -204,6 +269,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSignalsSignalIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/ingest/signal': {
+      id: '/api/public/ingest/signal'
+      path: '/api/public/ingest/signal'
+      fullPath: '/api/public/ingest/signal'
+      preLoaderRoute: typeof ApiPublicIngestSignalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/ingest/heartbeat': {
+      id: '/api/public/ingest/heartbeat'
+      path: '/api/public/ingest/heartbeat'
+      fullPath: '/api/public/ingest/heartbeat'
+      preLoaderRoute: typeof ApiPublicIngestHeartbeatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -211,7 +290,9 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedJournalRoute: typeof AuthenticatedJournalRoute
   AuthenticatedPerformanceRoute: typeof AuthenticatedPerformanceRoute
+  AuthenticatedRulebookRoute: typeof AuthenticatedRulebookRoute
   AuthenticatedScannerHealthRoute: typeof AuthenticatedScannerHealthRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedWatchlistRoute: typeof AuthenticatedWatchlistRoute
   AuthenticatedSignalsSignalIdRoute: typeof AuthenticatedSignalsSignalIdRoute
 }
@@ -220,7 +301,9 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedJournalRoute: AuthenticatedJournalRoute,
   AuthenticatedPerformanceRoute: AuthenticatedPerformanceRoute,
+  AuthenticatedRulebookRoute: AuthenticatedRulebookRoute,
   AuthenticatedScannerHealthRoute: AuthenticatedScannerHealthRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedWatchlistRoute: AuthenticatedWatchlistRoute,
   AuthenticatedSignalsSignalIdRoute: AuthenticatedSignalsSignalIdRoute,
 }
@@ -232,6 +315,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicIngestHeartbeatRoute: ApiPublicIngestHeartbeatRoute,
+  ApiPublicIngestSignalRoute: ApiPublicIngestSignalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

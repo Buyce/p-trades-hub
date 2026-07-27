@@ -17,7 +17,7 @@ const NAV = [
   { to: "/watchlist", label: "Watchlist", icon: ListChecks, staff: false },
   { to: "/journal", label: "Journal", icon: NotebookPen, staff: false },
   { to: "/performance", label: "Performance", icon: BarChart3, staff: false },
-  { to: "/health", label: "Scanner", icon: Activity, staff: true },
+  { to: "/scanner-health", label: "Scanner", icon: Activity, staff: true },
   { to: "/rulebook", label: "Rulebook", icon: BookOpen, staff: false },
   { to: "/settings", label: "Settings", icon: SettingsIcon, staff: false },
 ] as const;
@@ -50,8 +50,15 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col">
-        <header className="sticky top-0 z-20 border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
           <p className="num text-sm font-semibold tracking-tight">P-TRADES</p>
+          <Link
+            to="/settings"
+            aria-label="Settings"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground data-[status=active]:text-foreground"
+          >
+            <SettingsIcon className="h-5 w-5" aria-hidden />
+          </Link>
         </header>
 
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-4 pb-28 lg:max-w-4xl lg:px-8 lg:pt-8 lg:pb-12">
