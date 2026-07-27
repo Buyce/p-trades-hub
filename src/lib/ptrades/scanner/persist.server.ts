@@ -243,3 +243,19 @@ export async function fingerprintExistsToday(
     .limit(1);
   return Boolean(data && data.length > 0);
 }
+
+/**
+ * Atomically claims one of the day's limited actionable slots. Returns false
+ * when the cap is already used, so two concurrent runs can never both alert.
+ */
+export async function claimActionableSlot(admin: Admin, max: number): Promise<boolean> {
+  const { data, error } = await admin.rpc("claim_actionable_slot", {
+    _day: tradingDayUtc(),
+    _max: max,
+  });
+  if (error) {
+    console.error("claim_actionable_slot failed", error.message);
+    return false; // Fail closed.
+  }
+  return data === true;
+}
