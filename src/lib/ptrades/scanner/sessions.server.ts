@@ -35,6 +35,6 @@ export function sessionAt(date: Date): Session {
 /** An empty allow-list means the instrument has no session restriction. */
 export function isSessionAllowed(session: Session, allowed: string[] | null | undefined): boolean {
   if (session === "CLOSED") return false;
-  if (!allowed || allowed.length === 0) return session !== "CLOSED";
+  if (!allowed || allowed.length === 0) return true;
   return allowed.includes(session);
 }
