@@ -51,5 +51,3 @@ export const InviteEmail = ({
 )
 
 export default InviteEmail
-
-const footer = { fontSize: '12px', color: '#8a94a3', lineHeight: '1.6', borderTop: '1px solid #e3e8ee', paddingTop: '16px', margin: '32px 0 0' }
