@@ -204,8 +204,13 @@ function AdminInvites() {
 
       <SectionCard
         title="Invites"
-        hint={`${pending.length} pending · ${invites.length} total`}
+        action={
+          <span className="num text-xs text-muted-foreground">
+            {pending.length} pending · {invites.length} total
+          </span>
+        }
       >
+
         {invitesQuery.isLoading ? (
           <p className="text-sm text-muted-foreground">Loading invites…</p>
         ) : invitesQuery.isError ? (
