@@ -1,6 +1,12 @@
 import type { Bias, Candidate, Candle, GateResult, Rulebook, Timeframe } from "./types";
 import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL } from "./types";
-import { getCandles, getCurrentSpread, isMetaApiConfigured } from "./metaapi.server";
+import {
+  getAccountInfo,
+  getCandles,
+  getCurrentSpread,
+  isMetaApiConfigured,
+} from "./metaapi.server";
+
 import { closedCandlesOnly, dataAgeSeconds, lastClosed } from "./candles.server";
 import { atr } from "./atr.server";
 import { higherTimeframeBias } from "./bias.server";
