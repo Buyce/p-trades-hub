@@ -51,7 +51,7 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
         if (!publishable || request.headers.get("apikey") !== publishable) {
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        const { getAccountInfo, isMetaApiConfigured, listAccounts } = await import(
+        const { getAccountInfo, isMetaApiConfigured } = await import(
           "@/lib/ptrades/scanner/metaapi.server"
         );
         if (!isMetaApiConfigured()) {
@@ -64,9 +64,7 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
           state: info.state ?? null,
           connectionStatus: info.connectionStatus ?? null,
           lookupError: info.lookupError ?? null,
-          availableAccounts: info.lookupError
-            ? await listAccounts().catch(() => [])
-            : undefined,
+          resolvedFromToken: info.resolvedFromToken ?? false,
         });
       },
 
