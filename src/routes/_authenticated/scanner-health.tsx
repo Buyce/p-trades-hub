@@ -98,7 +98,7 @@ function ScannerHealth() {
                 <div>
                   <p className="num text-sm">{field(h.source)}</p>
                   <p className="text-xs text-muted-foreground">
-                    {formatTime(h.created_at, tz)} · {relativeFromNow(h.created_at)}
+                    {formatTime(h.received_at, tz)} · {relativeFromNow(h.received_at)}
                   </p>
                 </div>
                 <StatusPill state={h.status === "OK" ? "ok" : "warn"}>
