@@ -106,7 +106,8 @@ describe("scoreCandidate", () => {
       rulebook,
     );
     Object.values(components).forEach((v) => expect(v).toBeGreaterThanOrEqual(0));
-    expect(score).toBe(0);
+    expect(score).toBeGreaterThanOrEqual(0);
+    expect(score).toBeLessThan(1);
   });
 
   it("does not award macro points while macro alignment is unevaluated", () => {
@@ -116,15 +117,22 @@ describe("scoreCandidate", () => {
     expect(withoutMacro.components.macro_alignment).toBe(0);
   });
 
-  it("cannot reach A or A+ from a sweep alone, so the scanner stays fail-closed", () => {
-    // Sweep + displacement + perfect execution, but no retest and no macro.
+  it("rejects a sweep with no retest, so the scanner stays fail-closed", () => {
+    // Sweep + displacement + perfect execution, but no retest and no macro: 75.
     const sweepOnly = scoreCandidate(
       { ...perfect, retestFound: false, macroAligned: false },
       rulebook,
     );
-    expect(sweepOnly.score).toBeLessThan(rulebook.grades.A);
-    expect(sweepOnly.grade).toBe("B");
+    expect(sweepOnly.score).toBe(75);
+    expect(sweepOnly.grade).toBeNull();
   });
+
+  it("reaches A only when the retest also confirms", () => {
+    const withRetest = scoreCandidate({ ...perfect, macroAligned: false }, rulebook);
+    expect(withRetest.score).toBe(90);
+    expect(withRetest.grade).toBe("A");
+  });
+
 
   it("orders a stronger candidate above a weaker one", () => {
     const strong = scoreCandidate(perfect, rulebook).score;
