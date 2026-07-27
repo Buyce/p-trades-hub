@@ -52,8 +52,23 @@ function assertReadOnly(path: string) {
   }
 }
 
-async function get<T>(host: string, path: string, query: Record<string, string> = {}): Promise<T> {
-  assertReadOnly(path);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * MetaApi rate-limits concurrent historical market-data requests, so every
+ * request in a scan is queued and issued one at a time with a short gap.
+ */
+let queue: Promise<unknown> = Promise.resolve();
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const next = queue.then(task, task);
+  queue = next.then(
+    () => sleep(120),
+    () => sleep(120),
+  );
+  return next;
+}
+
+async function request<T>(host: string, path: string, query: Record<string, string>): Promise<T> {
   const { token } = env();
   const url = new URL(`https://${host}${path}`);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
@@ -66,10 +81,31 @@ async function get<T>(host: string, path: string, query: Record<string, string> 
 
   if (!response.ok) {
     const body = await response.text();
-    throw new MetaApiRequestError(`MetaApi ${response.status}: ${body.slice(0, 300)}`);
+    const error = new MetaApiRequestError(`MetaApi ${response.status}: ${body.slice(0, 300)}`);
+    (error as MetaApiRequestError & { status?: number }).status = response.status;
+    throw error;
   }
   return (await response.json()) as T;
 }
+
+async function get<T>(host: string, path: string, query: Record<string, string> = {}): Promise<T> {
+  assertReadOnly(path);
+  return serialize(async () => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await request<T>(host, path, query);
+      } catch (error) {
+        lastError = error;
+        const status = (error as { status?: number }).status;
+        if (status !== 429) throw error;
+        await sleep(600 * (attempt + 1));
+      }
+    }
+    throw lastError;
+  });
+}
+
 
 function marketDataHost(region: string) {
   return `mt-market-data-client-api-v1.${region}.agiliumtrade.ai`;
