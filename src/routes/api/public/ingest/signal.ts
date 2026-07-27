@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { z } from "zod";
 
+import type { Json } from "@/integrations/supabase/types";
+
 const signalSchema = z.object({
   external_id: z.string().max(200).optional().nullable(),
   instrument: z.string().min(1).max(40),
@@ -59,8 +61,8 @@ export const Route = createFileRoute("/api/public/ingest/signal")({
               targets: payload.targets ?? [],
               reasons: payload.reasons ?? [],
               rejection_reasons: payload.rejection_reasons ?? [],
-              score_components: payload.score_components ?? {},
-              macro_context: payload.macro_context ?? {},
+              score_components: (payload.score_components ?? {}) as Json,
+              macro_context: (payload.macro_context ?? {}) as Json,
               is_actionable: isActionable,
             },
             { onConflict: "external_id", ignoreDuplicates: false },

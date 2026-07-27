@@ -20,6 +20,7 @@ import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenti
 import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_authenticated/signals.$signalId'
+import { Route as ApiPublicIngestSignalRouteImport } from './routes/api/public/ingest/signal'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -78,6 +79,11 @@ const AuthenticatedSignalsSignalIdRoute =
     path: '/signals/$signalId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ApiPublicIngestSignalRoute = ApiPublicIngestSignalRouteImport.update({
+  id: '/api/public/ingest/signal',
+  path: '/api/public/ingest/signal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -90,6 +96,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -102,6 +109,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/ingest/signal': typeof ApiPublicIngestSignalRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -130,6 +139,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/ingest/signal'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -142,6 +152,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/ingest/signal'
   id:
     | '__root__'
     | '/'
@@ -155,12 +166,14 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
+    | '/api/public/ingest/signal'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApiPublicIngestSignalRoute: typeof ApiPublicIngestSignalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -242,6 +255,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSignalsSignalIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/ingest/signal': {
+      id: '/api/public/ingest/signal'
+      path: '/api/public/ingest/signal'
+      fullPath: '/api/public/ingest/signal'
+      preLoaderRoute: typeof ApiPublicIngestSignalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -274,6 +294,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApiPublicIngestSignalRoute: ApiPublicIngestSignalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
