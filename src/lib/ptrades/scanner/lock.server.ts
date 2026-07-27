@@ -16,7 +16,7 @@ export async function acquireScanLock(
   const { data, error } = await admin.rpc("acquire_scanner_lock", {
     _key: opts.key ?? SCAN_LOCK_KEY,
     _ttl_seconds: opts.ttlSeconds ?? 120,
-    _holder: opts.holder ?? null,
+    _holder: opts.holder ?? undefined,
   });
   if (error) {
     console.error("acquire_scanner_lock failed", error.message);
