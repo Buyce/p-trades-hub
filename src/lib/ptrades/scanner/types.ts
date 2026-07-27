@@ -74,7 +74,7 @@ export type Rulebook = {
 };
 
 export const DEFAULT_RULEBOOK: Rulebook = {
-  version: "v1.0.0-shadow",
+  version: "v1.1.0-shadow",
   closed_candles_only: true,
   min_rr_tp1: 2.0,
   max_daily_actionable: 2,
@@ -84,7 +84,7 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   atr_period: 14,
   swing_lookback: 5,
   displacement_min_atr: 1.0,
-  grades: { A_PLUS: 90, A: 80, B: 70 },
+  grades: { A_PLUS: 95, A: 90, B: 80 },
 };
 
 export type Candidate = {

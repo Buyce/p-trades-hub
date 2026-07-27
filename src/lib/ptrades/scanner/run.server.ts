@@ -16,6 +16,7 @@ import { detectRetest } from "./retest.server";
 import { checkLateEntry } from "./late-entry.server";
 import { fingerprint } from "./fingerprint.server";
 import { scoreCandidate } from "./scoring.server";
+import { rewardToRisk, targetsFrom } from "./risk.server";
 import {
   biasConflict,
   dailyCap,
@@ -76,12 +77,8 @@ async function activeLockouts(admin: Admin): Promise<string[]> {
   return (data ?? []).map((e) => e.title);
 }
 
-function targetsFrom(entry: number, stop: number, direction: "LONG" | "SHORT"): number[] {
-  const risk = Math.abs(entry - stop);
-  const sign = direction === "LONG" ? 1 : -1;
-  return [entry + sign * risk * 2, entry + sign * risk * 3, entry + sign * risk * 4].map((v) =>
-    Number(v.toFixed(6)),
-  );
+function scanTargets(entry: number, stop: number, direction: "LONG" | "SHORT"): number[] {
+  return targetsFrom(entry, stop, direction, [2, 3, 4]).map((v) => Number(v.toFixed(6)));
 }
 
 async function fetchTimeframes(symbol: string): Promise<Record<Timeframe, Candle[]>> {
@@ -201,10 +198,8 @@ async function evaluateInstrument(
     spreadGate(spread, atrValue, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null),
   );
 
-  const targets = entry !== null && stop !== null ? targetsFrom(entry, stop, direction) : [];
-  const risk = entry !== null && stop !== null ? Math.abs(entry - stop) : null;
-  const rr =
-    risk && risk > 0 && targets.length > 0 ? Math.abs(targets[0] - entry!) / risk : null;
+  const targets = entry !== null && stop !== null ? scanTargets(entry, stop, direction) : [];
+  const rr = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
   const minRr = Math.max(instrument.min_rr, rulebook.min_rr_tp1);
   gates.push(rrGate(rr, minRr));
 
