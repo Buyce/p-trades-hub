@@ -1,0 +1,630 @@
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
+
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "14.5"
+  }
+  public: {
+    Tables: {
+      macro_events: {
+        Row: {
+          created_at: string
+          currency: string | null
+          event_time_utc: string
+          id: string
+          impact: string
+          lockout_end_utc: string | null
+          lockout_start_utc: string | null
+          title: string
+        }
+        Insert: {
+          created_at?: string
+          currency?: string | null
+          event_time_utc: string
+          id?: string
+          impact?: string
+          lockout_end_utc?: string | null
+          lockout_start_utc?: string | null
+          title: string
+        }
+        Update: {
+          created_at?: string
+          currency?: string | null
+          event_time_utc?: string
+          id?: string
+          impact?: string
+          lockout_end_utc?: string | null
+          lockout_start_utc?: string | null
+          title?: string
+        }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          read_at: string | null
+          signal_id: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          signal_id?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          signal_id?: string | null
+          title?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          timezone: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id: string
+          timezone?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          timezone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      rulebook_versions: {
+        Row: {
+          created_at: string
+          effective_from: string
+          id: string
+          is_active: boolean
+          rules: Json
+          summary: string | null
+          version: string
+        }
+        Insert: {
+          created_at?: string
+          effective_from?: string
+          id?: string
+          is_active?: boolean
+          rules?: Json
+          summary?: string | null
+          version: string
+        }
+        Update: {
+          created_at?: string
+          effective_from?: string
+          id?: string
+          is_active?: boolean
+          rules?: Json
+          summary?: string | null
+          version?: string
+        }
+        Relationships: []
+      }
+      scanner_runs: {
+        Row: {
+          created_at: string
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          rejections: Json
+          rulebook_version: string | null
+          signals_emitted: number
+          started_at: string
+          status: string
+          symbols_scanned: string[]
+        }
+        Insert: {
+          created_at?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          rejections?: Json
+          rulebook_version?: string | null
+          signals_emitted?: number
+          started_at?: string
+          status?: string
+          symbols_scanned?: string[]
+        }
+        Update: {
+          created_at?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          rejections?: Json
+          rulebook_version?: string | null
+          signals_emitted?: number
+          started_at?: string
+          status?: string
+          symbols_scanned?: string[]
+        }
+        Relationships: []
+      }
+      signal_decisions: {
+        Row: {
+          created_at: string
+          decided_at: string
+          decision: Database["public"]["Enums"]["decision_type"]
+          id: string
+          note: string | null
+          signal_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string
+          decision: Database["public"]["Enums"]["decision_type"]
+          id?: string
+          note?: string | null
+          signal_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string
+          decision?: Database["public"]["Enums"]["decision_type"]
+          id?: string
+          note?: string | null
+          signal_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signal_decisions_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      signals: {
+        Row: {
+          broker_symbol: string | null
+          created_at: string
+          direction: string
+          entry_zone_high: number | null
+          entry_zone_low: number | null
+          expires_at_utc: string | null
+          external_id: string | null
+          grade: Database["public"]["Enums"]["signal_grade"] | null
+          id: string
+          instrument: string
+          invalidation: string | null
+          is_actionable: boolean
+          macro_context: Json
+          reasons: Json
+          rejection_reasons: Json
+          rr_tp1: number | null
+          rulebook_version: string | null
+          scanner_run_id: string | null
+          score: number | null
+          score_components: Json
+          setup_type: string | null
+          signal_time_utc: string
+          spread: number | null
+          status: string
+          stop_loss: number | null
+          targets: Json
+          timeframe: string | null
+          trading_day_utc: string
+        }
+        Insert: {
+          broker_symbol?: string | null
+          created_at?: string
+          direction: string
+          entry_zone_high?: number | null
+          entry_zone_low?: number | null
+          expires_at_utc?: string | null
+          external_id?: string | null
+          grade?: Database["public"]["Enums"]["signal_grade"] | null
+          id?: string
+          instrument: string
+          invalidation?: string | null
+          is_actionable?: boolean
+          macro_context?: Json
+          reasons?: Json
+          rejection_reasons?: Json
+          rr_tp1?: number | null
+          rulebook_version?: string | null
+          scanner_run_id?: string | null
+          score?: number | null
+          score_components?: Json
+          setup_type?: string | null
+          signal_time_utc?: string
+          spread?: number | null
+          status?: string
+          stop_loss?: number | null
+          targets?: Json
+          timeframe?: string | null
+          trading_day_utc?: string
+        }
+        Update: {
+          broker_symbol?: string | null
+          created_at?: string
+          direction?: string
+          entry_zone_high?: number | null
+          entry_zone_low?: number | null
+          expires_at_utc?: string | null
+          external_id?: string | null
+          grade?: Database["public"]["Enums"]["signal_grade"] | null
+          id?: string
+          instrument?: string
+          invalidation?: string | null
+          is_actionable?: boolean
+          macro_context?: Json
+          reasons?: Json
+          rejection_reasons?: Json
+          rr_tp1?: number | null
+          rulebook_version?: string | null
+          scanner_run_id?: string | null
+          score?: number | null
+          score_components?: Json
+          setup_type?: string | null
+          signal_time_utc?: string
+          spread?: number | null
+          status?: string
+          stop_loss?: number | null
+          targets?: Json
+          timeframe?: string | null
+          trading_day_utc?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signals_scanner_run_id_fkey"
+            columns: ["scanner_run_id"]
+            isOneToOne: false
+            referencedRelation: "scanner_runs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      system_heartbeats: {
+        Row: {
+          detail: Json
+          id: string
+          mt5_connected: boolean | null
+          received_at: string
+          rulebook_version: string | null
+          source: string
+          status: string
+        }
+        Insert: {
+          detail?: Json
+          id?: string
+          mt5_connected?: boolean | null
+          received_at?: string
+          rulebook_version?: string | null
+          source: string
+          status: string
+        }
+        Update: {
+          detail?: Json
+          id?: string
+          mt5_connected?: boolean | null
+          received_at?: string
+          rulebook_version?: string | null
+          source?: string
+          status?: string
+        }
+        Relationships: []
+      }
+      trade_events: {
+        Row: {
+          created_at: string
+          detail: string | null
+          event_type: string
+          id: string
+          occurred_at: string
+          trade_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          detail?: string | null
+          event_type: string
+          id?: string
+          occurred_at?: string
+          trade_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          detail?: string | null
+          event_type?: string
+          id?: string
+          occurred_at?: string
+          trade_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trade_events_trade_id_fkey"
+            columns: ["trade_id"]
+            isOneToOne: false
+            referencedRelation: "trades"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      trades: {
+        Row: {
+          closed_at: string | null
+          created_at: string
+          direction: string
+          entry_price: number | null
+          exit_price: number | null
+          id: string
+          instrument: string
+          notes: string | null
+          opened_at: string
+          outcome: string | null
+          r_multiple: number | null
+          risk_amount: number | null
+          signal_id: string | null
+          status: string
+          stop_price: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          closed_at?: string | null
+          created_at?: string
+          direction: string
+          entry_price?: number | null
+          exit_price?: number | null
+          id?: string
+          instrument: string
+          notes?: string | null
+          opened_at?: string
+          outcome?: string | null
+          r_multiple?: number | null
+          risk_amount?: number | null
+          signal_id?: string | null
+          status?: string
+          stop_price?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          closed_at?: string | null
+          created_at?: string
+          direction?: string
+          entry_price?: number | null
+          exit_price?: number | null
+          id?: string
+          instrument?: string
+          notes?: string | null
+          opened_at?: string
+          outcome?: string | null
+          r_multiple?: number | null
+          risk_amount?: number | null
+          signal_id?: string | null
+          status?: string
+          stop_price?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "trades_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: false
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
+      is_staff: { Args: { _user_id: string }; Returns: boolean }
+    }
+    Enums: {
+      app_role: "owner" | "admin" | "trader"
+      decision_type: "TAKEN" | "SKIPPED" | "EXPIRED" | "INVALIDATED"
+      signal_grade: "A_PLUS" | "A" | "B"
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {
+      app_role: ["owner", "admin", "trader"],
+      decision_type: ["TAKEN", "SKIPPED", "EXPIRED", "INVALIDATED"],
+      signal_grade: ["A_PLUS", "A", "B"],
+    },
+  },
+} as const
