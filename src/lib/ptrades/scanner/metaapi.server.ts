@@ -12,11 +12,15 @@
 import type { Candle, Timeframe } from "./types";
 
 const READ_ONLY_PATHS: RegExp[] = [
+  /^\/users\/current\/accounts\/[^/]+$/,
   /^\/users\/current\/accounts\/[^/]+\/historical-market-data\/symbols\/[^/]+\/timeframes\/[^/]+\/candles$/,
   /^\/users\/current\/accounts\/[^/]+\/symbols\/[^/]+\/specification$/,
   /^\/users\/current\/accounts\/[^/]+\/symbols\/[^/]+\/current-price$/,
   /^\/users\/current\/accounts\/[^/]+\/symbols$/,
 ];
+
+const PROVISIONING_HOST = "mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai";
+
 
 export class MetaApiNotConfiguredError extends Error {}
 export class MetaApiRequestError extends Error {}
