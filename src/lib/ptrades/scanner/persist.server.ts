@@ -128,6 +128,7 @@ export async function promoteToSignal(
     runId: string | null;
     rulebookVersion: string;
     shadowMode: boolean;
+    macroContext?: Record<string, unknown>;
   },
 ): Promise<string | null> {
   const entry =
@@ -157,7 +158,7 @@ export async function promoteToSignal(
         score_components: candidate.score_components as never,
         reasons: candidate.reasons as never,
         rejection_reasons: [] as never,
-        macro_context: {} as never,
+        macro_context: (meta.macroContext ?? {}) as never,
         spread: candidate.spread,
         // Shadow mode can never emit an actionable alert.
         is_actionable: meta.shadowMode ? false : true,
