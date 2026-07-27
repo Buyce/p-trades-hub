@@ -168,10 +168,11 @@ function AuthPage() {
         {!isForgot && (
           <button
             type="button"
-            onClick={() => setMode("forgot")}
-            className="mt-5 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            onClick={resendConfirmation}
+            disabled={resending}
+            className="mt-3 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:opacity-60"
           >
-            Forgot your password?
+            {resending ? "Sending confirmation email…" : "Didn't get the confirmation email? Resend"}
           </button>
         )}
 
@@ -182,6 +183,7 @@ function AuthPage() {
         >
           {isSignup || isForgot ? "Back to sign in" : "No account? Create one"}
         </button>
+
 
 
         <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
