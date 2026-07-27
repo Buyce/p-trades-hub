@@ -26,7 +26,7 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
@@ -40,6 +40,20 @@ function AuthPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setPending(true);
+
+    if (mode === "forgot") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      setPending(false);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      toast.success("If that email has an account, a reset link is on its way.");
+      setMode("signin");
+      return;
+    }
 
     if (mode === "signup") {
       const { data, error } = await supabase.auth.signUp({
@@ -71,6 +85,8 @@ function AuthPage() {
   }
 
   const isSignup = mode === "signup";
+  const isForgot = mode === "forgot";
+
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
