@@ -1,13 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 import {
   myDecisionsQuery,
   myTradesQuery,
   recentSignalsQuery,
   type Trade,
+  createTrade,
+  closeTrade,
 } from "@/lib/ptrades/queries";
+import { userMessageOf } from "@/lib/ptrades/errors";
 import { useSessionUser, useTimezone } from "@/lib/ptrades/session";
 import { field, formatTime } from "@/lib/ptrades/format";
 import {
@@ -132,24 +134,13 @@ function TradeRow({ trade, tz }: { trade: Trade; tz: string }) {
   const [r, setR] = useState("");
   const close = useMutation({
     mutationFn: async () => {
-      const parsed = Number(r);
-      if (!r.trim() || Number.isNaN(parsed)) throw new Error("Enter the realised R multiple");
-      const { error } = await supabase
-        .from("trades")
-        .update({
-          status: "CLOSED",
-          r_multiple: parsed,
-          outcome: parsed > 0 ? "WIN" : parsed < 0 ? "LOSS" : "BREAKEVEN",
-          closed_at: new Date().toISOString(),
-        })
-        .eq("id", trade.id);
-      if (error) throw new Error(error.message);
+      await closeTrade({ tradeId: trade.id, rMultiple: Number(r.trim()) });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trades"] });
       toast.success("Trade closed");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
   });
 
   return (
@@ -194,16 +185,13 @@ function NewTradeForm() {
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!user) throw new Error("Not signed in");
-      if (!instrument.trim()) throw new Error("Instrument is required");
-      const { error } = await supabase.from("trades").insert({
-        user_id: user.id,
-        instrument: instrument.trim().toUpperCase(),
+      await createTrade({
+        userId: user?.id,
+        instrument,
         direction,
-        entry_price: entry ? Number(entry) : null,
-        stop_price: stop ? Number(stop) : null,
+        entryPrice: entry ? Number(entry) : null,
+        stopPrice: stop ? Number(stop) : null,
       });
-      if (error) throw new Error(error.message);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trades"] });
@@ -212,7 +200,7 @@ function NewTradeForm() {
       setStop("");
       toast.success("Trade logged");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
   });
 
   return (

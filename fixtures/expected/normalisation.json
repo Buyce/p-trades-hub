@@ -1,0 +1,23 @@
+{
+  "description": "Expected results of the shared normaliser over fixtures/candles/*. now is far in the future so every candle period has elapsed.",
+  "now": "2026-02-01T00:00:00Z",
+  "cases": [
+    {
+      "fixture": "xauusd-m5-clean.json",
+      "kept": 60,
+      "reject_reasons": []
+    },
+    {
+      "fixture": "xauusd-m5-malformed.json",
+      "kept": 10,
+      "reject_reasons": [
+        "INVALID_TIME",
+        "NON_FINITE_PRICE",
+        "NON_POSITIVE_PRICE",
+        "INVERTED_RANGE",
+        "BODY_OUTSIDE_RANGE",
+        "DUPLICATE_TIME"
+      ]
+    }
+  ]
+}
