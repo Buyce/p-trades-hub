@@ -25,6 +25,53 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+function HelpPanel({ className }: { className?: string }) {
+  return (
+    <div
+      className={cn(
+        "rounded-lg border border-border bg-card p-4",
+        className,
+      )}
+    >
+      <h2 className="text-sm font-semibold text-foreground">Account access help</h2>
+      <p className="mt-1 text-xs text-muted-foreground">
+        P-Trades accounts are invite-only. If you do not have an invite, contact an owner or admin.
+      </p>
+
+      <ol className="mt-3 space-y-2.5 text-xs text-muted-foreground">
+        <li className="flex gap-2">
+          <span className="num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[10px] font-medium text-foreground">
+            1
+          </span>
+          <span>
+            An owner or admin sends an invite to your email. Wait for the invitation message.
+          </span>
+        </li>
+        <li className="flex gap-2">
+          <span className="num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[10px] font-medium text-foreground">
+            2
+          </span>
+          <span>
+            Open the invite link and choose a secure password. This confirms your account.
+          </span>
+        </li>
+        <li className="flex gap-2">
+          <span className="num flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[10px] font-medium text-foreground">
+            3
+          </span>
+          <span>
+            Return to this page and sign in with your email and password.
+          </span>
+        </li>
+      </ol>
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        Did not receive the invite? Check your spam folder, or ask the admin to resend it. If you already signed up but have not confirmed, use the resend button above.
+      </p>
+    </div>
+  );
+}
+
 function AuthPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
