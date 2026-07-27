@@ -26,7 +26,7 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<"signin" | "signup" | "forgot">("signin");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
@@ -40,6 +40,20 @@ function AuthPage() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setPending(true);
+
+    if (mode === "forgot") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      setPending(false);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+      toast.success("If that email has an account, a reset link is on its way.");
+      setMode("signin");
+      return;
+    }
 
     if (mode === "signup") {
       const { data, error } = await supabase.auth.signUp({
@@ -71,6 +85,8 @@ function AuthPage() {
   }
 
   const isSignup = mode === "signup";
+  const isForgot = mode === "forgot";
+
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
@@ -78,9 +94,11 @@ function AuthPage() {
         <p className="num text-xs uppercase tracking-[0.2em] text-muted-foreground">P-Trades</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">Trading cockpit</h1>
         <p className="mt-2 text-sm text-muted-foreground">
-          {isSignup
-            ? "Create an account to access the read-only trading cockpit."
-            : "Sign in to your P-Trades account."}
+          {isForgot
+            ? "Enter your email and we'll send you a password reset link."
+            : isSignup
+              ? "Create an account to access the read-only trading cockpit."
+              : "Sign in to your P-Trades account."}
         </p>
 
         <form onSubmit={submit} className="mt-8 space-y-4">
@@ -96,37 +114,54 @@ function AuthPage() {
               className="h-12"
             />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password">Password</Label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete={isSignup ? "new-password" : "current-password"}
-              required
-              minLength={isSignup ? 8 : undefined}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="h-12"
-            />
-          </div>
+          {!isForgot && (
+            <div className="space-y-1.5">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                autoComplete={isSignup ? "new-password" : "current-password"}
+                required
+                minLength={isSignup ? 8 : undefined}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="h-12"
+              />
+            </div>
+          )}
           <Button type="submit" className="h-12 w-full" disabled={pending}>
             {pending
-              ? isSignup
-                ? "Creating account…"
-                : "Signing in…"
-              : isSignup
-                ? "Create account"
-                : "Sign in"}
+              ? isForgot
+                ? "Sending link…"
+                : isSignup
+                  ? "Creating account…"
+                  : "Signing in…"
+              : isForgot
+                ? "Send reset link"
+                : isSignup
+                  ? "Create account"
+                  : "Sign in"}
           </Button>
         </form>
 
+        {!isForgot && (
+          <button
+            type="button"
+            onClick={() => setMode("forgot")}
+            className="mt-5 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          >
+            Forgot your password?
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={() => setMode(isSignup ? "signin" : "signup")}
-          className="mt-5 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+          onClick={() => setMode(isSignup || isForgot ? "signin" : "signup")}
+          className="mt-3 w-full text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
-          {isSignup ? "Already have an account? Sign in" : "No account? Create one"}
+          {isSignup || isForgot ? "Back to sign in" : "No account? Create one"}
         </button>
+
 
         <p className="mt-6 text-xs leading-relaxed text-muted-foreground">
           P-Trades is read-only. It never places orders and never modifies your MT5 account.
