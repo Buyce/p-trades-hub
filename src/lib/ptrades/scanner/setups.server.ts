@@ -1,0 +1,184 @@
+import type { Bias, Candle } from "./types";
+import { detectSweep } from "./sweep.server";
+import { detectDisplacement } from "./displacement.server";
+import { detectRetest } from "./retest.server";
+import { detectStructureEvent } from "./structure.server";
+import { swingHighs, swingLows } from "./swings.server";
+
+/**
+ * Setup families. Each detector is deterministic and pure: candles, ATR and the
+ * higher-timeframe bias in, one structured setup out. No detector decides
+ * whether to alert — the gates and the score do that downstream.
+ *
+ * 7.1/7.2  SWEEP_DISPLACEMENT_RETEST — liquidity sweep, impulsive displacement,
+ *          retest of the reclaimed level.
+ * 7.3      PULLBACK_CONTINUATION — with-trend break of structure, then a
+ *          controlled pullback into the broken level.
+ * 7.4      BREAK_RETEST — support/resistance break (BOS or ChoCH) that is
+ *          retested and held, without requiring a prior sweep.
+ */
+
+export type SetupType =
+  | "SWEEP_DISPLACEMENT_RETEST"
+  | "PULLBACK_CONTINUATION"
+  | "BREAK_RETEST";
+
+export type SetupResult = {
+  found: boolean;
+  setupType: SetupType;
+  direction: "LONG" | "SHORT" | null;
+  level: number | null;
+  extreme: number | null;
+  entryLow: number | null;
+  entryHigh: number | null;
+  sweepFound: boolean;
+  displacementAtr: number | null;
+  retestFound: boolean;
+  structureType: "BOS" | "CHOCH" | null;
+  detail: Record<string, unknown>;
+};
+
+function empty(setupType: SetupType, detail: Record<string, unknown> = {}): SetupResult {
+  return {
+    found: false,
+    setupType,
+    direction: null,
+    level: null,
+    extreme: null,
+    entryLow: null,
+    entryHigh: null,
+    sweepFound: false,
+    displacementAtr: null,
+    retestFound: false,
+    structureType: null,
+    detail,
+  };
+}
+
+export type SetupInput = {
+  candles: Candle[];
+  atr: number | null;
+  bias: Bias;
+  swingLookback: number;
+  displacementMinAtr: number;
+};
+
+/** 7.1 / 7.2 — sweep, displacement, retest. */
+export function detectSweepDisplacementRetest(input: SetupInput): SetupResult {
+  const { candles, atr, swingLookback, displacementMinAtr } = input;
+  const sweep = detectSweep(candles, swingLookback);
+  if (!sweep.found || !sweep.direction) return empty("SWEEP_DISPLACEMENT_RETEST");
+
+  const direction = sweep.direction;
+  const displacement = detectDisplacement(candles, direction, atr, displacementMinAtr);
+  const retest = detectRetest(candles, direction, sweep.level, atr);
+
+  return {
+    found: displacement.found && retest.found,
+    setupType: "SWEEP_DISPLACEMENT_RETEST",
+    direction,
+    level: sweep.level,
+    extreme: sweep.extreme,
+    entryLow: retest.entryLow,
+    entryHigh: retest.entryHigh,
+    sweepFound: true,
+    displacementAtr: displacement.bodyAtr,
+    retestFound: retest.found,
+    structureType: null,
+    detail: { sweptAt: sweep.sweptAt, displacedAt: displacement.at, retestAt: retest.at },
+  };
+}
+
+/** 7.3 — with-trend break of structure followed by a controlled pullback. */
+export function detectPullbackContinuation(input: SetupInput): SetupResult {
+  const { candles, atr, bias, swingLookback, displacementMinAtr } = input;
+  if (bias !== "LONG" && bias !== "SHORT") return empty("PULLBACK_CONTINUATION", { bias });
+
+  const structure = detectStructureEvent(candles, swingLookback);
+  // Continuation requires a break in the direction of the higher-timeframe bias
+  // that continues the existing trend (BOS), not a reversal (ChoCH).
+  if (!structure.found || structure.type !== "BOS" || structure.direction !== bias) {
+    return empty("PULLBACK_CONTINUATION", { structure: structure.type, bias });
+  }
+
+  const direction = bias;
+  const displacement = detectDisplacement(candles, direction, atr, displacementMinAtr);
+  const retest = detectRetest(candles, direction, structure.level, atr);
+  if (!retest.found || !atr) {
+    return empty("PULLBACK_CONTINUATION", { structure: structure.type, retest: retest.found });
+  }
+
+  const highs = swingHighs(candles, swingLookback);
+  const lows = swingLows(candles, swingLookback);
+  const extreme =
+    direction === "LONG" ? (lows.at(-1)?.price ?? null) : (highs.at(-1)?.price ?? null);
+
+  return {
+    found: true,
+    setupType: "PULLBACK_CONTINUATION",
+    direction,
+    level: structure.level,
+    extreme,
+    entryLow: retest.entryLow,
+    entryHigh: retest.entryHigh,
+    sweepFound: false,
+    displacementAtr: displacement.bodyAtr,
+    retestFound: true,
+    structureType: "BOS",
+    detail: { brokeAt: structure.at, retestAt: retest.at, priorTrend: structure.priorTrend },
+  };
+}
+
+/** 7.4 — support/resistance break that is retested and held. */
+export function detectBreakRetest(input: SetupInput): SetupResult {
+  const { candles, atr, swingLookback, displacementMinAtr } = input;
+  const structure = detectStructureEvent(candles, swingLookback);
+  if (!structure.found || !structure.direction) return empty("BREAK_RETEST");
+
+  const direction = structure.direction;
+  const displacement = detectDisplacement(candles, direction, atr, displacementMinAtr);
+  const retest = detectRetest(candles, direction, structure.level, atr);
+  if (!retest.found) return empty("BREAK_RETEST", { brokeAt: structure.at });
+
+  const highs = swingHighs(candles, swingLookback);
+  const lows = swingLows(candles, swingLookback);
+  const extreme =
+    direction === "LONG" ? (lows.at(-1)?.price ?? null) : (highs.at(-1)?.price ?? null);
+
+  return {
+    found: true,
+    setupType: "BREAK_RETEST",
+    direction,
+    level: structure.level,
+    extreme,
+    entryLow: retest.entryLow,
+    entryHigh: retest.entryHigh,
+    sweepFound: false,
+    displacementAtr: displacement.bodyAtr,
+    retestFound: true,
+    structureType: structure.type,
+    detail: { brokeAt: structure.at, retestAt: retest.at, structureType: structure.type },
+  };
+}
+
+/**
+ * Runs every family in priority order and returns the first complete setup.
+ * When nothing completes, the best partial result is returned so the gates can
+ * store a precise reason for the rejection.
+ */
+export function detectSetup(input: SetupInput): SetupResult {
+  const detectors = [
+    detectSweepDisplacementRetest,
+    detectPullbackContinuation,
+    detectBreakRetest,
+  ];
+  const results = detectors.map((d) => d(input));
+  const complete = results.find((r) => r.found);
+  if (complete) return complete;
+  // Best partial: whichever got furthest (sweep > retest > nothing).
+  return (
+    results.find((r) => r.sweepFound) ??
+    results.find((r) => r.retestFound) ??
+    results[0]
+  );
+}

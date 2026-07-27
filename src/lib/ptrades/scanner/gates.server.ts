@@ -178,3 +178,60 @@ export function allPassed(gates: GateResult[]): boolean {
 export function failedGates(gates: GateResult[]): GateResult[] {
   return gates.filter((g) => !g.passed);
 }
+
+export function sessionGate(session: string, allowed: string[] | null | undefined): GateResult {
+  const list = allowed && allowed.length > 0 ? allowed : null;
+  const ok = session !== "CLOSED" && (!list || list.includes(session));
+  return gate(
+    "SESSION",
+    ok,
+    session === "CLOSED"
+      ? "The market is closed for the week."
+      : ok
+        ? `Inside an allowed session (${session}).`
+        : `Current session ${session} is outside the allowed sessions (${list?.join(", ")}).`,
+    { session, allowed: list },
+  );
+}
+
+export function candleSanity(ok: boolean, problems: string[]): GateResult {
+  return gate(
+    "CANDLE_SANITY",
+    ok,
+    ok
+      ? "Candle data passed integrity checks."
+      : `Broker candle data failed integrity checks: ${problems.join(" ")}`,
+    { problems },
+  );
+}
+
+export function expiry(
+  triggerTime: string | null,
+  maxAgeMinutes: number,
+  now = Date.now(),
+): GateResult {
+  if (!triggerTime) {
+    return gate("EXPIRED", false, "The setup has no confirmed trigger candle time.", {});
+  }
+  const ageMinutes = (now - Date.parse(triggerTime)) / 60_000;
+  const ok = Number.isFinite(ageMinutes) && ageMinutes >= 0 && ageMinutes <= maxAgeMinutes;
+  return gate(
+    "EXPIRED",
+    ok,
+    ok
+      ? `Setup confirmed ${Math.round(ageMinutes)} minutes ago (valid for ${maxAgeMinutes}).`
+      : `Setup expired: confirmed ${Math.round(ageMinutes)} minutes ago, limit ${maxAgeMinutes}.`,
+    { triggerTime, ageMinutes, maxAgeMinutes },
+  );
+}
+
+export function noSetup(found: boolean, setupType: string, detail: Record<string, unknown>): GateResult {
+  return gate(
+    "NO_SETUP",
+    found,
+    found
+      ? `A complete ${setupType} setup formed on the entry timeframe.`
+      : "No setup family completed on the entry timeframe.",
+    detail,
+  );
+}

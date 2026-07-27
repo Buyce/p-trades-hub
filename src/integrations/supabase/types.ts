@@ -76,40 +76,64 @@ export type Database = {
       }
       instruments: {
         Row: {
+          aliases: string[]
+          base_currency: string | null
           broker_symbol: string | null
+          contract_size: number | null
           created_at: string
+          digits: number | null
           display_name: string | null
           enabled: boolean
           id: string
+          max_data_age_seconds: number | null
           max_spread: number | null
           min_rr: number
           note: string | null
+          point_size: number | null
+          quote_currency: string | null
+          sessions: string[]
           sort_order: number
           symbol: string
           updated_at: string
         }
         Insert: {
+          aliases?: string[]
+          base_currency?: string | null
           broker_symbol?: string | null
+          contract_size?: number | null
           created_at?: string
+          digits?: number | null
           display_name?: string | null
           enabled?: boolean
           id?: string
+          max_data_age_seconds?: number | null
           max_spread?: number | null
           min_rr?: number
           note?: string | null
+          point_size?: number | null
+          quote_currency?: string | null
+          sessions?: string[]
           sort_order?: number
           symbol: string
           updated_at?: string
         }
         Update: {
+          aliases?: string[]
+          base_currency?: string | null
           broker_symbol?: string | null
+          contract_size?: number | null
           created_at?: string
+          digits?: number | null
           display_name?: string | null
           enabled?: boolean
           id?: string
+          max_data_age_seconds?: number | null
           max_spread?: number | null
           min_rr?: number
           note?: string | null
+          point_size?: number | null
+          quote_currency?: string | null
+          sessions?: string[]
           sort_order?: number
           symbol?: string
           updated_at?: string
@@ -125,6 +149,7 @@ export type Database = {
           impact: string
           lockout_end_utc: string | null
           lockout_start_utc: string | null
+          symbols: string[]
           title: string
         }
         Insert: {
@@ -135,6 +160,7 @@ export type Database = {
           impact?: string
           lockout_end_utc?: string | null
           lockout_start_utc?: string | null
+          symbols?: string[]
           title: string
         }
         Update: {
@@ -145,6 +171,7 @@ export type Database = {
           impact?: string
           lockout_end_utc?: string | null
           lockout_start_utc?: string | null
+          symbols?: string[]
           title?: string
         }
         Relationships: []
@@ -238,6 +265,27 @@ export type Database = {
           rules?: Json
           summary?: string | null
           version?: string
+        }
+        Relationships: []
+      }
+      scanner_locks: {
+        Row: {
+          expires_at: string
+          holder: string | null
+          lock_key: string
+          locked_at: string
+        }
+        Insert: {
+          expires_at: string
+          holder?: string | null
+          lock_key: string
+          locked_at?: string
+        }
+        Update: {
+          expires_at?: string
+          holder?: string | null
+          lock_key?: string
+          locked_at?: string
         }
         Relationships: []
       }
@@ -766,6 +814,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      acquire_scanner_lock: {
+        Args: { _holder?: string; _key: string; _ttl_seconds?: number }
+        Returns: boolean
+      }
+      claim_actionable_slot: {
+        Args: { _day: string; _max?: number }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -774,6 +830,7 @@ export type Database = {
         Returns: boolean
       }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      release_scanner_lock: { Args: { _key: string }; Returns: undefined }
     }
     Enums: {
       app_role: "owner" | "admin" | "trader"

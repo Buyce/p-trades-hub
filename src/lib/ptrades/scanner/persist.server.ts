@@ -128,6 +128,7 @@ export async function promoteToSignal(
     runId: string | null;
     rulebookVersion: string;
     shadowMode: boolean;
+    macroContext?: Record<string, unknown>;
   },
 ): Promise<string | null> {
   const entry =
@@ -157,7 +158,7 @@ export async function promoteToSignal(
         score_components: candidate.score_components as never,
         reasons: candidate.reasons as never,
         rejection_reasons: [] as never,
-        macro_context: {} as never,
+        macro_context: (meta.macroContext ?? {}) as never,
         spread: candidate.spread,
         // Shadow mode can never emit an actionable alert.
         is_actionable: meta.shadowMode ? false : true,
@@ -242,4 +243,20 @@ export async function fingerprintExistsToday(
     .eq("trading_day_utc", tradingDayUtc())
     .limit(1);
   return Boolean(data && data.length > 0);
+}
+
+/**
+ * Atomically claims one of the day's limited actionable slots. Returns false
+ * when the cap is already used, so two concurrent runs can never both alert.
+ */
+export async function claimActionableSlot(admin: Admin, max: number): Promise<boolean> {
+  const { data, error } = await admin.rpc("claim_actionable_slot", {
+    _day: tradingDayUtc(),
+    _max: max,
+  });
+  if (error) {
+    console.error("claim_actionable_slot failed", error.message);
+    return false; // Fail closed.
+  }
+  return data === true;
 }

@@ -50,7 +50,11 @@ export type GateCode =
   | "RR_BELOW_MIN"
   | "LATE_ENTRY"
   | "DUPLICATE"
-  | "DAILY_CAP";
+  | "DAILY_CAP"
+  | "SESSION"
+  | "CANDLE_SANITY"
+  | "EXPIRED"
+  | "NO_SETUP";
 
 export type GateResult = {
   code: GateCode;
@@ -70,11 +74,15 @@ export type Rulebook = {
   atr_period: number;
   swing_lookback: number;
   displacement_min_atr: number;
+  allowed_sessions: string[];
+  signal_expiry_minutes: number;
+  max_candle_gap_multiple: number;
+  macro_lookahead_minutes: number;
   grades: { A_PLUS: number; A: number; B: number };
 };
 
 export const DEFAULT_RULEBOOK: Rulebook = {
-  version: "v1.1.0-shadow",
+  version: "v1.2.0-shadow",
   closed_candles_only: true,
   min_rr_tp1: 2.0,
   max_daily_actionable: 2,
@@ -84,6 +92,10 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   atr_period: 14,
   swing_lookback: 5,
   displacement_min_atr: 1.0,
+  allowed_sessions: ["LONDON", "NEWYORK"],
+  signal_expiry_minutes: 60,
+  max_candle_gap_multiple: 6,
+  macro_lookahead_minutes: 60,
   grades: { A_PLUS: 95, A: 90, B: 80 },
 };
 
