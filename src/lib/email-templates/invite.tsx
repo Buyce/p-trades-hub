@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { main, container, h1, text, link, button, footer } from './styles'
 
 import {
   Body,
@@ -51,7 +52,5 @@ export const InviteEmail = ({
 
 export default InviteEmail
 
-const main = { backgroundColor: '#ffffff', fontFamily: 'IBM Plex Sans', -apple-system, 'Segoe UI', Arial, sans-serif, padding: '24px 0' }
 const text = { fontSize: '14px', color: '#4a5563', lineHeight: '1.6', margin: '0 0 22px' }
-const link = { color: '#155e75', textDecoration: 'underline' }
 const footer = { fontSize: '12px', color: '#8a94a3', lineHeight: '1.6', borderTop: '1px solid #e3e8ee', paddingTop: '16px', margin: '32px 0 0' }

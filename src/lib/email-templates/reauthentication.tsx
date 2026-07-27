@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { main, container, h1, text, footer, codeStyle } from './styles'
 
 import {
   Body,
@@ -34,7 +35,5 @@ export const ReauthenticationEmail = ({ token }: ReauthenticationEmailProps) => 
 
 export default ReauthenticationEmail
 
-const main = { backgroundColor: '#ffffff', fontFamily: 'IBM Plex Sans', -apple-system, 'Segoe UI', Arial, sans-serif, padding: '24px 0' }
 const text = { fontSize: '14px', color: '#4a5563', lineHeight: '1.6', margin: '0 0 22px' }
-const codeStyle = { fontFamily: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace, fontSize: '26px', fontWeight: 600 as const, letterSpacing: '0.18em', color: '#0f1720', backgroundColor: '#f4f6f9', border: '1px solid #e3e8ee', borderRadius: '8px', padding: '14px 18px', display: 'inline-block', margin: '0 0 26px' }
 const footer = { fontSize: '12px', color: '#8a94a3', lineHeight: '1.6', borderTop: '1px solid #e3e8ee', paddingTop: '16px', margin: '32px 0 0' }
