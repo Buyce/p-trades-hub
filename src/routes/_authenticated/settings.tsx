@@ -29,7 +29,7 @@ export const Route = createFileRoute("/_authenticated/settings")({
       { property: "og:description", content: "Account preferences for the P-Trades cockpit." },
     ],
   }),
-  component: Settings;
+  component: Settings,
 });
 
 function Settings() {
