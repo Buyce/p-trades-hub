@@ -14,6 +14,7 @@ export type AppErrorCode =
   | "VALIDATION"
   | "DATA_SOURCE"
   | "UPSTREAM"
+  | "TIMEOUT"
   | "CONFIG"
   | "UNKNOWN";
 
@@ -24,6 +25,7 @@ const USER_MESSAGE: Record<AppErrorCode, string> = {
   VALIDATION: "That input is not valid.",
   DATA_SOURCE: "The database could not be reached.",
   UPSTREAM: "The market data provider could not be reached.",
+  TIMEOUT: "The market data provider did not respond in time.",
   CONFIG: "The service is not configured correctly.",
   UNKNOWN: "Something went wrong.",
 };

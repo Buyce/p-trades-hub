@@ -1,4 +1,4 @@
-import { getSymbolSpec, listSymbols } from "./metaapi.server";
+import { marketData } from "./market-data.server";
 
 /**
  * Symbol mapping layer. The canonical instrument name used by P-Trades
@@ -67,7 +67,7 @@ export async function resolveSymbol(instrument: InstrumentRow): Promise<Resolved
 
   for (const [name, from] of candidates) {
     try {
-      const spec = await getSymbolSpec(name);
+      const spec = await marketData().getSymbolSpec(name);
       const resolved: ResolvedSymbol = {
         canonical: instrument.symbol,
         broker: name,
@@ -82,7 +82,7 @@ export async function resolveSymbol(instrument: InstrumentRow): Promise<Resolved
     }
   }
 
-  const symbols = await listSymbols().catch(() => [] as string[]);
+  const symbols = await marketData().listSymbols().catch(() => [] as string[]);
   const match = matchBrokerSymbol(instrument.symbol, symbols);
   const resolved: ResolvedSymbol = {
     canonical: instrument.symbol,

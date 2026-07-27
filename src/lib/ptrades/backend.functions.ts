@@ -43,13 +43,14 @@ export const getScannerLink = createServerFn({ method: "GET" })
       message: null,
     };
 
-    const { getAccountInfo, isMetaApiConfigured } = await import("./scanner/metaapi.server");
-    if (!isMetaApiConfigured()) {
+    const { marketData } = await import("./scanner/market-data.server");
+    const client = marketData();
+    if (!client.isConfigured()) {
       return { ...empty, message: "MetaApi is not configured." };
     }
 
     try {
-      const info = await getAccountInfo();
+      const info = await client.getAccount();
       return {
         configured: true,
         connected: info.state === "DEPLOYED" && info.connectionStatus === "CONNECTED",

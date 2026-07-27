@@ -17,10 +17,28 @@ export function trueRange(candles: Candle[]): number[] {
   return out;
 }
 
-/** Wilder-style ATR over closed candles. Returns null when data is insufficient. */
-export function atr(candles: Candle[], period = 14): number | null {
+/** How the average of true range is smoothed. Selected by the rulebook. */
+export type AtrMethod = "WILDER" | "SMA";
+
+/**
+ * ATR over closed candles. Returns null when data is insufficient.
+ *
+ * `WILDER` (the tuned default, and what live signals have always used) seeds
+ * with the first `period` true ranges and then smooths. `SMA` is the plain
+ * mean of the last `period` true ranges, kept because the Python reference
+ * specification documents it; it is selected only via `rulebook.atr_method`.
+ */
+export function atr(candles: Candle[], period = 14, method: AtrMethod = "WILDER"): number | null {
   if (candles.length < period + 1) return null;
   const trs = trueRange(candles);
+  if (trs.length < period) return null;
+
+  if (method === "SMA") {
+    const window = trs.slice(-period);
+    const mean = window.reduce((a, b) => a + b, 0) / period;
+    return Number.isFinite(mean) ? mean : null;
+  }
+
   const seed = trs.slice(0, period).reduce((a, b) => a + b, 0) / period;
   let value = seed;
   for (let i = period; i < trs.length; i += 1) {

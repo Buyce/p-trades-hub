@@ -1,11 +1,6 @@
 import type { Bias, Candidate, Candle, GateResult, Rulebook, Timeframe } from "./types";
 import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL } from "./types";
-import {
-  getAccountInfo,
-  getCandles,
-  getCurrentSpread,
-  isMetaApiConfigured,
-} from "./metaapi.server";
+import { marketData } from "./market-data.server";
 
 import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
 import { recordScannerError } from "./errors.server";
@@ -105,7 +100,7 @@ async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
   const rejects: FetchedCandles["rejects"] = [];
   const entries = await Promise.all(
     REQUIRED.map(async (tf) => {
-      const raw = await getCandles(symbol, tf, tf === "1d" ? 120 : 200);
+      const raw = await marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200);
       const normalised = normaliseCandles(raw, tf);
       const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
       if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
@@ -222,7 +217,7 @@ async function evaluateInstrument(
   );
   gates.push(newsLockout(macro.locked, macro.events.map((e) => e.title)));
 
-  const atrValue = atr(entryCandles, rulebook.atr_period);
+  const atrValue = atr(entryCandles, rulebook.atr_period, rulebook.atr_method);
   const { bias, d1 } = higherTimeframeBias(candles["4h"], candles["1d"], rulebook.swing_lookback);
 
   const setup = detectSetup({
@@ -283,7 +278,7 @@ async function evaluateInstrument(
 
   let spread: number | null = null;
   try {
-    spread = await getCurrentSpread(symbol);
+    spread = await marketData().getSpread(symbol);
   } catch {
     spread = null;
   }
@@ -412,7 +407,7 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     return empty("Scanning disabled");
   }
 
-  if (!isMetaApiConfigured()) {
+  if (!marketData().isConfigured()) {
     await writeHeartbeat(admin, {
       status: "ERROR",
       metaapiConnected: false,
@@ -577,7 +572,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
 
   // Non-sensitive account context so Scanner Health can show which broker feed
   // the scan read from. Never includes tokens, passwords or balances.
-  const accountInfo = await getAccountInfo().catch(() => null);
+  const accountInfo = await marketData().getAccount().catch(() => null);
 
   await writeHeartbeat(admin, {
     status: errorMessage ? "DEGRADED" : "OK",
