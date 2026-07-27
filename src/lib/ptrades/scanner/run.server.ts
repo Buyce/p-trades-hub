@@ -16,6 +16,7 @@ import { detectRetest } from "./retest.server";
 import { checkLateEntry } from "./late-entry.server";
 import { fingerprint } from "./fingerprint.server";
 import { scoreCandidate } from "./scoring.server";
+import { rewardToRisk, targetsFrom } from "./risk.server";
 import {
   biasConflict,
   dailyCap,
