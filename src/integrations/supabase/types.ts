@@ -14,6 +14,108 @@ export type Database = {
   }
   public: {
     Tables: {
+      candles_cache: {
+        Row: {
+          candle_time_utc: string
+          close: number
+          fetched_at: string
+          high: number
+          id: string
+          instrument: string
+          low: number
+          open: number
+          timeframe: string
+          volume: number | null
+        }
+        Insert: {
+          candle_time_utc: string
+          close: number
+          fetched_at?: string
+          high: number
+          id?: string
+          instrument: string
+          low: number
+          open: number
+          timeframe: string
+          volume?: number | null
+        }
+        Update: {
+          candle_time_utc?: string
+          close?: number
+          fetched_at?: string
+          high?: number
+          id?: string
+          instrument?: string
+          low?: number
+          open?: number
+          timeframe?: string
+          volume?: number | null
+        }
+        Relationships: []
+      }
+      daily_alert_counters: {
+        Row: {
+          actionable_count: number
+          max_allowed: number
+          trading_day_utc: string
+          updated_at: string
+        }
+        Insert: {
+          actionable_count?: number
+          max_allowed?: number
+          trading_day_utc: string
+          updated_at?: string
+        }
+        Update: {
+          actionable_count?: number
+          max_allowed?: number
+          trading_day_utc?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      instruments: {
+        Row: {
+          broker_symbol: string | null
+          created_at: string
+          display_name: string | null
+          enabled: boolean
+          id: string
+          max_spread: number | null
+          min_rr: number
+          note: string | null
+          sort_order: number
+          symbol: string
+          updated_at: string
+        }
+        Insert: {
+          broker_symbol?: string | null
+          created_at?: string
+          display_name?: string | null
+          enabled?: boolean
+          id?: string
+          max_spread?: number | null
+          min_rr?: number
+          note?: string | null
+          sort_order?: number
+          symbol: string
+          updated_at?: string
+        }
+        Update: {
+          broker_symbol?: string | null
+          created_at?: string
+          display_name?: string | null
+          enabled?: boolean
+          id?: string
+          max_spread?: number | null
+          min_rr?: number
+          note?: string | null
+          sort_order?: number
+          symbol?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       macro_events: {
         Row: {
           created_at: string
@@ -178,6 +280,132 @@ export type Database = {
         }
         Relationships: []
       }
+      scanner_settings: {
+        Row: {
+          id: boolean
+          max_daily_alerts: number
+          min_rr: number
+          rulebook_version: string | null
+          scanning_enabled: boolean
+          shadow_mode: boolean
+          updated_at: string
+        }
+        Insert: {
+          id?: boolean
+          max_daily_alerts?: number
+          min_rr?: number
+          rulebook_version?: string | null
+          scanning_enabled?: boolean
+          shadow_mode?: boolean
+          updated_at?: string
+        }
+        Update: {
+          id?: boolean
+          max_daily_alerts?: number
+          min_rr?: number
+          rulebook_version?: string | null
+          scanning_enabled?: boolean
+          shadow_mode?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      signal_candidates: {
+        Row: {
+          atr: number | null
+          bias: string | null
+          broker_symbol: string | null
+          candle_time_utc: string | null
+          created_at: string
+          direction: string | null
+          entry_zone_high: number | null
+          entry_zone_low: number | null
+          evaluated_at_utc: string
+          fingerprint: string | null
+          gate_results: Json
+          grade: Database["public"]["Enums"]["signal_grade"] | null
+          id: string
+          instrument: string
+          promoted_signal_id: string | null
+          qualified: boolean
+          reasons: Json
+          rr_tp1: number | null
+          rulebook_version: string | null
+          scanner_run_id: string | null
+          score: number | null
+          score_components: Json
+          setup_type: string | null
+          shadow_mode: boolean
+          spread: number | null
+          stop_loss: number | null
+          targets: Json
+          timeframe: string | null
+          trading_day_utc: string
+        }
+        Insert: {
+          atr?: number | null
+          bias?: string | null
+          broker_symbol?: string | null
+          candle_time_utc?: string | null
+          created_at?: string
+          direction?: string | null
+          entry_zone_high?: number | null
+          entry_zone_low?: number | null
+          evaluated_at_utc?: string
+          fingerprint?: string | null
+          gate_results?: Json
+          grade?: Database["public"]["Enums"]["signal_grade"] | null
+          id?: string
+          instrument: string
+          promoted_signal_id?: string | null
+          qualified?: boolean
+          reasons?: Json
+          rr_tp1?: number | null
+          rulebook_version?: string | null
+          scanner_run_id?: string | null
+          score?: number | null
+          score_components?: Json
+          setup_type?: string | null
+          shadow_mode?: boolean
+          spread?: number | null
+          stop_loss?: number | null
+          targets?: Json
+          timeframe?: string | null
+          trading_day_utc?: string
+        }
+        Update: {
+          atr?: number | null
+          bias?: string | null
+          broker_symbol?: string | null
+          candle_time_utc?: string | null
+          created_at?: string
+          direction?: string | null
+          entry_zone_high?: number | null
+          entry_zone_low?: number | null
+          evaluated_at_utc?: string
+          fingerprint?: string | null
+          gate_results?: Json
+          grade?: Database["public"]["Enums"]["signal_grade"] | null
+          id?: string
+          instrument?: string
+          promoted_signal_id?: string | null
+          qualified?: boolean
+          reasons?: Json
+          rr_tp1?: number | null
+          rulebook_version?: string | null
+          scanner_run_id?: string | null
+          score?: number | null
+          score_components?: Json
+          setup_type?: string | null
+          shadow_mode?: boolean
+          spread?: number | null
+          stop_loss?: number | null
+          targets?: Json
+          timeframe?: string | null
+          trading_day_utc?: string
+        }
+        Relationships: []
+      }
       signal_decisions: {
         Row: {
           created_at: string
@@ -219,15 +447,64 @@ export type Database = {
           },
         ]
       }
+      signal_rejections: {
+        Row: {
+          candidate_id: string | null
+          created_at: string
+          detail: Json
+          gate_code: string
+          id: string
+          instrument: string
+          reason: string
+          scanner_run_id: string | null
+          timeframe: string | null
+          trading_day_utc: string
+        }
+        Insert: {
+          candidate_id?: string | null
+          created_at?: string
+          detail?: Json
+          gate_code: string
+          id?: string
+          instrument: string
+          reason: string
+          scanner_run_id?: string | null
+          timeframe?: string | null
+          trading_day_utc?: string
+        }
+        Update: {
+          candidate_id?: string | null
+          created_at?: string
+          detail?: Json
+          gate_code?: string
+          id?: string
+          instrument?: string
+          reason?: string
+          scanner_run_id?: string | null
+          timeframe?: string | null
+          trading_day_utc?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "signal_rejections_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "signal_candidates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       signals: {
         Row: {
           broker_symbol: string | null
+          candidate_id: string | null
           created_at: string
           direction: string
           entry_zone_high: number | null
           entry_zone_low: number | null
           expires_at_utc: string | null
           external_id: string | null
+          fingerprint: string | null
           grade: Database["public"]["Enums"]["signal_grade"] | null
           id: string
           instrument: string
@@ -242,6 +519,7 @@ export type Database = {
           score: number | null
           score_components: Json
           setup_type: string | null
+          shadow_mode: boolean
           signal_time_utc: string
           spread: number | null
           status: string
@@ -252,12 +530,14 @@ export type Database = {
         }
         Insert: {
           broker_symbol?: string | null
+          candidate_id?: string | null
           created_at?: string
           direction: string
           entry_zone_high?: number | null
           entry_zone_low?: number | null
           expires_at_utc?: string | null
           external_id?: string | null
+          fingerprint?: string | null
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument: string
@@ -272,6 +552,7 @@ export type Database = {
           score?: number | null
           score_components?: Json
           setup_type?: string | null
+          shadow_mode?: boolean
           signal_time_utc?: string
           spread?: number | null
           status?: string
@@ -282,12 +563,14 @@ export type Database = {
         }
         Update: {
           broker_symbol?: string | null
+          candidate_id?: string | null
           created_at?: string
           direction?: string
           entry_zone_high?: number | null
           entry_zone_low?: number | null
           expires_at_utc?: string | null
           external_id?: string | null
+          fingerprint?: string | null
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument?: string
@@ -302,6 +585,7 @@ export type Database = {
           score?: number | null
           score_components?: Json
           setup_type?: string | null
+          shadow_mode?: boolean
           signal_time_utc?: string
           spread?: number | null
           status?: string
