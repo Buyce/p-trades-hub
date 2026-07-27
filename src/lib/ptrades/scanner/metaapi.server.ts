@@ -162,6 +162,15 @@ async function account(): Promise<{ accountId: string; region: string }> {
 
 
 
+/** MetaApi MT5 timeframe codes. */
+const API_TIMEFRAME: Record<Timeframe, string> = {
+  M5: "5m",
+  M15: "15m",
+  "1h": "1h",
+  "4h": "4h",
+  "1d": "1d",
+};
+
 type RawCandle = {
   time: string;
   open: number;
@@ -181,7 +190,7 @@ export async function getCandles(
   const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/historical-market-data/symbols/${encodeURIComponent(
     symbol,
-  )}/timeframes/${timeframe}/candles`;
+  )}/timeframes/${API_TIMEFRAME[timeframe]}/candles`;
   const raw = await get<RawCandle[]>(marketDataHost(region), path, { limit: String(limit) });
   return raw.map((c) => ({
     time: new Date(c.time).toISOString(),
