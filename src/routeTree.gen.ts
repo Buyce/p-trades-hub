@@ -14,6 +14,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWatchlistRouteImport } from './routes/_authenticated/watchlist'
 import { Route as AuthenticatedScannerHealthRouteImport } from './routes/_authenticated/scanner-health'
+import { Route as AuthenticatedRulebookRouteImport } from './routes/_authenticated/rulebook'
 import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenticated/performance'
 import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
@@ -44,6 +45,11 @@ const AuthenticatedScannerHealthRoute =
     path: '/scanner-health',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedRulebookRoute = AuthenticatedRulebookRouteImport.update({
+  id: '/rulebook',
+  path: '/rulebook',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedPerformanceRoute =
   AuthenticatedPerformanceRouteImport.update({
     id: '/performance',
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/journal': typeof AuthenticatedJournalRoute
   '/performance': typeof AuthenticatedPerformanceRoute
+  '/rulebook': typeof AuthenticatedRulebookRoute
   '/scanner-health': typeof AuthenticatedScannerHealthRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
@@ -83,6 +90,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/journal': typeof AuthenticatedJournalRoute
   '/performance': typeof AuthenticatedPerformanceRoute
+  '/rulebook': typeof AuthenticatedRulebookRoute
   '/scanner-health': typeof AuthenticatedScannerHealthRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
@@ -95,6 +103,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/journal': typeof AuthenticatedJournalRoute
   '/_authenticated/performance': typeof AuthenticatedPerformanceRoute
+  '/_authenticated/rulebook': typeof AuthenticatedRulebookRoute
   '/_authenticated/scanner-health': typeof AuthenticatedScannerHealthRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
@@ -107,6 +116,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/journal'
     | '/performance'
+    | '/rulebook'
     | '/scanner-health'
     | '/watchlist'
     | '/signals/$signalId'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/journal'
     | '/performance'
+    | '/rulebook'
     | '/scanner-health'
     | '/watchlist'
     | '/signals/$signalId'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/journal'
     | '/_authenticated/performance'
+    | '/_authenticated/rulebook'
     | '/_authenticated/scanner-health'
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
@@ -176,6 +188,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedScannerHealthRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/rulebook': {
+      id: '/_authenticated/rulebook'
+      path: '/rulebook'
+      fullPath: '/rulebook'
+      preLoaderRoute: typeof AuthenticatedRulebookRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/performance': {
       id: '/_authenticated/performance'
       path: '/performance'
@@ -211,6 +230,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedJournalRoute: typeof AuthenticatedJournalRoute
   AuthenticatedPerformanceRoute: typeof AuthenticatedPerformanceRoute
+  AuthenticatedRulebookRoute: typeof AuthenticatedRulebookRoute
   AuthenticatedScannerHealthRoute: typeof AuthenticatedScannerHealthRoute
   AuthenticatedWatchlistRoute: typeof AuthenticatedWatchlistRoute
   AuthenticatedSignalsSignalIdRoute: typeof AuthenticatedSignalsSignalIdRoute
@@ -220,6 +240,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedJournalRoute: AuthenticatedJournalRoute,
   AuthenticatedPerformanceRoute: AuthenticatedPerformanceRoute,
+  AuthenticatedRulebookRoute: AuthenticatedRulebookRoute,
   AuthenticatedScannerHealthRoute: AuthenticatedScannerHealthRoute,
   AuthenticatedWatchlistRoute: AuthenticatedWatchlistRoute,
   AuthenticatedSignalsSignalIdRoute: AuthenticatedSignalsSignalIdRoute,
