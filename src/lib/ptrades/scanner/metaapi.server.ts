@@ -80,80 +80,108 @@ function clientHost(region: string) {
 }
 
 export type AccountInfo = {
+  /** The account id actually used for market-data requests. */
   accountId: string;
+  /** The id configured in METAAPI_ACCOUNT_ID, whether or not it resolved. */
+  configuredAccountId: string;
   region: string;
   state?: string;
   connectionStatus?: string;
   name?: string;
+  /** Broker login (identifier only — never a password). */
+  login?: string;
+  server?: string;
+  reliability?: string;
   lookupError?: string;
-  resolvedFromToken?: boolean;
+  /** True when the configured id failed and the token's sole account was used. */
+  accountIdMismatch?: boolean;
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 let cachedAccount: { at: number; info: AccountInfo } | null = null;
 
+type RawAccount = {
+  _id?: string;
+  id?: string;
+  name?: string;
+  region?: string;
+  state?: string;
+  connectionStatus?: string;
+  login?: string;
+  server?: string;
+  reliability?: string;
+};
+
 /** Lists accounts visible to the token, so a wrong account id is easy to spot. */
-export async function listAccounts(): Promise<
-  Array<{ id: string; name?: string; region?: string; state?: string }>
-> {
-  const raw = await get<
-    Array<{ _id?: string; id?: string; name?: string; region?: string; state?: string }>
-  >(PROVISIONING_HOST, "/users/current/accounts");
-  return (Array.isArray(raw) ? raw : []).map((a) => ({
-    id: a._id ?? a.id ?? "",
-    name: a.name,
-    region: a.region,
-    state: a.state,
-  }));
+export async function listAccounts(): Promise<RawAccount[]> {
+  const raw = await get<RawAccount[]>(PROVISIONING_HOST, "/users/current/accounts");
+  return Array.isArray(raw) ? raw : [];
 }
 
 /**
  * Resolves the account's real id and region from the provisioning API, so a
  * mismatched METAAPI_REGION or account id cannot silently break every request.
  * If the configured id is not found and the token exposes exactly one deployed
- * account, that account is used and the substitution is reported. Read-only
- * metadata only — no credentials are read or returned.
+ * account, that account is used and the substitution is reported via
+ * `accountIdMismatch` so it surfaces on Scanner Health. Read-only metadata
+ * only — no credentials are read or returned.
  */
 export async function getAccountInfo(force = false): Promise<AccountInfo> {
   const { accountId, region } = env();
   if (!force && cachedAccount && Date.now() - cachedAccount.at < 10 * 60_000) {
     return cachedAccount.info;
   }
+
+  const looksLikeAccountId = UUID_RE.test(accountId);
   try {
-    const raw = await get<{
-      region?: string;
-      state?: string;
-      connectionStatus?: string;
-      name?: string;
-    }>(PROVISIONING_HOST, `/users/current/accounts/${accountId}`);
+    if (!looksLikeAccountId) {
+      throw new MetaApiRequestError(
+        `METAAPI_ACCOUNT_ID "${accountId}" is not a trading account id. ` +
+          "MetaApi account ids are UUIDs (8-4-4-4-12); a 32-character hex string is usually the MetaApi user id.",
+      );
+    }
+    const raw = await get<RawAccount>(PROVISIONING_HOST, `/users/current/accounts/${accountId}`);
     const info: AccountInfo = {
       accountId,
+      configuredAccountId: accountId,
       region: raw.region || region,
       state: raw.state,
       connectionStatus: raw.connectionStatus,
       name: raw.name,
+      login: raw.login,
+      server: raw.server,
+      reliability: raw.reliability,
     };
     cachedAccount = { at: Date.now(), info };
     return info;
   } catch (error) {
     const lookupError = error instanceof Error ? error.message : "account lookup failed";
     const deployed = await listAccounts()
-      .then((accounts) => accounts.filter((a) => a.id && a.state === "DEPLOYED"))
+      .then((accounts) => accounts.filter((a) => (a._id ?? a.id) && a.state === "DEPLOYED"))
       .catch(() => []);
     if (deployed.length === 1) {
+      const only = deployed[0];
       const info: AccountInfo = {
-        accountId: deployed[0].id,
-        region: deployed[0].region || region,
-        state: deployed[0].state,
-        name: deployed[0].name,
+        accountId: (only._id ?? only.id)!,
+        configuredAccountId: accountId,
+        region: only.region || region,
+        state: only.state,
+        connectionStatus: only.connectionStatus,
+        name: only.name,
+        login: only.login,
+        server: only.server,
+        reliability: only.reliability,
         lookupError,
-        resolvedFromToken: true,
+        accountIdMismatch: true,
       };
       cachedAccount = { at: Date.now(), info };
       return info;
     }
-    return { accountId, region, lookupError };
+    return { accountId, configuredAccountId: accountId, region, lookupError };
   }
 }
+
 
 async function account(): Promise<{ accountId: string; region: string }> {
   const info = await getAccountInfo();
