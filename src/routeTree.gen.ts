@@ -13,6 +13,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWatchlistRouteImport } from './routes/_authenticated/watchlist'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
 import { Route as AuthenticatedScannerHealthRouteImport } from './routes/_authenticated/scanner-health'
 import { Route as AuthenticatedRulebookRouteImport } from './routes/_authenticated/rulebook'
 import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenticated/performance'
@@ -37,6 +38,11 @@ const IndexRoute = IndexRouteImport.update({
 const AuthenticatedWatchlistRoute = AuthenticatedWatchlistRouteImport.update({
   id: '/watchlist',
   path: '/watchlist',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedScannerHealthRoute =
@@ -81,6 +87,7 @@ export interface FileRoutesByFullPath {
   '/performance': typeof AuthenticatedPerformanceRoute
   '/rulebook': typeof AuthenticatedRulebookRoute
   '/scanner-health': typeof AuthenticatedScannerHealthRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
 }
@@ -92,6 +99,7 @@ export interface FileRoutesByTo {
   '/performance': typeof AuthenticatedPerformanceRoute
   '/rulebook': typeof AuthenticatedRulebookRoute
   '/scanner-health': typeof AuthenticatedScannerHealthRoute
+  '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
 }
@@ -105,6 +113,7 @@ export interface FileRoutesById {
   '/_authenticated/performance': typeof AuthenticatedPerformanceRoute
   '/_authenticated/rulebook': typeof AuthenticatedRulebookRoute
   '/_authenticated/scanner-health': typeof AuthenticatedScannerHealthRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
 }
@@ -118,6 +127,7 @@ export interface FileRouteTypes {
     | '/performance'
     | '/rulebook'
     | '/scanner-health'
+    | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
   fileRoutesByTo: FileRoutesByTo
@@ -129,6 +139,7 @@ export interface FileRouteTypes {
     | '/performance'
     | '/rulebook'
     | '/scanner-health'
+    | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
   id:
@@ -141,6 +152,7 @@ export interface FileRouteTypes {
     | '/_authenticated/performance'
     | '/_authenticated/rulebook'
     | '/_authenticated/scanner-health'
+    | '/_authenticated/settings'
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
   fileRoutesById: FileRoutesById
@@ -179,6 +191,13 @@ declare module '@tanstack/react-router' {
       path: '/watchlist'
       fullPath: '/watchlist'
       preLoaderRoute: typeof AuthenticatedWatchlistRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/scanner-health': {
@@ -232,6 +251,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedPerformanceRoute: typeof AuthenticatedPerformanceRoute
   AuthenticatedRulebookRoute: typeof AuthenticatedRulebookRoute
   AuthenticatedScannerHealthRoute: typeof AuthenticatedScannerHealthRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedWatchlistRoute: typeof AuthenticatedWatchlistRoute
   AuthenticatedSignalsSignalIdRoute: typeof AuthenticatedSignalsSignalIdRoute
 }
@@ -242,6 +262,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedPerformanceRoute: AuthenticatedPerformanceRoute,
   AuthenticatedRulebookRoute: AuthenticatedRulebookRoute,
   AuthenticatedScannerHealthRoute: AuthenticatedScannerHealthRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedWatchlistRoute: AuthenticatedWatchlistRoute,
   AuthenticatedSignalsSignalIdRoute: AuthenticatedSignalsSignalIdRoute,
 }
