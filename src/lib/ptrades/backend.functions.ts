@@ -1,17 +1,18 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import type { Json } from "@/integrations/supabase/types";
 import { callBackend, type BackendResult } from "./backend.server";
 
-export type BackendHealth = Record<string, unknown>;
+export type BackendPayload = { [key: string]: Json | undefined };
 
 export const getBackendHealth = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async (): Promise<BackendResult<BackendHealth>> => callBackend("/health"));
+  .handler(async (): Promise<BackendResult<BackendPayload>> => callBackend("/health"));
 
 export const getBackendConfiguration = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async (): Promise<BackendResult<BackendHealth>> => callBackend("/configuration"));
+  .handler(async (): Promise<BackendResult<BackendPayload>> => callBackend("/configuration"));
 
 export const getMt5Status = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async (): Promise<BackendResult<BackendHealth>> => callBackend("/mt5/status"));
+  .handler(async (): Promise<BackendResult<BackendPayload>> => callBackend("/mt5/status"));
