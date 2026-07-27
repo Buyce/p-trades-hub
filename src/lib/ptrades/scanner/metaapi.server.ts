@@ -12,11 +12,16 @@
 import type { Candle, Timeframe } from "./types";
 
 const READ_ONLY_PATHS: RegExp[] = [
+  /^\/users\/current\/accounts$/,
+  /^\/users\/current\/accounts\/[^/]+$/,
   /^\/users\/current\/accounts\/[^/]+\/historical-market-data\/symbols\/[^/]+\/timeframes\/[^/]+\/candles$/,
   /^\/users\/current\/accounts\/[^/]+\/symbols\/[^/]+\/specification$/,
   /^\/users\/current\/accounts\/[^/]+\/symbols\/[^/]+\/current-price$/,
   /^\/users\/current\/accounts\/[^/]+\/symbols$/,
 ];
+
+const PROVISIONING_HOST = "mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai";
+
 
 export class MetaApiNotConfiguredError extends Error {}
 export class MetaApiRequestError extends Error {}
@@ -74,6 +79,98 @@ function clientHost(region: string) {
   return `mt-client-api-v1.${region}.agiliumtrade.ai`;
 }
 
+export type AccountInfo = {
+  accountId: string;
+  region: string;
+  state?: string;
+  connectionStatus?: string;
+  name?: string;
+  lookupError?: string;
+  resolvedFromToken?: boolean;
+};
+
+let cachedAccount: { at: number; info: AccountInfo } | null = null;
+
+/** Lists accounts visible to the token, so a wrong account id is easy to spot. */
+export async function listAccounts(): Promise<
+  Array<{ id: string; name?: string; region?: string; state?: string }>
+> {
+  const raw = await get<
+    Array<{ _id?: string; id?: string; name?: string; region?: string; state?: string }>
+  >(PROVISIONING_HOST, "/users/current/accounts");
+  return (Array.isArray(raw) ? raw : []).map((a) => ({
+    id: a._id ?? a.id ?? "",
+    name: a.name,
+    region: a.region,
+    state: a.state,
+  }));
+}
+
+/**
+ * Resolves the account's real id and region from the provisioning API, so a
+ * mismatched METAAPI_REGION or account id cannot silently break every request.
+ * If the configured id is not found and the token exposes exactly one deployed
+ * account, that account is used and the substitution is reported. Read-only
+ * metadata only — no credentials are read or returned.
+ */
+export async function getAccountInfo(force = false): Promise<AccountInfo> {
+  const { accountId, region } = env();
+  if (!force && cachedAccount && Date.now() - cachedAccount.at < 10 * 60_000) {
+    return cachedAccount.info;
+  }
+  try {
+    const raw = await get<{
+      region?: string;
+      state?: string;
+      connectionStatus?: string;
+      name?: string;
+    }>(PROVISIONING_HOST, `/users/current/accounts/${accountId}`);
+    const info: AccountInfo = {
+      accountId,
+      region: raw.region || region,
+      state: raw.state,
+      connectionStatus: raw.connectionStatus,
+      name: raw.name,
+    };
+    cachedAccount = { at: Date.now(), info };
+    return info;
+  } catch (error) {
+    const lookupError = error instanceof Error ? error.message : "account lookup failed";
+    const deployed = await listAccounts()
+      .then((accounts) => accounts.filter((a) => a.id && a.state === "DEPLOYED"))
+      .catch(() => []);
+    if (deployed.length === 1) {
+      const info: AccountInfo = {
+        accountId: deployed[0].id,
+        region: deployed[0].region || region,
+        state: deployed[0].state,
+        name: deployed[0].name,
+        lookupError,
+        resolvedFromToken: true,
+      };
+      cachedAccount = { at: Date.now(), info };
+      return info;
+    }
+    return { accountId, region, lookupError };
+  }
+}
+
+async function account(): Promise<{ accountId: string; region: string }> {
+  const info = await getAccountInfo();
+  return { accountId: info.accountId, region: info.region };
+}
+
+
+
+/** MetaApi MT5 timeframe codes. */
+const API_TIMEFRAME: Record<Timeframe, string> = {
+  M5: "5m",
+  M15: "15m",
+  "1h": "1h",
+  "4h": "4h",
+  "1d": "1d",
+};
+
 type RawCandle = {
   time: string;
   open: number;
@@ -90,10 +187,10 @@ export async function getCandles(
   timeframe: Timeframe,
   limit = 200,
 ): Promise<Candle[]> {
-  const { accountId, region } = env();
+  const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/historical-market-data/symbols/${encodeURIComponent(
     symbol,
-  )}/timeframes/${timeframe}/candles`;
+  )}/timeframes/${API_TIMEFRAME[timeframe]}/candles`;
   const raw = await get<RawCandle[]>(marketDataHost(region), path, { limit: String(limit) });
   return raw.map((c) => ({
     time: new Date(c.time).toISOString(),
@@ -113,13 +210,13 @@ export type SymbolSpec = {
 };
 
 export async function getSymbolSpec(symbol: string): Promise<SymbolSpec> {
-  const { accountId, region } = env();
+  const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/symbols/${encodeURIComponent(symbol)}/specification`;
   return get<SymbolSpec>(clientHost(region), path);
 }
 
 export async function getCurrentSpread(symbol: string): Promise<number | null> {
-  const { accountId, region } = env();
+  const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/symbols/${encodeURIComponent(symbol)}/current-price`;
   const price = await get<{ bid?: number; ask?: number }>(clientHost(region), path, {
     keepSubscription: "false",
@@ -130,7 +227,7 @@ export async function getCurrentSpread(symbol: string): Promise<number | null> {
 
 /** Symbol discovery, used to resolve the NAS100 broker symbol. Read-only. */
 export async function listSymbols(): Promise<string[]> {
-  const { accountId, region } = env();
+  const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/symbols`;
   const symbols = await get<string[]>(clientHost(region), path);
   return Array.isArray(symbols) ? symbols : [];
