@@ -1,8 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
-import { getBackendConfiguration } from "@/lib/ptrades/backend.functions";
-import { signalsTodayQuery } from "@/lib/ptrades/queries";
+import { instrumentsQuery, signalsTodayQuery } from "@/lib/ptrades/queries";
 import { useTimezone } from "@/lib/ptrades/session";
 import { formatTime, score } from "@/lib/ptrades/format";
 import {
@@ -46,49 +44,42 @@ function readSymbols(payload: unknown): { enabled: string[]; disabled: string[] 
 
 function Watchlist() {
   const tz = useTimezone();
-  const configFn = useServerFn(getBackendConfiguration);
-  const { data: config, isPending } = useQuery({
-    queryKey: ["backend", "configuration"],
-    queryFn: () => configFn(),
-    retry: false,
-  });
+  const { data: instruments = [], isPending } = useQuery(instrumentsQuery());
   const { data: signals = [] } = useQuery(signalsTodayQuery());
 
-  const symbols = config?.ok ? readSymbols(config.data) : null;
+  const symbols = instruments.length
+    ? {
+        enabled: instruments.filter((i) => i.enabled).map((i) => i.symbol),
+        disabled: instruments.filter((i) => !i.enabled).map((i) => i.symbol),
+      }
+    : null;
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Watchlist"
-        subtitle="Instrument coverage reported by the scanner configuration."
+        subtitle="Instruments the cloud scanner is configured to monitor."
       />
 
       <SectionCard
         title="Configuration source"
         action={
-          <StatusPill state={config?.ok ? "ok" : isPending ? "idle" : "warn"}>
-            {config?.ok ? "Backend reachable" : isPending ? "Checking" : "Unavailable"}
+          <StatusPill state={symbols ? "ok" : isPending ? "idle" : "warn"}>
+            {symbols ? "Loaded" : isPending ? "Checking" : "Unavailable"}
           </StatusPill>
         }
       >
-        {config?.ok ? (
-          <p className="text-sm text-muted-foreground">
-            Live configuration read from the Python scanner.
-          </p>
-        ) : (
-          <p className="text-sm text-muted-foreground">
-            {config && !config.ok
-              ? config.message
-              : "Waiting for the scanner configuration endpoint."}
-          </p>
-        )}
+        <p className="text-sm text-muted-foreground">
+          Instrument coverage is read from the scanner configuration stored in the database. The
+          frontend does not add, infer or reorder instruments.
+        </p>
       </SectionCard>
 
       <SectionCard title="Monitored instruments">
         {!symbols ? (
           <EmptyState
             title="Unavailable"
-            description="The scanner configuration did not return an instrument list. Nothing is inferred here."
+            description="No instruments are configured for the scanner yet. Nothing is inferred here."
           />
         ) : (
           <ul className="divide-y divide-border/60">

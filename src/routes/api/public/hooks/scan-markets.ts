@@ -63,9 +63,13 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
           region: info.region,
           state: info.state ?? null,
           connectionStatus: info.connectionStatus ?? null,
+          server: info.server ?? null,
+          login: info.login ?? null,
+          reliability: info.reliability ?? null,
           lookupError: info.lookupError ?? null,
-          resolvedFromToken: info.resolvedFromToken ?? false,
+          accountIdMismatch: info.accountIdMismatch ?? false,
         });
+
       },
 
     },

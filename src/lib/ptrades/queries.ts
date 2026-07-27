@@ -121,7 +121,21 @@ export const heartbeatHistoryQuery = (limit = 30) =>
       )) ?? [],
   });
 
+export const instrumentsQuery = () =>
+  queryOptions({
+    queryKey: ["instruments"],
+    queryFn: async () =>
+      (await unwrap(
+        supabase
+          .from("instruments")
+          .select("*")
+          .order("sort_order", { ascending: true })
+          .order("symbol", { ascending: true }),
+      )) ?? [],
+  });
+
 export const scannerRunsQuery = (limit = 25) =>
+
   queryOptions({
     queryKey: ["scanner_runs", limit],
     queryFn: async () =>

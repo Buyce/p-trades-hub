@@ -1,6 +1,12 @@
 import type { Bias, Candidate, Candle, GateResult, Rulebook, Timeframe } from "./types";
 import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL } from "./types";
-import { getCandles, getCurrentSpread, isMetaApiConfigured } from "./metaapi.server";
+import {
+  getAccountInfo,
+  getCandles,
+  getCurrentSpread,
+  isMetaApiConfigured,
+} from "./metaapi.server";
+
 import { closedCandlesOnly, dataAgeSeconds, lastClosed } from "./candles.server";
 import { atr } from "./atr.server";
 import { higherTimeframeBias } from "./bias.server";
@@ -419,6 +425,10 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     error_message: errorMessage,
   });
 
+  // Non-sensitive account context so Scanner Health can show which broker feed
+  // the scan read from. Never includes tokens, passwords or balances.
+  const accountInfo = await getAccountInfo().catch(() => null);
+
   await writeHeartbeat(admin, {
     status: errorMessage ? "DEGRADED" : "OK",
     metaapiConnected,
@@ -430,8 +440,20 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
       qualified: qualifiedCount,
       rejections: rejectionCount,
       lockouts,
+      account: accountInfo
+        ? {
+            login: accountInfo.login ?? null,
+            server: accountInfo.server ?? null,
+            region: accountInfo.region,
+            state: accountInfo.state ?? null,
+            connection_status: accountInfo.connectionStatus ?? null,
+            reliability: accountInfo.reliability ?? null,
+            account_id_mismatch: accountInfo.accountIdMismatch ?? false,
+          }
+        : null,
     },
   });
+
 
   return {
     ok: true,

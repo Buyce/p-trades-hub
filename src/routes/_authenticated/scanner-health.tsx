@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { getBackendHealth, getMt5Status } from "@/lib/ptrades/backend.functions";
+import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import {
   heartbeatHistoryQuery,
   scannerRunsQuery,
@@ -35,19 +35,11 @@ export const Route = createFileRoute("/_authenticated/scanner-health")({
 function ScannerHealth() {
   const tz = useTimezone();
   const isStaff = useIsStaff();
-  const healthFn = useServerFn(getBackendHealth);
-  const mt5Fn = useServerFn(getMt5Status);
+  const linkFn = useServerFn(getScannerLink);
 
-  const { data: health } = useQuery({
-    queryKey: ["backend", "health"],
-    queryFn: () => healthFn(),
-    refetchInterval: 60_000,
-    retry: false,
-    enabled: isStaff,
-  });
-  const { data: mt5 } = useQuery({
-    queryKey: ["backend", "mt5"],
-    queryFn: () => mt5Fn(),
+  const { data: link } = useQuery({
+    queryKey: ["scanner", "link"],
+    queryFn: () => linkFn(),
     refetchInterval: 60_000,
     retry: false,
     enabled: isStaff,
@@ -67,26 +59,35 @@ function ScannerHealth() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Scanner health" subtitle="Backend, MT5 and ingestion diagnostics." />
+      <PageHeader
+        title="Scanner health"
+        subtitle="Cloud scanner, market-data link and run diagnostics."
+      />
 
       <SectionCard
-        title="Backend link"
+        title="Market data link"
         action={
-          <StatusPill state={health?.ok ? "ok" : "warn"}>
-            {health?.ok ? "Reachable" : "Unavailable"}
+          <StatusPill state={link?.connected ? "ok" : "warn"}>
+            {link?.connected ? "Connected" : link?.configured ? "Degraded" : "Not configured"}
           </StatusPill>
         }
       >
-        <DataRow
-          label="Health endpoint"
-          value={health?.ok ? "200 OK" : (health?.message ?? undefined)}
-        />
-        <DataRow
-          label="MT5 status"
-          value={mt5?.ok ? JSON.stringify(mt5.data) : (mt5?.message ?? undefined)}
-        />
+        <DataRow label="Broker server" value={field(link?.server)} />
+        <DataRow label="Account login" value={field(link?.login)} />
+        <DataRow label="Region" value={field(link?.region)} />
+        <DataRow label="Account state" value={field(link?.state)} />
+        <DataRow label="Connection" value={field(link?.connectionStatus)} />
+        <DataRow label="Reliability" value={field(link?.reliability)} />
         <DataRow label="Active rulebook" value={field(rulebook?.version)} />
+        {link?.accountIdMismatch ? (
+          <DataRow
+            label="Account id"
+            value="Configured id did not resolve — using the only deployed account on this token. Update METAAPI_ACCOUNT_ID."
+          />
+        ) : null}
+        {link?.message ? <DataRow label="Last error" value={link.message} /> : null}
       </SectionCard>
+
 
       <SectionCard title="Heartbeats">
         {heartbeats.length === 0 ? (

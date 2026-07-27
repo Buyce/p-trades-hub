@@ -11,7 +11,7 @@ import {
   tradesSince,
   MAX_DAILY_ALERTS,
 } from "@/lib/ptrades/queries";
-import { getMt5Status } from "@/lib/ptrades/backend.functions";
+import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import { useTimezone } from "@/lib/ptrades/session";
 import { field, formatTime, relativeFromNow, rr, score } from "@/lib/ptrades/format";
 import {
@@ -51,10 +51,10 @@ function Dashboard() {
   const { data: rulebook } = useQuery(activeRulebookQuery());
   const { data: trades = [] } = useQuery(myTradesQuery());
 
-  const mt5Fn = useServerFn(getMt5Status);
-  const { data: mt5 } = useQuery({
-    queryKey: ["backend", "mt5"],
-    queryFn: () => mt5Fn(),
+  const linkFn = useServerFn(getScannerLink);
+  const { data: link } = useQuery({
+    queryKey: ["scanner", "link"],
+    queryFn: () => linkFn(),
     refetchInterval: 120_000,
     retry: false,
   });
@@ -79,7 +79,7 @@ function Dashboard() {
       />
 
       <SectionCard
-        title="Backend link"
+        title="Market data link"
         action={
           <StatusPill state={linkState}>
             {heartbeat ? `Heartbeat ${relativeFromNow(heartbeat.received_at)}` : "No heartbeat"}
@@ -93,11 +93,10 @@ function Dashboard() {
         <DataRow
           label="MT5 connection"
           value={
-            mt5?.ok
-              ? field(
-                  (mt5.data as Record<string, unknown>).connected ??
-                    (mt5.data as Record<string, unknown>).status,
-                )
+            link?.configured
+              ? link.connected
+                ? "Connected"
+                : field(link.connectionStatus ?? link.state ?? link.message)
               : heartbeat?.mt5_connected === null || heartbeat?.mt5_connected === undefined
                 ? undefined
                 : heartbeat.mt5_connected
@@ -105,6 +104,7 @@ function Dashboard() {
                   : "Disconnected"
           }
         />
+        <DataRow label="Broker feed" value={field(link?.server)} />
         <DataRow
           label="Last heartbeat"
           value={heartbeat ? formatTime(heartbeat.received_at, tz) : undefined}
