@@ -78,6 +78,49 @@ function clientHost(region: string) {
   return `mt-client-api-v1.${region}.agiliumtrade.ai`;
 }
 
+export type AccountInfo = {
+  region: string;
+  state?: string;
+  connectionStatus?: string;
+  name?: string;
+};
+
+let cachedAccount: { at: number; info: AccountInfo } | null = null;
+
+/**
+ * Resolves the account's real region from the provisioning API, so a mismatched
+ * METAAPI_REGION cannot silently break every request. Read-only metadata only.
+ */
+export async function getAccountInfo(force = false): Promise<AccountInfo> {
+  const { accountId, region } = env();
+  if (!force && cachedAccount && Date.now() - cachedAccount.at < 10 * 60_000) {
+    return cachedAccount.info;
+  }
+  try {
+    const raw = await get<{
+      region?: string;
+      state?: string;
+      connectionStatus?: string;
+      name?: string;
+    }>(PROVISIONING_HOST, `/users/current/accounts/${accountId}`);
+    const info: AccountInfo = {
+      region: raw.region || region,
+      state: raw.state,
+      connectionStatus: raw.connectionStatus,
+      name: raw.name,
+    };
+    cachedAccount = { at: Date.now(), info };
+    return info;
+  } catch {
+    return { region };
+  }
+}
+
+async function activeRegion(): Promise<string> {
+  return (await getAccountInfo()).region;
+}
+
+
 type RawCandle = {
   time: string;
   open: number;
