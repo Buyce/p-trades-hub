@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p-trades.local/contracts/rulebook.schema.json",
+  "title": "Rulebook",
+  "description": "Versioned deterministic parameters. No trading constant may be hard-coded outside this contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "closed_candles_only",
+    "min_rr_tp1",
+    "max_daily_actionable",
+    "grades"
+  ],
+  "properties": {
+    "version": { "type": "string", "minLength": 1 },
+    "closed_candles_only": { "type": "boolean" },
+    "min_rr_tp1": { "type": "number", "minimum": 0 },
+    "max_daily_actionable": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "max_data_age_seconds": { "type": "number", "minimum": 0 },
+    "max_spread_atr_ratio": { "type": "number", "minimum": 0 },
+    "late_entry_max_atr_from_entry": { "type": "number", "minimum": 0 },
+    "atr_period": { "type": "integer", "minimum": 1 },
+    "atr_method": { "type": "string", "enum": ["WILDER", "SMA"] },
+    "swing_lookback": { "type": "integer", "minimum": 1 },
+    "displacement_min_atr": { "type": "number", "minimum": 0 },
+    "allowed_sessions": {
+      "type": "array",
+      "items": { "type": "string", "enum": ["ASIA", "LONDON", "NEWYORK"] }
+    },
+    "signal_expiry_minutes": { "type": "number", "minimum": 0 },
+    "max_candle_gap_multiple": { "type": "number", "minimum": 1 },
+    "macro_lookahead_minutes": { "type": "number", "minimum": 0 },
+    "grades": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["A_PLUS", "A", "B"],
+      "properties": {
+        "A_PLUS": { "type": "number", "minimum": 0, "maximum": 100 },
+        "A": { "type": "number", "minimum": 0, "maximum": 100 },
+        "B": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    }
+  }
+}

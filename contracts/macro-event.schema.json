@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p-trades.local/contracts/macro-event.schema.json",
+  "title": "MacroEvent",
+  "description": "High-impact macro event with the lockout window that suppresses affected symbols.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "impact", "event_time_utc"],
+  "properties": {
+    "id": { "type": ["string", "null"] },
+    "title": { "type": "string", "minLength": 1 },
+    "currency": { "type": ["string", "null"] },
+    "impact": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH"] },
+    "event_time_utc": { "type": "string", "format": "date-time" },
+    "lockout_start_utc": { "type": ["string", "null"], "format": "date-time" },
+    "lockout_end_utc": { "type": ["string", "null"], "format": "date-time" },
+    "symbols": { "type": "array", "items": { "type": "string" } }
+  }
+}

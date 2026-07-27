@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p-trades.local/contracts/signal.schema.json",
+  "title": "Signal",
+  "description": "A qualified candidate promoted to a stored signal. Read-only to every browser client.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["instrument", "direction", "is_actionable", "status", "shadow_mode"],
+  "properties": {
+    "id": { "type": ["string", "null"] },
+    "external_id": { "type": ["string", "null"] },
+    "instrument": { "type": "string", "minLength": 1 },
+    "broker_symbol": { "type": ["string", "null"] },
+    "direction": { "type": "string", "enum": ["LONG", "SHORT"] },
+    "setup_type": { "type": ["string", "null"] },
+    "timeframe": { "type": ["string", "null"] },
+    "entry_zone_low": { "type": ["number", "null"] },
+    "entry_zone_high": { "type": ["number", "null"] },
+    "stop_loss": { "type": ["number", "null"] },
+    "targets": { "type": "array", "items": { "type": "number" } },
+    "rr_tp1": { "type": ["number", "null"], "minimum": 0 },
+    "score": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+    "grade": { "type": ["string", "null"], "enum": ["A_PLUS", "A", "B", null] },
+    "score_components": { "type": "object", "additionalProperties": { "type": "number" } },
+    "reasons": { "type": "array", "items": { "type": "string" } },
+    "rejection_reasons": { "type": "array", "items": { "type": "string" } },
+    "invalidation": { "type": ["string", "null"] },
+    "macro_context": { "type": "object" },
+    "spread": { "type": ["number", "null"], "minimum": 0 },
+    "is_actionable": { "type": "boolean" },
+    "status": {
+      "type": "string",
+      "enum": ["ACTIVE", "EXPIRED", "INVALIDATED", "TRIGGERED", "CLOSED", "CANCELLED"]
+    },
+    "rulebook_version": { "type": ["string", "null"] },
+    "signal_time_utc": { "type": ["string", "null"], "format": "date-time" },
+    "expires_at_utc": { "type": ["string", "null"], "format": "date-time" },
+    "trading_day_utc": { "type": ["string", "null"] },
+    "fingerprint": { "type": ["string", "null"] },
+    "shadow_mode": { "type": "boolean" }
+  }
+}

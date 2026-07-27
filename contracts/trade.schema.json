@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://p-trades.local/contracts/trade.schema.json",
+  "title": "Trade",
+  "description": "A journalled trade. Recorded by the user after the fact; P-Trades never opens or closes it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["instrument", "direction", "status"],
+  "properties": {
+    "id": { "type": ["string", "null"] },
+    "signal_id": { "type": ["string", "null"] },
+    "instrument": { "type": "string", "minLength": 1 },
+    "direction": { "type": "string", "enum": ["LONG", "SHORT"] },
+    "status": { "type": "string", "enum": ["OPEN", "CLOSED", "CANCELLED"] },
+    "outcome": { "type": ["string", "null"], "enum": ["WIN", "LOSS", "BREAKEVEN", "PARTIAL", null] },
+    "planned_entry": { "type": ["number", "null"] },
+    "actual_entry": { "type": ["number", "null"] },
+    "planned_stop": { "type": ["number", "null"] },
+    "actual_stop": { "type": ["number", "null"] },
+    "entry_price": { "type": ["number", "null"] },
+    "stop_price": { "type": ["number", "null"] },
+    "exit_price": { "type": ["number", "null"] },
+    "partial_exits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["price", "fraction", "at_utc"],
+        "properties": {
+          "price": { "type": "number" },
+          "fraction": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+          "at_utc": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "risk_amount": { "type": ["number", "null"], "minimum": 0 },
+    "result_cash": { "type": ["number", "null"] },
+    "r_multiple": { "type": ["number", "null"] },
+    "mae_r": { "type": ["number", "null"] },
+    "mfe_r": { "type": ["number", "null"] },
+    "followed_plan": { "type": ["boolean", "null"] },
+    "mistake_tags": { "type": "array", "items": { "type": "string" } },
+    "setup_type": { "type": ["string", "null"] },
+    "grade": { "type": ["string", "null"], "enum": ["A_PLUS", "A", "B", null] },
+    "session": { "type": ["string", "null"], "enum": ["ASIA", "LONDON", "NEWYORK", null] },
+    "opened_at": { "type": ["string", "null"], "format": "date-time" },
+    "closed_at": { "type": ["string", "null"], "format": "date-time" },
+    "notes": { "type": ["string", "null"] }
+  }
+}
