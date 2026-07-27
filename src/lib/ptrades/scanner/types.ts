@@ -72,6 +72,8 @@ export type Rulebook = {
   max_spread_atr_ratio: number;
   late_entry_max_atr_from_entry: number;
   atr_period: number;
+  /** WILDER (tuned default, live behaviour) or SMA (Python reference spec). */
+  atr_method: "WILDER" | "SMA";
   swing_lookback: number;
   displacement_min_atr: number;
   allowed_sessions: string[];
@@ -90,6 +92,7 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   max_spread_atr_ratio: 0.15,
   late_entry_max_atr_from_entry: 0.5,
   atr_period: 14,
+  atr_method: "WILDER",
   swing_lookback: 5,
   displacement_min_atr: 1.0,
   allowed_sessions: ["LONDON", "NEWYORK"],
@@ -122,3 +125,43 @@ export type Candidate = {
   fingerprint: string | null;
   candle_time_utc: string | null;
 };
+
+/**
+ * Setup families. The internal codes below are what the scanner has always
+ * written to `signal_candidates.setup_type` and `signals.setup_type`; stored
+ * rows are never rewritten. `SETUP_FAMILY_LABEL` carries the specification's
+ * naming for display and for the Python reference engine, so the two
+ * vocabularies map without a destructive data migration.
+ */
+export type SetupFamily =
+  | "SWEEP_DISPLACEMENT_RETEST"
+  | "PULLBACK_CONTINUATION"
+  | "BREAK_RETEST";
+
+export const SETUP_FAMILIES: SetupFamily[] = [
+  "SWEEP_DISPLACEMENT_RETEST",
+  "PULLBACK_CONTINUATION",
+  "BREAK_RETEST",
+];
+
+export const SETUP_FAMILY_LABEL: Record<SetupFamily, string> = {
+  SWEEP_DISPLACEMENT_RETEST: "Liquidity sweep reversal",
+  PULLBACK_CONTINUATION: "Pullback continuation",
+  BREAK_RETEST: "Break and retest continuation",
+};
+
+/** Specification aliases accepted on input, normalised to the internal code. */
+export const SETUP_FAMILY_ALIASES: Record<string, SetupFamily> = {
+  LIQUIDITY_SWEEP_REVERSAL: "SWEEP_DISPLACEMENT_RETEST",
+  SWEEP_DISPLACEMENT_RETEST: "SWEEP_DISPLACEMENT_RETEST",
+  BEARISH_PULLBACK_CONTINUATION: "PULLBACK_CONTINUATION",
+  PULLBACK_CONTINUATION: "PULLBACK_CONTINUATION",
+  BREAKOUT_RETEST_CONTINUATION: "BREAK_RETEST",
+  SUPPORT_BREAK_RETEST: "BREAK_RETEST",
+  BREAK_RETEST: "BREAK_RETEST",
+};
+
+export function normaliseSetupFamily(value: string | null | undefined): SetupFamily | null {
+  if (!value) return null;
+  return SETUP_FAMILY_ALIASES[value.trim().toUpperCase()] ?? null;
+}

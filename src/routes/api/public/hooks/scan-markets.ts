@@ -51,13 +51,12 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
         if (!publishable || request.headers.get("apikey") !== publishable) {
           return Response.json({ error: "Unauthorized" }, { status: 401 });
         }
-        const { getAccountInfo, isMetaApiConfigured } = await import(
-          "@/lib/ptrades/scanner/metaapi.server"
-        );
-        if (!isMetaApiConfigured()) {
+        const { marketData } = await import("@/lib/ptrades/scanner/market-data.server");
+        const client = marketData();
+        if (!client.isConfigured()) {
           return Response.json({ configured: false });
         }
-        const info = await getAccountInfo(true);
+        const info = await client.getAccount(true);
         return Response.json({
           configured: true,
           region: info.region,
