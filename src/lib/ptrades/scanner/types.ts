@@ -96,7 +96,7 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   max_daily_actionable: 30,
   max_data_age_seconds: 300,
   max_spread_atr_ratio: 0.15,
-  late_entry_max_atr_from_entry: 0.5,
+  late_entry_max_atr_from_entry: 1.5,
   atr_period: 14,
   atr_method: "WILDER",
   swing_lookback: 5,

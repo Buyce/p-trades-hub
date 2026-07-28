@@ -19,6 +19,7 @@ export {
   latestHeartbeatQuery,
   heartbeatHistoryQuery,
   scannerRunsQuery,
+  blockingGatesTodayQuery,
   instrumentsQuery,
   macroEventsQuery,
   activeRulebookQuery,

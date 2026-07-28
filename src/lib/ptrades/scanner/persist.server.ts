@@ -15,6 +15,7 @@ export async function startRun(
   admin: Admin,
   symbols: string[],
   rulebookVersion: string,
+  rulebookChecksum: string | null = null,
 ): Promise<string | null> {
   const { data, error } = await admin
     .from("scanner_runs")
@@ -22,6 +23,7 @@ export async function startRun(
       status: "RUNNING",
       symbols_scanned: symbols,
       rulebook_version: rulebookVersion,
+      rulebook_checksum: rulebookChecksum,
     })
     .select("id")
     .maybeSingle();
@@ -59,7 +61,12 @@ export async function finishRun(
 export async function saveCandidate(
   admin: Admin,
   candidate: Candidate,
-  meta: { runId: string | null; rulebookVersion: string; shadowMode: boolean },
+  meta: {
+    runId: string | null;
+    rulebookVersion: string;
+    rulebookChecksum?: string | null;
+    shadowMode: boolean;
+  },
 ): Promise<string | null> {
   const { data, error } = await admin
     .from("signal_candidates")
@@ -87,6 +94,7 @@ export async function saveCandidate(
       fingerprint: candidate.fingerprint,
       shadow_mode: meta.shadowMode,
       rulebook_version: meta.rulebookVersion,
+      rulebook_checksum: meta.rulebookChecksum ?? null,
       candle_time_utc: candidate.candle_time_utc,
       trading_day_utc: tradingDayUtc(),
     })
@@ -135,6 +143,7 @@ export async function promoteToSignal(
     candidateId: string | null;
     runId: string | null;
     rulebookVersion: string;
+    rulebookChecksum?: string | null;
     shadowMode: boolean;
     macroContext?: Record<string, unknown>;
   },
@@ -173,6 +182,7 @@ export async function promoteToSignal(
         shadow_mode: meta.shadowMode,
         status: "ACTIVE",
         rulebook_version: meta.rulebookVersion,
+        rulebook_checksum: meta.rulebookChecksum ?? null,
         scanner_run_id: meta.runId,
         signal_time_utc: new Date().toISOString(),
         trading_day_utc: tradingDayUtc(),

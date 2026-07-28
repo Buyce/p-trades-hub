@@ -76,3 +76,50 @@ export const macroEventsQuery = () =>
         { repo: "health.macroEvents" },
       ),
   });
+
+export type BlockingGate = {
+  instrument: string;
+  gate: string;
+  reason: string;
+  count: number;
+  total: number;
+};
+
+/**
+ * "Why nothing alerted today", per instrument: the gate that blocked a setup
+ * most often on the current UTC trading day. Reporting only — it summarises
+ * stored rejection rows and never re-evaluates a rule.
+ */
+export const blockingGatesTodayQuery = () =>
+  queryOptions({
+    queryKey: ["signal_rejections", "today"],
+    refetchInterval: 120_000,
+    queryFn: async (): Promise<BlockingGate[]> => {
+      const rows = await unwrapList(
+        db
+          .from("signal_rejections")
+          .select("instrument, gate_code, reason")
+          .eq("trading_day_utc", new Date().toISOString().slice(0, 10))
+          .order("created_at", { ascending: false })
+          .limit(1000),
+        { repo: "health.blockingGatesToday" },
+      );
+
+      const byInstrument = new Map<string, { total: number; gates: Map<string, { count: number; reason: string }> }>();
+      for (const row of rows) {
+        const entry = byInstrument.get(row.instrument) ?? { total: 0, gates: new Map() };
+        entry.total += 1;
+        const gate = entry.gates.get(row.gate_code) ?? { count: 0, reason: row.reason };
+        gate.count += 1;
+        entry.gates.set(row.gate_code, gate);
+        byInstrument.set(row.instrument, entry);
+      }
+
+      return [...byInstrument.entries()]
+        .map(([instrument, entry]) => {
+          const [gate, detail] = [...entry.gates.entries()].sort((a, b) => b[1].count - a[1].count)[0];
+          return { instrument, gate, reason: detail.reason, count: detail.count, total: entry.total };
+        })
+        .sort((a, b) => b.count - a.count);
+    },
+  });

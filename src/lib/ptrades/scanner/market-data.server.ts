@@ -74,10 +74,14 @@ export class MarketDataNotConfiguredError extends MarketDataError {
 }
 
 // A whole scan (five instruments x five timeframes) must finish well inside a
-// single worker invocation, so a single read gets a short budget and one retry.
-const DEFAULT_TIMEOUT_MS = 10_000;
-const DEFAULT_ATTEMPTS = 2;
+// single worker invocation, so a single read gets a bounded budget and retries.
+// The budget is deliberately generous: the broker feed regularly needs more
+// than ten seconds for a first candle read after an idle period, and a timed
+// out read costs a whole instrument for that minute.
+const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_ATTEMPTS = 3;
 const RETRY_BASE_MS = 400;
+
 
 function fail(operation: string, error: unknown): never {
   const raw = error instanceof Error ? error.message : String(error);
