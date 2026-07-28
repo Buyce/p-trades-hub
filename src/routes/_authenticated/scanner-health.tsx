@@ -4,18 +4,23 @@ import { useServerFn } from "@tanstack/react-start";
 import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import {
   heartbeatHistoryQuery,
+  componentHeartbeatsQuery,
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
   instrumentCoverageQuery,
   executionFunnelQuery,
   lastPurgeQuery,
-
   RETENTION_WINDOWS,
-
-
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
+import {
+  HEARTBEAT_SOURCES,
+  HEARTBEAT_SOURCE_LABEL,
+  heartbeatHealth,
+  heartbeatLabel,
+  heartbeatPillState,
+} from "@/lib/ptrades/heartbeat-health";
 import { tierReachability } from "@/lib/ptrades/scanner/reachability";
 import { DEFAULT_RULEBOOK, type Rulebook } from "@/lib/ptrades/scanner/types";
 import { tierLabel } from "@/lib/ptrades/tiers";
