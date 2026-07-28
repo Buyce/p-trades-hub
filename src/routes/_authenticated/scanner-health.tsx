@@ -124,7 +124,7 @@ function ScannerHealth() {
                     {field(r.symbols_scanned)} scanned · {field(r.signals_emitted)} emitted
                   </p>
                 </div>
-                <StatusPill state={r.status === "SUCCESS" ? "ok" : "warn"}>
+                <StatusPill state={r.status === "SUCCESS" || r.status === "OK" ? "ok" : "warn"}>
                   {field(r.status)}
                 </StatusPill>
               </li>

@@ -293,23 +293,68 @@ export type Database = {
         Row: {
           created_at: string
           display_name: string | null
+          email_alerts_enabled: boolean
           id: string
+          push_alerts_enabled: boolean
           timezone: string
           updated_at: string
         }
         Insert: {
           created_at?: string
           display_name?: string | null
+          email_alerts_enabled?: boolean
           id: string
+          push_alerts_enabled?: boolean
           timezone?: string
           updated_at?: string
         }
         Update: {
           created_at?: string
           display_name?: string | null
+          email_alerts_enabled?: boolean
           id?: string
+          push_alerts_enabled?: boolean
           timezone?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          endpoint: string
+          failure_count: number
+          id: string
+          last_success_at: string | null
+          p256dh: string
+          updated_at: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          endpoint: string
+          failure_count?: number
+          id?: string
+          last_success_at?: string | null
+          p256dh: string
+          updated_at?: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          endpoint?: string
+          failure_count?: number
+          id?: string
+          last_success_at?: string | null
+          p256dh?: string
+          updated_at?: string
+          user_agent?: string | null
+          user_id?: string
         }
         Relationships: []
       }

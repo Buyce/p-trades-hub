@@ -8,3 +8,5 @@ export * from "./trades.repo";
 export * from "./health.repo";
 export * from "./rulebooks.repo";
 export * from "./profile.repo";
+export * from "./notifications.repo";
+export * from "./push.repo";

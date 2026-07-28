@@ -95,18 +95,21 @@ type FetchedCandles = {
 /**
  * Fetches every required timeframe and pushes it through the single
  * normaliser. Malformed candles are dropped and reported, never repaired.
+ *
+ * Timeframes are fetched sequentially: firing five concurrent history requests
+ * at the provider was the main source of read timeouts and the STALE_DATA
+ * rejections that followed.
  */
 async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
   const rejects: FetchedCandles["rejects"] = [];
-  const entries = await Promise.all(
-    REQUIRED.map(async (tf) => {
-      const raw = await marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200);
-      const normalised = normaliseCandles(raw, tf);
-      const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
-      if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
-      return [tf, normalised.candles] as const;
-    }),
-  );
+  const entries: Array<readonly [Timeframe, Candle[]]> = [];
+  for (const tf of REQUIRED) {
+    const raw = await marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200);
+    const normalised = normaliseCandles(raw, tf);
+    const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
+    if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
+    entries.push([tf, normalised.candles] as const);
+  }
   return {
     candles: Object.fromEntries(entries) as Record<Timeframe, Candle[]>,
     rejects,
@@ -547,7 +550,15 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
           instrument: result.candidate.instrument,
           direction: result.candidate.direction,
           grade: result.candidate.grade,
+          setupType: result.candidate.setup_type,
+          timeframe: result.candidate.timeframe,
+          entryZoneLow: result.candidate.entry_zone_low,
+          entryZoneHigh: result.candidate.entry_zone_high,
+          stopLoss: result.candidate.stop_loss,
+          targets: result.candidate.targets,
           rr: result.candidate.rr_tp1,
+          score: result.candidate.score,
+          reasons: result.candidate.reasons,
         });
       }
     } catch (error) {

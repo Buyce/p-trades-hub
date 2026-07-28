@@ -73,7 +73,9 @@ export class MarketDataNotConfiguredError extends MarketDataError {
   }
 }
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 25_000;
+const DEFAULT_ATTEMPTS = 3;
+const RETRY_BASE_MS = 400;
 
 function fail(operation: string, error: unknown): never {
   const raw = error instanceof Error ? error.message : String(error);
@@ -96,6 +98,37 @@ async function withTimeout<T>(operation: string, task: () => Promise<T>, ms: num
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/** Only transient transport failures are retried; config errors never are. */
+function retryable(error: unknown): boolean {
+  if (error instanceof MarketDataNotConfiguredError) return false;
+  if (error instanceof AppError) return error.code === "TIMEOUT" || error.code === "UPSTREAM";
+  return true;
+}
+
+/**
+ * Bounded retry for *reads only*. Every method on the client is a safe read, so
+ * re-issuing a call can never have a side effect at the broker.
+ */
+async function withRetry<T>(
+  operation: string,
+  task: () => Promise<T>,
+  timeoutMs: number,
+  attempts = DEFAULT_ATTEMPTS,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await withTimeout(operation, task, timeoutMs);
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts || !retryable(error)) break;
+      const backoff = RETRY_BASE_MS * 2 ** (attempt - 1) + Math.floor(Math.random() * 150);
+      await new Promise((resolve) => setTimeout(resolve, backoff));
+    }
+  }
+  throw lastError;
 }
 
 function num(value: unknown): number | null {
@@ -142,7 +175,7 @@ export function createMetaApiMarketData(
     },
 
     async getAccount(force = false) {
-      return withTimeout(
+      return withRetry(
         "getAccount",
         async () => {
           try {
@@ -169,7 +202,7 @@ export function createMetaApiMarketData(
     },
 
     async getCandles(symbol, timeframe, limit = 200) {
-      return withTimeout(
+      return withRetry(
         "getCandles",
         async () => {
           try {
@@ -184,7 +217,7 @@ export function createMetaApiMarketData(
     },
 
     async getSpread(symbol) {
-      return withTimeout(
+      return withRetry(
         "getSpread",
         async () => {
           try {
@@ -198,7 +231,7 @@ export function createMetaApiMarketData(
     },
 
     async getSymbolSpec(symbol) {
-      return withTimeout(
+      return withRetry(
         "getSymbolSpec",
         async () => {
           try {
@@ -218,7 +251,7 @@ export function createMetaApiMarketData(
     },
 
     async listSymbols() {
-      return withTimeout(
+      return withRetry(
         "listSymbols",
         async () => {
           try {

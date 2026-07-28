@@ -26,6 +26,14 @@ export {
   myProfileQuery,
   myRolesQuery,
   updateProfile,
+  updateAlertPreferences,
+  myNotificationsQuery,
+  unreadCount,
+  markNotificationRead,
+  markAllNotificationsRead,
+  myPushSubscriptionsQuery,
+  savePushSubscription,
+  removePushSubscription,
 } from "./repositories";
 
 export type {
@@ -40,6 +48,7 @@ export type {
   MacroEvent,
   RulebookVersion,
   Profile,
+  Notification,
 } from "./repositories";
 
 import type { Trade } from "./repositories";
