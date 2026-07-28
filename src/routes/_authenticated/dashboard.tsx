@@ -40,7 +40,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
       {
         name: "description",
         content:
-          "Live scanner status, today's actionable A/A+ alerts, open trades and weekly expectancy.",
+          "Live scanner status, today's actionable A+, A, B and C alerts, open trades and weekly expectancy.",
       },
       { property: "og:title", content: "Dashboard — P-Trades" },
       {

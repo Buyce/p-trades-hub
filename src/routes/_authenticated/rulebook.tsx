@@ -27,17 +27,37 @@ export const Route = createFileRoute("/_authenticated/rulebook")({
   component: Rulebook,
 });
 
+/**
+ * Principles only. Every number — grade bands, R:R floors, expiry, tolerances
+ * — is read from the active rulebook above, never restated here. A duplicated
+ * threshold in the UI is a threshold that will silently go out of date.
+ */
 const FIXED_RULES: { label: string; detail: string }[] = [
-  { label: "Daily alert cap", detail: "Maximum 0–2 actionable entry alerts per UTC trading day." },
-  { label: "Alertable grades", detail: "A+ (95–100) and A (90–94.99) only." },
-  { label: "B grade", detail: "80–89.99 — journal only, never an alert." },
-  { label: "Minimum reward", detail: "TP1 reward-to-risk must be at least 2.0R." },
+  {
+    label: "Alertable tiers",
+    detail:
+      "A+, A, B and C can all become actionable. Tier changes the score band and the reward floor, never whether a setup may alert.",
+  },
+  {
+    label: "No daily cap",
+    detail: "Alerts are not rationed. Every setup that passes every gate is delivered.",
+  },
+  {
+    label: "Reward floor",
+    detail: "TP1 must meet the reward-to-risk floor for its tier, as defined in the active rulebook.",
+  },
   { label: "Confirmation", detail: "Closed candles only." },
+  {
+    label: "Execution timing",
+    detail:
+      "Setup detection and execution timing are separate. A setup is armed on the higher timeframe and only becomes an alert once the micro trigger, its retest and proximity all confirm.",
+  },
   {
     label: "Rejections",
     detail:
       "Stale data, wide spreads, high-impact news lockouts, late entries, duplicate setups, invalid stops and missing data.",
   },
+  { label: "Deduplication", detail: "The same setup never alerts twice." },
   { label: "Stops", detail: "A stop is never widened." },
   { label: "Execution", detail: "No order placement. Execution is discretionary and manual." },
   { label: "No-trade days", detail: "A no-trade state is a valid, successful outcome." },
