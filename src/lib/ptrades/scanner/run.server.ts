@@ -86,9 +86,30 @@ async function loadMacroEvents(admin: Admin): Promise<MacroEvent[]> {
   return (data ?? []) as MacroEvent[];
 }
 
-function scanTargets(entry: number, stop: number, direction: "LONG" | "SHORT"): number[] {
-  return targetsFrom(entry, stop, direction, [2, 3, 4]).map((v) => Number(v.toFixed(6)));
+/**
+ * Target ladder for a candidate. Structure first — the next opposing liquidity
+ * levels ahead of the entry — with the fixed R-multiple ladder only as a
+ * fallback when structure runs out.
+ */
+function scanTargets(
+  entry: number,
+  stop: number,
+  direction: "LONG" | "SHORT",
+  levels: number[],
+  atr: number | null,
+  minRr: number,
+): number[] {
+  return structuralTargets({
+    entry,
+    stop,
+    direction,
+    levels,
+    atr,
+    minRr,
+    fallbackMultiples: [2, 3, 4],
+  }).map((v) => Number(v.toFixed(6)));
 }
+
 
 type FetchedCandles = {
   candles: Record<Timeframe, Candle[]>;
