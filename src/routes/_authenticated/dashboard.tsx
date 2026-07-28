@@ -56,6 +56,7 @@ function Dashboard() {
   const tz = useTimezone();
   const { data: signals = [] } = useQuery(signalsTodayQuery());
   const { data: heartbeat } = useQuery(latestHeartbeatQuery());
+  const { data: components } = useQuery(componentHeartbeatsQuery());
   const { data: rulebook } = useQuery(activeRulebookQuery());
   const { data: trades = [] } = useQuery(myTradesQuery());
 
