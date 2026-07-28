@@ -45,7 +45,12 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
           // Only this loop may turn a setup into an actionable alert.
           const rulebook = await loadActiveRulebook(supabaseAdmin);
           const precision = await runPrecisionLoop(supabaseAdmin, rulebook);
-          return Response.json({ ...summary, precision }, { status: summary.ok ? 200 : 503 });
+          // Reporting only: raises one operator alert when setups arm all day
+          // and none of them ever becomes tradable.
+          const { checkExecutionStall } = await import("@/lib/ptrades/scanner/watchdog.server");
+          const watchdog = await checkExecutionStall(supabaseAdmin).catch(() => null);
+          return Response.json({ ...summary, precision, watchdog }, { status: summary.ok ? 200 : 503 });
+
         } catch (error) {
           const message = error instanceof Error ? error.message : "scan failed";
           console.error("scan-markets failed", message);

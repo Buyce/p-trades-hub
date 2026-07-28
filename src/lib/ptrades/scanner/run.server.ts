@@ -433,7 +433,42 @@ async function evaluateInstrument(
     swingLookback: rulebook.swing_lookback,
     displacementMinAtr: rulebook.displacement_min_atr,
   });
-  gates.push(noSetup(setup.found, setup.setupType, setup.detail));
+
+  // Detection telemetry. Without it a "no setup" rejection says only that
+  // nothing formed; with it we can see which stage of which family stopped,
+  // and whether the inputs themselves were degraded. Reporting only.
+  const detectionDetail = {
+    ...setup.detail,
+    stage: !setup.sweepFound
+      ? "NO_STRUCTURE_EVENT"
+      : setup.displacementAtr === null || setup.displacementAtr < rulebook.displacement_min_atr
+        ? "NO_DISPLACEMENT"
+        : !setup.retestFound
+          ? "NO_RETEST"
+          : "COMPLETE",
+    best_family: setup.setupType,
+    direction: setup.direction,
+    level: setup.level,
+    extreme: setup.extreme,
+    displacement_atr: setup.displacementAtr,
+    displacement_min_atr: rulebook.displacement_min_atr,
+    sweep_found: setup.sweepFound,
+    retest_found: setup.retestFound,
+    structure_type: setup.structureType,
+    bias,
+    atr: atrValue,
+    entry_candles: entryCandles.length,
+    swing_lookback: rulebook.swing_lookback,
+  };
+  gates.push(noSetup(setup.found, setup.setupType, detectionDetail));
+
+  // No setup means every downstream derivation (anchor, zone, stop, targets,
+  // R:R, invalidation) is arithmetic on nulls. Evaluating them anyway produced
+  // six further rejection rows per instrument per minute that all restated the
+  // same root cause, and a candidate row with nothing in it. Stop here instead:
+  // the single NO_SETUP row now carries the diagnosis.
+  if (!setup.found) return { candidate: null, gates, macroContext: {} };
+
 
   const direction: "LONG" | "SHORT" =
     setup.direction ?? (bias === "SHORT" ? "SHORT" : "LONG");

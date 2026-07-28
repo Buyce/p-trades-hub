@@ -21,6 +21,7 @@ export {
   scannerRunsQuery,
   blockingGatesTodayQuery,
   instrumentCoverageQuery,
+  executionFunnelQuery,
 
   lastPurgeQuery,
   RETENTION_WINDOWS,

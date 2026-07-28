@@ -1,76 +1,50 @@
+## What I verified in production (read-only)
 
-# P-Trades Precision Entry Engine
+Facts, each from a live query:
 
-## Audit of current implementation (verified by reading the code)
+- **The terminal, cron and feed are healthy.** 107 scanner runs in the last 2 hours, all `SUCCESS`, all 5 instruments scanned (XAUUSD, GBPAUD, GBPUSD, EURUSD, USDJPY), ~13s per run, **zero** scanner errors in 6 hours. Nothing has crashed.
+- **Last alert: 28 Jul 11:00 UTC** (17 notifications total). Now 13:55 UTC.
+- **Rulebook `v2.0.0-live` (precision engine) became active at 13:04 UTC.** All 15 signals from today were created *before* that, under v1.8.0/v1.7.0/v1.6.0.
+- **Every signal in the table is `lifecycle_state = DETECTED`, `armed_at = null`, `preferred_entry = null`, and `precision_watches` has 0 rows.** The two-stage arm → micro-trigger → ENTRY_READY path has therefore **never once executed in production**. It is untested against live data, not proven broken.
+- **The real blocker right now is upstream of precision.** Candidate entry/stop derivation went to zero at a hard cutover: candidates with a derived entry per hour — 09:00 → 253/298, 10:00 → 251/296, 11:00 → 135/300, **12:00 → 0/210, 13:00 → 0/276**. Last candidate with an entry: 11:59:08 UTC. Since then every run rejects all 5 instruments with the same stack: `NO_SETUP` + `NO_SWEEP` + `NO_DISPLACEMENT` + `NO_RETEST` + `INVALID_STOP` + `RR_BELOW_MIN` (rr = null) and, since 13:04, the new mandatory `MISSING_INVALIDATION`.
 
-| Object / function | File | Current behaviour | Verdict | Action |
-|---|---|---|---|---|
-| `detectSetup`, three family detectors | `scanner/setups.server.ts` | M15 setup detection, returns level/extreme/entry bounds | Correct | Keep as the only setup detector; it becomes stage 1 (DETECTED) |
-| `detectRetest` | `scanner/retest.server.ts` | Symmetric `±0.25 × ATR` tolerance produces the entry zone | Partial — it conflates "retest happened" with "where to enter" | Split: keep retest detection, move zone construction out |
-| Entry zone + entry midpoint | `run.server.ts` ~441-443 | `entry = (entryLow + entryHigh) / 2`, rounded to digits | Obsolete | Replace with `preferredEntry` from entry anchor + asymmetric zone |
-| Stop derivation | `run.server.ts` ~444-451 | `extreme ∓ 0.2 × ATR` | Correct | Keep; feeds invalidation price |
-| `checkLateEntry` | `scanner/late-entry.server.ts` | ATR distance from zone only | Partial | Keep as the M15 coarse gate; add extension-R for execution stage |
-| `signals.invalidation` | nowhere | **Never written by any scanner module** — that is why the UI shows "Unavailable" | Missing | Add authoritative invalidation builder + hard gate |
-| Timeframes | `run.server.ts` `REQUIRED` | M5, M15, 1h, 4h, 1d — **no M1** | Missing | Add M1 fetch, precision stage only |
-| Pip / point conversion | none | Spread stored and displayed as raw decimal | Missing | One `pips.ts` module |
-| Lifecycle state | none | Signals have `status` only (ACTIVE/EXPIRED/…) | Missing | Add `SetupLifecycleState` |
-| Precision scanner | none | Single 60s context scan | Missing | Add in-invocation precision loop |
-| `notifyQualifiedSignal` | `scanner/notify.server.ts` | Tiered email/push, uncapped | Correct | Reuse unchanged; only the trigger condition changes |
-| Python reference | `handoff/python-reference/ptrades_reference/` | `candles.py`, `features.py`, `models.py` only | Missing | Add precision modules in the same package (not a new `reference-python/` tree) |
+I have **not** confirmed the root cause of that 12:00 cutover. The detection files (`setups.server.ts`, `sweep.server.ts`, `retest.server.ts`, `swings.server.ts`) were last committed at 09:23, before the drought began, so a code edit is not the obvious explanation — but a 100% detection failure across five uncorrelated instruments for two hours is not normal market behaviour either. Naming a cause now would be guessing, so step 1 of this plan is to prove it.
 
-Instrument metadata is already populated (`digits`/`point_size` for all 5 enabled symbols), so pip maths needs no new data.
+## Plan
 
-## Decisions applied from your answers
+**1. Prove the cause of the detection drought (before changing anything)**
 
-- **Live precision immediately** — no shadow calibration stage. Risk to accept: ENTRY_READY is strictly narrower than today's M15 zone alerts, so alert volume will drop, possibly sharply, in the first days. I'll ship a calibration panel so you can see exactly where setups die and loosen parameters without a code change.
-- **All four tiers (A+/A/B/C), no daily cap** — the prompt's "A/A+ only, max 2/day" rule is not implemented.
-- **In-invocation 5s loop** — one cron call per minute runs a ~55s loop polling armed watches every 5s.
+Replay the exact live M15 candle series for each instrument through `detectSetup` offline and print the intermediate results — swings found, sweep found, displacement ATR, retest — for the current bars and for 08:00–09:00 bars (when detection worked). Two possible outcomes:
+- *Inputs are fine, detectors return nothing* → real logic regression; fix the detector.
+- *Inputs are degraded* (too few candles, stale/duplicate bars, wrong timeframe, ATR null) → fix the data path in `run.server.ts` / `market-data.server.ts`.
 
-## Architecture
+Also compare candle counts and last-bar timestamps per instrument now vs earlier today.
 
-```text
-D1/H4/H1 context → M15 setup      = stage 1, every 60s, all instruments
-   ↓ DETECTED / ARMED
-M5 confirmation → M1 rejection/displacement/BOS → M1 retest
-                                  = stage 2, every 5s, armed watches only
-   ↓ ENTRY_READY → alert
-```
+**2. Fix whatever step 1 identifies**, with a regression test built from the actual replayed candles so this exact drought cannot return silently.
 
-Only `ENTRY_READY` produces an alert. Closed candles only at every stage.
+**3. Make the precision stage observable and prove it end to end**
 
-## What gets built
+Right now a setup can be armed and die without leaving any trace of why. Add:
+- Persisted per-watch evaluation reasons (near-entry distance in points, extension in R, which micro-trigger step failed, R:R at check time) written on each precision pass.
+- A **"Execution funnel"** panel on Scanner Health: detected → armed → micro-triggered → entry-ready → alerted, for today, with the top blocking reason at each stage. This is the panel that answers "why no alert" in one glance.
+- A replay harness that forces one real armed setup through the loop so the arm → trigger → alert path is verified once against live data rather than only in unit tests.
 
-**Database** — one migration:
-- `precision_watches` (signal_id, symbol, state, structural_level, entry_anchor, anchor_source, trigger_level, trigger_candle_time, preferred_entry, invalidation_price/condition/timeframe, armed_at, entry_ready_at, expires_at, last_checked_at, check_count, metadata) with grants, RLS (read-only to authenticated, service_role full), unique on signal_id.
-- New columns on `signals`: `lifecycle_state`, `preferred_entry`, `zone_width_points`, `price_at_alert`, `distance_to_entry_points`, `trigger_timeframe`, `trigger_level`, `trigger_candle_time`, `trigger_summary`, `invalidation_price`, `invalidation_timeframe`, `armed_at`, `entry_ready_at`.
-- Rulebook `v2.0.0-live` with a `precision` block (per-symbol min/max zone width, spread and ATR multipliers, maxExtensionR, proximityPoints; ARMED expiry 30min FX / 20min gold; MICRO_TRIGGERED 3 M1 bars).
+**4. Re-tune the precision thresholds once the funnel shows real data**
 
-**New TypeScript modules** (one authoritative implementation each, exported through `scanner/features/index.ts`):
-- `pips.server.ts` — `getPipSize`, `priceDistanceToPips`, point conversion.
-- `entry-anchor.server.ts` — anchor per setup family, returns `{ anchor, source, sourceCandleTime }`.
-- `entry-zone.server.ts` — `calculateAdaptiveZoneWidthPoints` + asymmetric zone (BUY: `[anchor − width, anchor]`; SELL: `[anchor, anchor + width]`).
-- `invalidation.server.ts` — price, condition text, timeframe; derived from the structural stop side.
-- `micro-trigger.server.ts` — closed-M1 rejection → displacement → BOS/CHOCH → retest sequence, reusing the existing `displacement`, `structure`, `retest` and `swings` primitives (no new copies).
-- `proximity.server.ts` — `isPriceNearEntry`, `calculateExtensionR`.
-- `lifecycle.server.ts` — the state machine and its legal transitions.
-- `precision.server.ts` — the 5s loop: load armed watches, batch quotes and M1 candles, advance states, promote ENTRY_READY.
+The v2.0.0 defaults are extremely tight and, stacked, may make ENTRY_READY practically unreachable: proximity 5 points on EURUSD/USDJPY (half a pip), `maxExtensionR` 0.15, a full closed-M1 rejection → displacement → BOS → held-retest sequence, mandatory structural invalidation, R:R ≥ 2 at trigger time, all inside a 30-minute armed window. I will not loosen these blindly — I will publish a new rulebook version only after the funnel shows which condition is actually eliminating watches, and every change ships as a versioned rulebook with a checksum, as usual.
 
-**Reused unchanged:** gates, scoring, tiers, fingerprint/duplicate, macro, sessions, sanity, persist, notify, email/push templates. The existing hard-gate battery runs again at ENTRY_READY so spread, news, freshness, duplicate and R:R are re-checked against live conditions, plus the new mandatory-invalidation gate and a re-computed TP1 ≥ 2R against the preferred entry.
+**5. Safety net**
 
-**Scanner wiring** — `run.server.ts` stops emitting alerts for M15 setups. A qualifying setup writes the signal at `DETECTED`/`ARMED` and opens a precision watch. `scan-markets` route runs the context scan, then the precision loop for the rest of the minute, guarded by the existing scan lock plus a per-watch idempotency check.
+- Alert if a full trading session passes with armed setups but zero ENTRY_READY (the "silently unreachable" case), reusing the existing system-health alert with cooldown.
+- Keep the audit trail: no purge of the new precision reasons before 24h.
 
-**UI** — `signals.$signalId.tsx` and the dashboard/watchlist cards show preferred entry, acceptable zone, current price, distance in pips, lifecycle state, trigger status/timeframe, valid until, stop, targets, R:R, structural invalidation, spread in pips. `scanner-health.tsx` gains a lifecycle funnel panel (DETECTED → ARMED → MICRO_TRIGGERED → ENTRY_READY → MISSED/EXPIRED counts, average alert distance, old vs new zone width).
+## Guardrails held throughout
 
-**Python reference** — added to the existing `ptrades_reference` package: `entry_zone.py`, `precision_entry.py`, `micro_trigger.py`, `lifecycle.py`, `proximity.py`, `expiry.py`, plus contract models. Golden fixtures shared with the TypeScript suite guarantee parity on anchor, zone width, pip conversion, proximity, extension R, expiry and lifecycle transitions.
-
-**Tests** — lifecycle transitions, anchor selection, asymmetric zones, adaptive widths, pip conversion, M1 closed-candle enforcement, each micro-trigger stage, proximity, late entry/extension R, expiry, missing-invalidation rejection, target-touched-before-entry, scheduler overlap, TS/Python parity.
+Read-only MT5 access, no execution endpoint, fail-closed on uncertainty, frontend renders stored values only, and every rule change goes out as a new versioned rulebook.
 
 ## Technical notes
 
-- MetaApi has a single resource slot; the precision loop only requests M1 candles and quotes for symbols with an open watch, and reuses the existing retry/last-good fallback. Cost stays near flat when nothing is armed.
-- Zone width is expressed in points and converted for display, so gold (digits 2) and JPY (digits 3) are handled by the same code path.
-- No execution surface is added anywhere: the precision engine reads quotes and writes analysis rows only.
-
-## Deliverable
-
-An end report covering files audited, duplicates consolidated, authoritative functions, migration, scheduler change, UI change, tests, TS/Python parity, and old-vs-new EURUSD zone width with the precision/fill-rate trade-off.
+- Cutover evidence: `signal_candidates` entry-derivation drops to 0 at 12:04 UTC; scanner run gap 12:00–12:04 indicates a deploy at that moment.
+- `run.server.ts:490–539` — entry now comes solely from `entryAnchorForSetup`; when `setup.found` is false, `anchor`, `zone`, `entry`, `stop` and `rr` are all null, which is exactly the null pattern in the table. Consistent with "no setup found", not proof of a derivation bug.
+- `run.server.ts:832–882` — arming and `openPrecisionWatch` are correctly wired; they simply have never been reached since 13:04 because nothing qualified.
+- `precision.server.ts` runs inside the same one-minute cron invocation and is a no-op with zero watches, so it is currently invisible.

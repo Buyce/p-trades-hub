@@ -8,7 +8,9 @@ import {
   activeRulebookQuery,
   blockingGatesTodayQuery,
   instrumentCoverageQuery,
+  executionFunnelQuery,
   lastPurgeQuery,
+
   RETENTION_WINDOWS,
 
 
@@ -59,6 +61,8 @@ function ScannerHealth() {
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
   const { data: lastPurge } = useQuery({ ...lastPurgeQuery(), enabled: isStaff });
   const { data: coverage = [] } = useQuery({ ...instrumentCoverageQuery(), enabled: isStaff });
+  const { data: funnel } = useQuery({ ...executionFunnelQuery(), enabled: isStaff });
+
 
 
 
@@ -108,6 +112,38 @@ function ScannerHealth() {
           />
         ) : null}
         {link?.message ? <DataRow label="Last error" value={link.message} /> : null}
+      </SectionCard>
+
+      <SectionCard title="Execution funnel">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Where today's setups stopped, from detection to a delivered alert. Every number is read
+          from stored rows.
+        </p>
+        <ul className="divide-y divide-border/60">
+          {(funnel?.stages ?? []).map((s) => (
+            <li key={s.stage} className="flex items-center justify-between gap-3 py-2.5">
+              <div>
+                <p className="text-sm">{s.stage}</p>
+                <p className="text-xs text-muted-foreground">{s.note}</p>
+              </div>
+              <span className="num text-sm font-semibold">{s.count}</span>
+            </li>
+          ))}
+        </ul>
+        {funnel && funnel.topBlocking.length > 0 && (
+          <div className="mt-3 border-t border-border/60 pt-3">
+            <p className="mb-2 text-xs text-muted-foreground">Armed setups are waiting on:</p>
+            <ul className="space-y-1.5">
+              {funnel.topBlocking.map((b) => (
+                <li key={b.code} className="text-xs">
+                  <span className="num font-semibold text-primary">{b.code}</span>{" "}
+                  <span className="num text-muted-foreground">×{b.count}</span>
+                  <p className="text-muted-foreground">{b.reason}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </SectionCard>
 
 
