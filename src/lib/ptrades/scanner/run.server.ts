@@ -640,24 +640,29 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
         continue;
       }
 
-      // Live mode: claim a slot atomically BEFORE promoting, so concurrent work
-      // can never exceed that tier's daily cap.
+      // Live mode: when a tier is capped, claim a slot atomically BEFORE
+      // promoting so concurrent work can never exceed that cap. When the tier
+      // is unlimited, no slot is claimed — the counter is still kept up to
+      // date, but purely as a statistic.
       const tier = (result.candidate.grade ?? "C") as Tier;
       const bucket = tierBucket(tier);
-      const claimed = await claimActionableSlot(
-        admin,
-        rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable,
-        bucket,
-      );
+      const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
+      const unlimited = isUnlimitedCap(bucketMax);
 
-      if (!claimed) {
-        runRejections.push({
-          instrument: instrument.symbol,
-          gate: "DAILY_CAP",
-          reason: "Daily actionable cap already claimed.",
-        });
-        continue;
+      if (unlimited) {
+        await incrementActionableCount(admin, 0, bucket);
+      } else {
+        const claimed = await claimActionableSlot(admin, bucketMax, bucket);
+        if (!claimed) {
+          runRejections.push({
+            instrument: instrument.symbol,
+            gate: "DAILY_CAP",
+            reason: "Daily actionable cap already claimed.",
+          });
+          continue;
+        }
       }
+
 
       const signalId = await promoteToSignal(admin, result.candidate, {
         candidateId,
