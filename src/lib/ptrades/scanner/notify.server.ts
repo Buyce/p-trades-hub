@@ -12,7 +12,7 @@ import { sendAlertEmail, type AlertEmailInput } from "./alert-email.server";
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
 
-const SITE_URL = "https://p-trade-spotlight.lovable.app";
+const SITE_URL = "https://getptrades.com";
 
 export type QualifiedAlert = {
   shadowMode: boolean;

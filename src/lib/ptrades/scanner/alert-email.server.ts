@@ -11,7 +11,7 @@ import { SignalAlertEmail } from "@/lib/email-templates/signal-alert";
 
 const SITE_NAME = "P-Trades";
 const FROM_DOMAIN = "notify.getptrades.com";
-const SITE_URL = "https://p-trade-spotlight.lovable.app";
+const SITE_URL = "https://getptrades.com";
 
 export type AlertEmailInput = {
   signalId: string;

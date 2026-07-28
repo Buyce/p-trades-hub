@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-const PUBLISHED_APP_ORIGIN = "https://p-trade-spotlight.lovable.app";
+const PUBLISHED_APP_ORIGIN = "https://getptrades.com";
 
 function getAuthRedirectOrigin() {
   if (window.location.hostname.endsWith("lovable.app") || window.location.hostname === "localhost") {

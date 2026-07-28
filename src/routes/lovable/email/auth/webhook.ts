@@ -12,7 +12,7 @@ import { ReauthenticationEmail } from '@/lib/email-templates/reauthentication'
 const SITE_NAME = "P-Trades"
 const SENDER_DOMAIN = "notify.getptrades.com"
 const FROM_DOMAIN = "notify.getptrades.com"
-const SITE_URL = "https://p-trade-spotlight.lovable.app"
+const SITE_URL = "https://getptrades.com"
 
 // The SDK handler owns verification, dispatch, and retry semantics; this file
 // owns only the email decisions: subjects, templates, and per-type props.
