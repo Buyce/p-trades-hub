@@ -6,7 +6,9 @@ import {
 import { buildInvalidation, hasInvalidation, isInvalidated } from "../invalidation.server";
 import { canTransition, isAlertable, transition } from "../lifecycle.server";
 import { detectMicroTrigger } from "../micro-trigger.server";
+import { armingFailedGates, isArmableSetup } from "../run.server";
 import type { Candle } from "../types";
+import { DEFAULT_RULEBOOK } from "../types";
 
 const POINT = 0.00001;
 
@@ -123,6 +125,40 @@ describe("lifecycle", () => {
   it("treats terminal states as terminal", () => {
     expect(canTransition("EXPIRED", "ARMED")).toBe(false);
     expect(canTransition("INVALIDATED", "ENTRY_READY")).toBe(false);
+  });
+});
+
+describe("precision arming boundary", () => {
+  const armableBreak = {
+    found: false,
+    setupType: "BREAK_RETEST" as const,
+    direction: "LONG" as const,
+    level: 1.1,
+    extreme: 1.095,
+    entryLow: null,
+    entryHigh: null,
+    sweepFound: false,
+    displacementAtr: 1.2,
+    retestFound: false,
+    structureType: "BOS" as const,
+    detail: {},
+  };
+
+  it("arms structural M15 setups even while the retest/execution moment is pending", () => {
+    expect(isArmableSetup(armableBreak, DEFAULT_RULEBOOK)).toBe(true);
+    expect(isArmableSetup({ ...armableBreak, displacementAtr: 0.4 }, DEFAULT_RULEBOOK)).toBe(false);
+    expect(isArmableSetup({ ...armableBreak, level: null }, DEFAULT_RULEBOOK)).toBe(false);
+  });
+
+  it("does not let execution-only gates block watch creation", () => {
+    const failed = armingFailedGates([
+      { code: "SPREAD", passed: false, reason: "wide" },
+      { code: "RR_BELOW_MIN", passed: false, reason: "not enough" },
+      { code: "LATE_ENTRY", passed: false, reason: "extended" },
+      { code: "EXPIRED", passed: false, reason: "old" },
+      { code: "DUPLICATE", passed: false, reason: "already armed" },
+    ]);
+    expect(failed.map((g) => g.code)).toEqual(["DUPLICATE"]);
   });
 });
 

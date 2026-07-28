@@ -1,10 +1,9 @@
-import type { Bias, Candidate, Candle, GateResult, Rulebook, Timeframe } from "./types";
+import type { Bias, Candidate, Candle, GateCode, GateResult, Rulebook, Timeframe } from "./types";
 import {
   DEFAULT_RULEBOOK,
   TIMEFRAME_LABEL,
   TIMEFRAME_SECONDS,
   candleGapMultipleFor,
-  isUnlimitedCap,
   precisionRulesFor,
 } from "./types";
 
@@ -18,10 +17,10 @@ import { higherTimeframeBias } from "./bias.server";
 import { checkLateEntry } from "./late-entry.server";
 import { fingerprint } from "./fingerprint.server";
 import { rulebookChecksum } from "./rulebook.server";
-import { minTierRr, scoreCandidate, tierFor } from "./scoring.server";
+import { minTierRr, scoreCandidate } from "./scoring.server";
 import { rewardToRisk, structuralTargets } from "./risk.server";
 import { swingHighs, swingLows } from "./swings.server";
-import { detectSetup } from "./setups.server";
+import { detectSetup, type SetupResult } from "./setups.server";
 import { checkCandleSanity } from "./sanity.server";
 import { sessionAt } from "./sessions.server";
 import { currenciesFor, macroContextFor, type MacroEvent } from "./macro.server";
@@ -32,27 +31,19 @@ import { buildInvalidation, hasInvalidation } from "./invalidation.server";
 import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
 import { acquireScanLock, releaseScanLock } from "./lock.server";
 import { armedExpiry } from "./lifecycle.server";
-import { tierBucket } from "../tiers";
 import {
   biasConflict,
   candleSanity,
-  dailyCap,
   duplicate,
-  expiry,
-  failedGates,
   invalidStop,
   invalidationGate,
-  lateEntry,
   missingData,
   newsLockout,
   noSetup,
-  rrGate,
   sessionGate,
-  spreadGate,
   staleData,
 } from "./gates.server";
 import {
-  actionableCountToday,
   closeStaleRuns,
   cacheCandle,
 
@@ -71,6 +62,45 @@ type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["su
 
 const ENTRY_TF: Timeframe = "M15";
 const REQUIRED: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
+const CANDLE_FETCH_TIMEOUT_MS = 4_000;
+const SPREAD_FETCH_TIMEOUT_MS = 3_000;
+const ACCOUNT_FETCH_TIMEOUT_MS = 3_000;
+
+const EXECUTION_ONLY_GATES = new Set<GateCode>([
+  "SPREAD",
+  "RR_BELOW_MIN",
+  "LATE_ENTRY",
+  "EXPIRED",
+  "DAILY_CAP",
+  "NO_MICRO_TRIGGER",
+  "NO_MICRO_RETEST",
+  "NOT_NEAR_ENTRY",
+  "TARGET_TOUCHED",
+]);
+
+export function armingFailedGates(gates: GateResult[]): GateResult[] {
+  return gates.filter((g) => !g.passed && !EXECUTION_ONLY_GATES.has(g.code));
+}
+
+export function isArmableSetup(setup: SetupResult, rulebook: Rulebook): boolean {
+  const displacementOk =
+    setup.displacementAtr !== null && setup.displacementAtr >= rulebook.displacement_min_atr;
+  const hasStructure = setup.sweepFound || setup.structureType !== null;
+  return Boolean(setup.direction && setup.level !== null && hasStructure && displacementOk);
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([
+    promise.finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }),
+    timeout,
+  ]);
+}
 
 export type ScanSummary = {
   ok: boolean;
@@ -228,11 +258,19 @@ async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
   const fetchOne = async (tf: Timeframe) => {
     const limit = tf === "1d" ? 120 : 200;
     try {
-      return await marketData().getCandles(symbol, tf, limit);
+      return await withTimeout(
+        marketData().getCandles(symbol, tf, limit),
+        CANDLE_FETCH_TIMEOUT_MS,
+        `getCandles(${symbol}/${tf})`,
+      );
     } catch (first) {
       await new Promise((r) => setTimeout(r, 500));
       try {
-        return await marketData().getCandles(symbol, tf, limit);
+        return await withTimeout(
+          marketData().getCandles(symbol, tf, limit),
+          CANDLE_FETCH_TIMEOUT_MS,
+          `getCandles(${symbol}/${tf}) retry`,
+        );
       } catch (second) {
         const fallback = lastGoodCandles(symbol, tf);
         if (!fallback) throw second;
@@ -437,15 +475,17 @@ async function evaluateInstrument(
   // Detection telemetry. Without it a "no setup" rejection says only that
   // nothing formed; with it we can see which stage of which family stopped,
   // and whether the inputs themselves were degraded. Reporting only.
+  const armableSetup = isArmableSetup(setup, rulebook);
   const detectionDetail = {
     ...setup.detail,
-    stage: !setup.sweepFound
+    stage: !setup.sweepFound && setup.structureType === null
       ? "NO_STRUCTURE_EVENT"
       : setup.displacementAtr === null || setup.displacementAtr < rulebook.displacement_min_atr
         ? "NO_DISPLACEMENT"
         : !setup.retestFound
-          ? "NO_RETEST"
+          ? "ARMED_AWAITING_M1_EXECUTION"
           : "COMPLETE",
+    armable: armableSetup,
     best_family: setup.setupType,
     direction: setup.direction,
     level: setup.level,
@@ -460,14 +500,12 @@ async function evaluateInstrument(
     entry_candles: entryCandles.length,
     swing_lookback: rulebook.swing_lookback,
   };
-  gates.push(noSetup(setup.found, setup.setupType, detectionDetail));
+  gates.push(noSetup(armableSetup, setup.setupType, detectionDetail));
 
-  // No setup means every downstream derivation (anchor, zone, stop, targets,
-  // R:R, invalidation) is arithmetic on nulls. Evaluating them anyway produced
-  // six further rejection rows per instrument per minute that all restated the
-  // same root cause, and a candidate row with nothing in it. Stop here instead:
-  // the single NO_SETUP row now carries the diagnosis.
-  if (!setup.found) return { candidate: null, gates, macroContext: {} };
+  // No armable structure means every downstream derivation (anchor, zone, stop,
+  // targets, R:R, invalidation) is arithmetic on nulls. Stop here instead: the
+  // single NO_SETUP row now carries the diagnosis.
+  if (!armableSetup) return { candidate: null, gates, macroContext: {} };
 
 
   const direction: "LONG" | "SHORT" =
@@ -493,22 +531,17 @@ async function evaluateInstrument(
         : "No displacement candle of sufficient size.",
     detail: { bodyAtr: setup.displacementAtr, minAtr: rulebook.displacement_min_atr },
   });
-  gates.push({
-    code: "NO_RETEST",
-    passed: setup.retestFound,
-    reason: setup.retestFound
-      ? `Broken level ${setup.level} retested and held.`
-      : "The broken level has not been retested and held on a closed candle.",
-    detail: { level: setup.level, ...setup.detail },
-  });
-
   let spread: number | null = null;
   try {
-    spread = await marketData().getSpread(symbol);
+    spread = await withTimeout(
+      marketData().getSpread(symbol),
+      SPREAD_FETCH_TIMEOUT_MS,
+      `getSpread(${symbol})`,
+    );
   } catch (error) {
     spread = null;
-    // A missing spread fails the spread gate closed; without this log the
-    // instrument looks like it was rejected on merit rather than on a feed gap.
+    // A missing spread no longer blocks arming; execution spread is re-proved
+    // in the precision loop. The log keeps provider gaps visible.
     await recordScannerError(admin, {
       runId,
       instrument: instrument.symbol,
@@ -576,10 +609,6 @@ async function evaluateInstrument(
   gates.push(biasConflict(bias as Bias, direction));
   gates.push(invalidStop(entry, stop, direction, atrValue, rulebook.max_stop_atr_multiple));
 
-  gates.push(
-    spreadGate(spread, atrValue, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null),
-  );
-
   // Opposing liquidity ahead of the entry: prior swing highs for a long, prior
   // swing lows for a short. These are the destinations the setup is actually
   // trading towards, so they define the target ladder.
@@ -603,15 +632,6 @@ async function evaluateInstrument(
   const rrRaw = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
   // Stored to two decimals so a displayed R:R always matches the stored one.
   const rr = rrRaw === null ? null : Number(rrRaw.toFixed(2));
-  // Per-instrument minimums raise the top tiers only; the hard RR gate uses the
-  // lowest tier floor, and the tier a candidate earns is decided after scoring.
-  const topTierRr = Math.max(instrument.min_rr, rulebook.tier_min_rr.A);
-  const tierRulebook: Rulebook = {
-    ...rulebook,
-    tier_min_rr: { ...rulebook.tier_min_rr, A_PLUS: topTierRr, A: topTierRr },
-  };
-  gates.push(rrGate(rr, minTierRr(tierRulebook)));
-
   const late = checkLateEntry(
     last.close,
     entryLow,
@@ -619,13 +639,6 @@ async function evaluateInstrument(
     atrValue,
     rulebook.late_entry_max_atr_from_entry,
   );
-  gates.push(lateEntry(late.late, late.distanceAtr));
-
-  // Expiry: a setup confirmed too long ago is no longer tradable.
-  const triggerTime =
-    (setup.detail.retestAt as string | undefined) ?? last.time ?? null;
-  gates.push(expiry(triggerTime, rulebook.signal_expiry_minutes, now.getTime()));
-
   const print = fingerprint({
     instrument: instrument.symbol,
     direction,
@@ -639,7 +652,7 @@ async function evaluateInstrument(
   gates.push(duplicate(await fingerprintExistsToday(admin, print), print));
 
   const spreadRatio = spread !== null && atrValue ? spread / atrValue : null;
-  const { score, components } = scoreCandidate(
+  const { score, grade: scoreGrade, components } = scoreCandidate(
     {
       rr,
       biasAligned: bias === direction,
@@ -651,23 +664,13 @@ async function evaluateInstrument(
       lateDistanceAtr: late.distanceAtr,
       macroAligned: macro.aligned,
     },
-    tierRulebook,
+    rulebook,
   );
 
-  // Tier requires both the score band and that tier's reward-to-risk floor.
-  const tier = tierFor(score, rr, tierRulebook);
-  const bucket = tier ? tierBucket(tier) : "A";
-  // A non-positive tier allowance means unlimited: the cap gate always passes.
-  const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
-  if (!isUnlimitedCap(bucketMax)) {
-    gates.push(dailyCap(await actionableCountToday(admin, bucket), bucketMax));
-  }
-
-
-  const failed = failedGates(gates);
-  const qualified = failed.length === 0 && tier !== null;
-  // A setup that failed a hard gate is never labelled with a tradable tier.
-  const grade = qualified ? tier : null;
+  const failed = armingFailedGates(gates);
+  const qualified = failed.length === 0 && scoreGrade !== null;
+  // Stored tier is the setup-quality band. Execution R:R is re-proved before alerting.
+  const grade = qualified ? scoreGrade : null;
 
   const candidate: Candidate = {
     instrument: instrument.symbol,
@@ -814,7 +817,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   for (const instrument of rows) {
     try {
       const result = await evaluateInstrument(admin, instrument, rulebook, macroEvents, runId);
-      const failed = failedGates(result.gates);
+      const failed = armingFailedGates(result.gates);
       rejectionCount += failed.length;
       for (const f of failed) {
         runRejections.push({ instrument: instrument.symbol, gate: f.code, reason: f.reason });
@@ -937,7 +940,11 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
 
   // Non-sensitive account context so Scanner Health can show which broker feed
   // the scan read from. Never includes tokens, passwords or balances.
-  const accountInfo = await marketData().getAccount().catch(() => null);
+  const accountInfo = await withTimeout(
+    marketData().getAccount(),
+    ACCOUNT_FETCH_TIMEOUT_MS,
+    "getAccount",
+  ).catch(() => null);
 
   await writeHeartbeat(admin, {
     status: errorMessage ? "DEGRADED" : "OK",
