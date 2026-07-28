@@ -25,6 +25,7 @@ import { Route as AuthenticatedAdminInvitesRouteImport } from './routes/_authent
 import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_authenticated/signals.$signalId'
 import { Route as LovableEmailAuthWebhookRouteImport } from './routes/lovable/email/auth/webhook'
 import { Route as LovableEmailAuthPreviewRouteImport } from './routes/lovable/email/auth/preview'
+import { Route as ApiPublicHooksSyncMarketDataRouteImport } from './routes/api/public/hooks/sync-market-data'
 import { Route as ApiPublicHooksScanPrecisionRouteImport } from './routes/api/public/hooks/scan-precision'
 import { Route as ApiPublicHooksScanContextRouteImport } from './routes/api/public/hooks/scan-context'
 
@@ -112,6 +113,12 @@ const LovableEmailAuthPreviewRoute = LovableEmailAuthPreviewRouteImport.update({
   path: '/lovable/email/auth/preview',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicHooksSyncMarketDataRoute =
+  ApiPublicHooksSyncMarketDataRouteImport.update({
+    id: '/api/public/hooks/sync-market-data',
+    path: '/api/public/hooks/sync-market-data',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiPublicHooksScanPrecisionRoute =
   ApiPublicHooksScanPrecisionRouteImport.update({
     id: '/api/public/hooks/scan-precision',
@@ -141,6 +148,7 @@ export interface FileRoutesByFullPath {
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
+  '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
 }
@@ -160,6 +168,7 @@ export interface FileRoutesByTo {
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
+  '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
 }
@@ -181,6 +190,7 @@ export interface FileRoutesById {
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
+  '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
 }
@@ -202,6 +212,7 @@ export interface FileRouteTypes {
     | '/signals/$signalId'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
+    | '/api/public/hooks/sync-market-data'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
   fileRoutesByTo: FileRoutesByTo
@@ -221,6 +232,7 @@ export interface FileRouteTypes {
     | '/signals/$signalId'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
+    | '/api/public/hooks/sync-market-data'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
   id:
@@ -241,6 +253,7 @@ export interface FileRouteTypes {
     | '/_authenticated/signals/$signalId'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
+    | '/api/public/hooks/sync-market-data'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
   fileRoutesById: FileRoutesById
@@ -252,6 +265,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiPublicHooksScanContextRoute: typeof ApiPublicHooksScanContextRoute
   ApiPublicHooksScanPrecisionRoute: typeof ApiPublicHooksScanPrecisionRoute
+  ApiPublicHooksSyncMarketDataRoute: typeof ApiPublicHooksSyncMarketDataRoute
   LovableEmailAuthPreviewRoute: typeof LovableEmailAuthPreviewRoute
   LovableEmailAuthWebhookRoute: typeof LovableEmailAuthWebhookRoute
 }
@@ -370,6 +384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LovableEmailAuthPreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/sync-market-data': {
+      id: '/api/public/hooks/sync-market-data'
+      path: '/api/public/hooks/sync-market-data'
+      fullPath: '/api/public/hooks/sync-market-data'
+      preLoaderRoute: typeof ApiPublicHooksSyncMarketDataRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/public/hooks/scan-precision': {
       id: '/api/public/hooks/scan-precision'
       path: '/api/public/hooks/scan-precision'
@@ -423,6 +444,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   ApiPublicHooksScanContextRoute: ApiPublicHooksScanContextRoute,
   ApiPublicHooksScanPrecisionRoute: ApiPublicHooksScanPrecisionRoute,
+  ApiPublicHooksSyncMarketDataRoute: ApiPublicHooksSyncMarketDataRoute,
   LovableEmailAuthPreviewRoute: LovableEmailAuthPreviewRoute,
   LovableEmailAuthWebhookRoute: LovableEmailAuthWebhookRoute,
 }
