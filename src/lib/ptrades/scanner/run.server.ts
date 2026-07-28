@@ -49,6 +49,8 @@ import {
   closeStaleRuns,
   cacheCandle,
   claimActionableSlot,
+  incrementActionableCount,
+
   fingerprintExistsToday,
   finishRun,
   promoteToSignal,
