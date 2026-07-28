@@ -99,14 +99,22 @@ export async function saveCandidate(
   return data?.id ?? null;
 }
 
+/**
+ * Gates that re-fire identically on every minute-by-minute scan for the same
+ * fingerprint. They stay in the in-memory run summary but are not written to
+ * `signal_rejections`, where they would otherwise bury the diagnostic signal.
+ */
+const NOISY_GATES = new Set(["DUPLICATE"]);
+
 export async function saveRejections(
   admin: Admin,
   rows: GateResult[],
   meta: { candidateId: string | null; runId: string | null; instrument: string; timeframe: string },
 ) {
-  if (rows.length === 0) return;
+  const persistable = rows.filter((r) => !NOISY_GATES.has(r.code));
+  if (persistable.length === 0) return;
   const { error } = await admin.from("signal_rejections").insert(
-    rows.map((r) => ({
+    persistable.map((r) => ({
       candidate_id: meta.candidateId,
       scanner_run_id: meta.runId,
       instrument: meta.instrument,
