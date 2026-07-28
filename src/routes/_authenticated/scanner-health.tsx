@@ -6,6 +6,7 @@ import {
   heartbeatHistoryQuery,
   scannerRunsQuery,
   activeRulebookQuery,
+  blockingGatesTodayQuery,
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
 import { field, formatTime, relativeFromNow } from "@/lib/ptrades/format";
@@ -132,6 +133,31 @@ function ScannerHealth() {
           </ul>
         )}
       </SectionCard>
+
+      <SectionCard title="Why nothing alerted today">
+        {blocking.length === 0 ? (
+          <EmptyState
+            title="No rejections recorded today"
+            description="Either no setup formed yet, or every evaluated setup passed its gates."
+          />
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {blocking.map((b) => (
+              <li key={b.instrument} className="py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="num text-sm font-medium">{b.instrument}</p>
+                  <span className="num text-xs text-muted-foreground">
+                    {b.count}/{b.total} blocks
+                  </span>
+                </div>
+                <p className="num mt-1 text-xs font-semibold text-primary">{b.gate}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">{b.reason}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </SectionCard>
     </div>
+
   );
 }
