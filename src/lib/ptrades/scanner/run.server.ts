@@ -85,6 +85,18 @@ export type ScanSummary = {
   message?: string;
 };
 
+/** The active rulebook, for callers outside the scan (the precision loop). */
+export async function loadActiveRulebook(admin: Admin): Promise<Rulebook> {
+  const { data } = await admin
+    .from("rulebook_versions")
+    .select("version, rules")
+    .eq("is_active", true)
+    .order("effective_from", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return parseRulebook(data);
+}
+
 function parseRulebook(row: { version: string; rules: unknown } | null): Rulebook {
   if (!row) return DEFAULT_RULEBOOK;
   const rules = (row.rules ?? {}) as Partial<Rulebook>;
