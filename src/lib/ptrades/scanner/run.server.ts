@@ -211,13 +211,17 @@ const FETCH_CONCURRENCY = 2;
 export const SCAN_LOCK_TTL_SECONDS = 180;
 
 
-/** How long a fetched series may be reused, per timeframe. */
-const CANDLE_CACHE_TTL_MS: Partial<Record<Timeframe, number>> = {
-  "4h": 10 * 60_000,
-  "1d": 30 * 60_000,
-};
+/**
+ * Candle cache keyed by CANDLE CLOSE TIME, not by wall-clock TTL. A timeframe
+ * cannot produce new information until its next bar closes, so re-reading H1,
+ * H4 or D1 every minute burnt the single provider resource slot for nothing and
+ * was the main cause of context runs overrunning the lock.
+ */
+function closeBucket(tf: Timeframe, nowMs = Date.now()): number {
+  return Math.floor(nowMs / (TIMEFRAME_SECONDS[tf] * 1000));
+}
 
-const candleCache = new Map<string, { at: number; candles: Candle[] }>();
+const candleCache = new Map<string, { bucket: number; candles: Candle[] }>();
 
 /**
  * Last successful series per symbol/timeframe, kept as a retry fallback only.
@@ -230,18 +234,15 @@ const LAST_GOOD_TTL_MS = 60 * 60_000;
 const lastGood = new Map<string, { at: number; candles: Candle[] }>();
 
 function cachedCandles(symbol: string, tf: Timeframe): Candle[] | null {
-  const ttl = CANDLE_CACHE_TTL_MS[tf];
-  if (!ttl) return null;
   const hit = candleCache.get(`${symbol}:${tf}`);
-  if (!hit || Date.now() - hit.at > ttl) return null;
+  if (!hit || hit.bucket !== closeBucket(tf)) return null;
   return hit.candles;
 }
 
 function rememberCandles(symbol: string, tf: Timeframe, candles: Candle[]): void {
   if (candles.length === 0) return;
   lastGood.set(`${symbol}:${tf}`, { at: Date.now(), candles });
-  if (!CANDLE_CACHE_TTL_MS[tf]) return;
-  candleCache.set(`${symbol}:${tf}`, { at: Date.now(), candles });
+  candleCache.set(`${symbol}:${tf}`, { bucket: closeBucket(tf), candles });
 }
 
 function lastGoodCandles(symbol: string, tf: Timeframe): Candle[] | null {
