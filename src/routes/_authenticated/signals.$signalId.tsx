@@ -132,6 +132,40 @@ function SignalDetail() {
         <DataRow label="Invalidation" value={field(signal.invalidation)} mono={false} />
       </SectionCard>
 
+      <SectionCard title="Execution">
+        <DataRow label="Lifecycle" value={field(signal.lifecycle_state)} mono={false} />
+        <DataRow
+          label="Preferred entry"
+          value={signal.preferred_entry !== null ? num(signal.preferred_entry) : undefined}
+        />
+        <DataRow
+          label="Zone width"
+          value={
+            signal.zone_width_points !== null
+              ? `${signal.zone_width_points.toFixed(1)} points`
+              : undefined
+          }
+        />
+        <DataRow label="Trigger" value={field(signal.trigger_summary)} mono={false} />
+        <DataRow label="Trigger timeframe" value={field(signal.trigger_timeframe)} />
+        <DataRow
+          label="Trigger level"
+          value={signal.trigger_level !== null ? num(signal.trigger_level) : undefined}
+        />
+        <DataRow
+          label="Price at alert"
+          value={signal.price_at_alert !== null ? num(signal.price_at_alert) : undefined}
+        />
+        <DataRow
+          label="Distance to entry"
+          value={
+            signal.distance_to_entry_points !== null
+              ? `${signal.distance_to_entry_points.toFixed(1)} points`
+              : undefined
+          }
+        />
+      </SectionCard>
+
       <SectionCard title="Qualification">
         <DataRow label="Score" value={score(signal.score)} />
         <DataRow label="Grade" value={<GradeBadge grade={signal.grade} signalId={signal.id} surface="signal-detail" />} mono={false} />
