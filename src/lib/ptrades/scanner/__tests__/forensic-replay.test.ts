@@ -112,15 +112,19 @@ describe("forensic replay: structural idea identity", () => {
 });
 
 describe("forensic replay: M1 execution trigger", () => {
-  // Rejection into the zone, a displacement leg up, a break, then a retest.
+  // A micro swing high, a rejection back into the armed zone, a displacement
+  // leg, a close through the swing, then a retest that holds it.
   const series = m1([
-    { o: 100.0, h: 100.2, l: 99.6, c: 99.8 },
-    { o: 99.8, h: 100.0, l: 99.5, c: 99.7 },
-    { o: 99.7, h: 99.9, l: 99.4, c: 99.6 },
-    { o: 99.6, h: 101.2, l: 99.55, c: 101.1 },
-    { o: 101.1, h: 101.6, l: 101.0, c: 101.5 },
-    { o: 101.5, h: 101.7, l: 101.0, c: 101.1 },
-    { o: 101.1, h: 101.9, l: 101.05, c: 101.8 },
+    { o: 100.0, h: 100.2, l: 99.9, c: 100.1 },
+    { o: 100.1, h: 100.4, l: 100.0, c: 100.3 },
+    { o: 100.3, h: 100.7, l: 100.2, c: 100.6 },
+    { o: 100.6, h: 100.6, l: 100.1, c: 100.2 },
+    { o: 100.2, h: 100.3, l: 99.7, c: 99.8 },
+    { o: 99.8, h: 99.9, l: 99.4, c: 99.85 },
+    { o: 99.85, h: 100.4, l: 99.8, c: 100.35 },
+    { o: 100.35, h: 100.9, l: 100.3, c: 100.85 },
+    { o: 100.85, h: 100.88, l: 100.6, c: 100.78 },
+    { o: 100.78, h: 101.2, l: 100.7, c: 101.1 },
   ]);
 
   it("fires only on the closed rejection -> displacement -> break sequence", () => {
