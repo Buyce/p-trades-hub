@@ -4,18 +4,23 @@ import { useServerFn } from "@tanstack/react-start";
 import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import {
   heartbeatHistoryQuery,
+  componentHeartbeatsQuery,
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
   instrumentCoverageQuery,
   executionFunnelQuery,
   lastPurgeQuery,
-
   RETENTION_WINDOWS,
-
-
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
+import {
+  HEARTBEAT_SOURCES,
+  HEARTBEAT_SOURCE_LABEL,
+  heartbeatHealth,
+  heartbeatLabel,
+  heartbeatPillState,
+} from "@/lib/ptrades/heartbeat-health";
 import { tierReachability } from "@/lib/ptrades/scanner/reachability";
 import { DEFAULT_RULEBOOK, type Rulebook } from "@/lib/ptrades/scanner/types";
 import { tierLabel } from "@/lib/ptrades/tiers";
@@ -56,6 +61,7 @@ function ScannerHealth() {
     enabled: isStaff,
   });
   const { data: heartbeats = [] } = useQuery({ ...heartbeatHistoryQuery(20), enabled: isStaff });
+  const { data: componentBeats } = useQuery({ ...componentHeartbeatsQuery(), enabled: isStaff });
   const { data: runs = [] } = useQuery({ ...scannerRunsQuery(20), enabled: isStaff });
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
@@ -147,6 +153,32 @@ function ScannerHealth() {
       </SectionCard>
 
 
+      <SectionCard title="Component liveness">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Detection and execution run on separate schedules. Liveness is measured from heartbeat
+          age, so a stale “OK” reads as not reporting.
+        </p>
+        <ul className="divide-y divide-border/60">
+          {HEARTBEAT_SOURCES.map((source) => {
+            const beat = componentBeats?.[source] ?? null;
+            const health = heartbeatHealth(beat?.received_at);
+            return (
+              <li key={source} className="flex items-center justify-between gap-3 py-2.5">
+                <div>
+                  <p className="text-sm">{HEARTBEAT_SOURCE_LABEL[source]}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {beat
+                      ? `${field(beat.status)} · ${formatTime(beat.received_at, tz)} · ${relativeFromNow(beat.received_at)}`
+                      : "No heartbeat recorded"}
+                  </p>
+                </div>
+                <StatusPill state={heartbeatPillState(health)}>{heartbeatLabel(health)}</StatusPill>
+              </li>
+            );
+          })}
+        </ul>
+      </SectionCard>
+
       <SectionCard title="Heartbeats">
         {heartbeats.length === 0 ? (
           <EmptyState title="No heartbeats received" />
@@ -155,12 +187,12 @@ function ScannerHealth() {
             {heartbeats.map((h) => (
               <li key={h.id} className="flex items-center justify-between gap-3 py-2.5">
                 <div>
-                  <p className="num text-sm">{field(h.source)}</p>
+                  <p className="num text-sm">{HEARTBEAT_SOURCE_LABEL[h.source] ?? field(h.source)}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatTime(h.received_at, tz)} · {relativeFromNow(h.received_at)}
                   </p>
                 </div>
-                <StatusPill state={h.status === "OK" ? "ok" : "warn"}>
+                <StatusPill state={h.status === "OK" ? "ok" : h.status === "ERROR" ? "down" : "warn"}>
                   {field(h.status)}
                 </StatusPill>
               </li>

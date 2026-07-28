@@ -32,35 +32,60 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
         const { loadActiveRulebook } = await import("@/lib/ptrades/scanner/run.server");
-        const { runPrecisionLoop } = await import("@/lib/ptrades/scanner/precision.server");
+        const { runPrecisionPass } = await import("@/lib/ptrades/scanner/precision.server");
+        const { safeHeartbeat } = await import("@/lib/ptrades/scanner/heartbeat.server");
         const { acquireScanLock, releaseScanLock } = await import(
           "@/lib/ptrades/scanner/lock.server"
         );
 
         const LOCK_KEY = "precision-loop";
+        // Short TTL: one pass is seconds of work, so a lock older than this is
+        // a crashed invocation and must not block the next tick.
         const locked = await acquireScanLock(supabaseAdmin, {
           key: LOCK_KEY,
-          ttlSeconds: 90,
+          ttlSeconds: 55,
           holder: new Date().toISOString(),
         });
         if (!locked) {
+          // Still alive — the previous pass simply had not finished. Silence
+          // here would look identical to a dead scanner.
+          await safeHeartbeat(supabaseAdmin, {
+            source: "PRECISION_SCANNER",
+            status: "SKIPPED",
+            metaapiConnected: null,
+            rulebookVersion: null,
+            detail: { reason: "A precision pass was already running." },
+          });
           return Response.json({ ok: true, skipped: "A precision pass is already running" });
         }
 
+        const startedAt = Date.now();
         try {
           const rulebook = await loadActiveRulebook(supabaseAdmin);
-          const precision = await runPrecisionLoop(supabaseAdmin, rulebook, {
-            budgetMs: 45_000,
-            intervalMs: 3_000,
-          });
+          const precision = await runPrecisionPass(supabaseAdmin, rulebook);
           const { checkExecutionStall } = await import(
             "@/lib/ptrades/scanner/watchdog.server"
           );
           const watchdog = await checkExecutionStall(supabaseAdmin).catch(() => null);
+          await safeHeartbeat(supabaseAdmin, {
+            source: "PRECISION_SCANNER",
+            // No open watches is a healthy idle scanner, not a fault.
+            status: precision.watched === 0 ? "IDLE" : "OK",
+            metaapiConnected: null,
+            rulebookVersion: rulebook.version ?? null,
+            detail: { ...precision, duration_ms: Date.now() - startedAt },
+          });
           return Response.json({ ok: true, precision, watchdog });
         } catch (error) {
           const message = error instanceof Error ? error.message : "precision pass failed";
           console.error("scan-precision failed", message);
+          await safeHeartbeat(supabaseAdmin, {
+            source: "PRECISION_SCANNER",
+            status: "ERROR",
+            metaapiConnected: null,
+            rulebookVersion: null,
+            detail: { error: message, duration_ms: Date.now() - startedAt },
+          });
           return Response.json({ ok: false, error: message }, { status: 500 });
         } finally {
           await releaseScanLock(supabaseAdmin, LOCK_KEY);

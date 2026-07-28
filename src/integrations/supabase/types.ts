@@ -310,6 +310,7 @@ export type Database = {
           invalidation_price: number | null
           invalidation_timeframe: string | null
           last_checked_at: string | null
+          last_m1_candle_time: string | null
           metadata: Json
           preferred_entry: number | null
           provisional_grade: Database["public"]["Enums"]["signal_grade"] | null
@@ -347,6 +348,7 @@ export type Database = {
           invalidation_price?: number | null
           invalidation_timeframe?: string | null
           last_checked_at?: string | null
+          last_m1_candle_time?: string | null
           metadata?: Json
           preferred_entry?: number | null
           provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
@@ -384,6 +386,7 @@ export type Database = {
           invalidation_price?: number | null
           invalidation_timeframe?: string | null
           last_checked_at?: string | null
+          last_m1_candle_time?: string | null
           metadata?: Json
           preferred_entry?: number | null
           provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null

@@ -18,6 +18,7 @@ export {
   closeTrade,
   latestHeartbeatQuery,
   heartbeatHistoryQuery,
+  componentHeartbeatsQuery,
   scannerRunsQuery,
   blockingGatesTodayQuery,
   instrumentCoverageQuery,

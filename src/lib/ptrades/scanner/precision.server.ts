@@ -18,7 +18,10 @@ import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL, precisionRulesFor } from "./types";
 import { marketData } from "./market-data.server";
 import { atr } from "./atr.server";
 import { dataAgeSeconds, normaliseCandles } from "./candles.server";
-import { detectMicroTrigger } from "./micro-trigger.server";
+import {
+  detectNewMicroTrigger,
+  detectPersistedTriggerRetest,
+} from "./micro-trigger.server";
 import { microEntryAnchor } from "./entry-anchor.server";
 import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
 import { isInvalidated } from "./invalidation.server";
@@ -71,37 +74,42 @@ export type PrecisionSummary = {
   watched: number;
   entryReady: number;
   resolved: number;
+  /** Watches evaluated from the live quote alone because no new M1 closed. */
+  quoteOnly: number;
 };
 
-export type PrecisionLoopOptions = {
-  /** How long the loop may run inside one invocation. */
-  budgetMs?: number;
-  /** Gap between passes. */
-  intervalMs?: number;
-  now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
+export type PrecisionPassOptions = {
   /** Overrides the stored scanner setting. Shadow mode never notifies. */
   shadowMode?: boolean;
+  now?: () => number;
 };
 
-const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Close time of the newest M1 candle that can already be closed. */
+export function lastClosedM1Time(nowMs: number): string {
+  return new Date(Math.floor(nowMs / 60_000) * 60_000 - 60_000).toISOString();
+}
 
 /**
- * Polls the armed watches until the time budget is spent. Returns as soon as
- * there is nothing left to watch, so an idle minute costs no broker calls.
+ * ONE pass over every open watch, then exit.
+ *
+ * The scheduled endpoint must not hold a request open: a long-lived invocation
+ * overruns its lock, is killed mid-flight and leaves no heartbeat, which is
+ * exactly how the runtime went silent. Frequency is the scheduler's job, not
+ * this function's.
  */
-export async function runPrecisionLoop(
+export async function runPrecisionPass(
   admin: Admin,
   rulebook: Rulebook = DEFAULT_RULEBOOK,
-  options: PrecisionLoopOptions = {},
+  options: PrecisionPassOptions = {},
 ): Promise<PrecisionSummary> {
-  const budgetMs = options.budgetMs ?? 45_000;
-  const intervalMs = options.intervalMs ?? 5_000;
   const now = options.now ?? (() => Date.now());
-  const sleep = options.sleep ?? defaultSleep;
-  const deadline = now() + budgetMs;
-
-  const summary: PrecisionSummary = { passes: 0, watched: 0, entryReady: 0, resolved: 0 };
+  const summary: PrecisionSummary = {
+    passes: 0,
+    watched: 0,
+    entryReady: 0,
+    resolved: 0,
+    quoteOnly: 0,
+  };
   if (rulebook.precision?.enabled === false) return summary;
 
   // Delivery mode is read from the stored setting, never hardcoded.
@@ -115,47 +123,43 @@ export async function runPrecisionLoop(
     shadowMode = settings?.shadow_mode ?? true;
   }
 
+  const watches = await listOpenWatches(admin);
+  summary.watched = watches.length;
+  if (watches.length === 0) return summary;
+
+  summary.passes = 1;
   const instruments = await loadInstruments(admin);
   const macroEvents = await loadMacroEvents(admin);
 
-  while (now() < deadline) {
-    const watches = await listOpenWatches(admin);
-    if (watches.length === 0) break;
-
-    summary.passes += 1;
-    summary.watched = Math.max(summary.watched, watches.length);
-
-    for (const watch of watches) {
-      try {
-        const outcome = await evaluateWatch(
-          admin,
-          watch,
-          rulebook,
-          instruments,
-          macroEvents,
-          shadowMode,
-        );
-        if (outcome === "ENTRY_READY") summary.entryReady += 1;
-        if (outcome === "RESOLVED") summary.resolved += 1;
-      } catch (error) {
-        await recordScannerError(admin, {
-          runId: null,
-          instrument: watch.symbol,
-          stage: "PRECISION",
-          error,
-          detail: { watch_id: watch.id, state: watch.state },
-        });
-      }
+  for (const watch of watches) {
+    try {
+      const outcome = await evaluateWatch(
+        admin,
+        watch,
+        rulebook,
+        instruments,
+        macroEvents,
+        shadowMode,
+        now(),
+      );
+      if (outcome === "ENTRY_READY") summary.entryReady += 1;
+      if (outcome === "RESOLVED") summary.resolved += 1;
+      if (outcome === "QUOTE_ONLY") summary.quoteOnly += 1;
+    } catch (error) {
+      await recordScannerError(admin, {
+        runId: null,
+        instrument: watch.symbol,
+        stage: "PRECISION",
+        error,
+        detail: { watch_id: watch.id, state: watch.state },
+      });
     }
-
-    if (now() + intervalMs >= deadline) break;
-    await sleep(intervalMs);
   }
 
   return summary;
 }
 
-type WatchOutcome = "WAITING" | "ENTRY_READY" | "RESOLVED";
+type WatchOutcome = "WAITING" | "ENTRY_READY" | "RESOLVED" | "QUOTE_ONLY";
 
 async function evaluateWatch(
   admin: Admin,
@@ -164,8 +168,8 @@ async function evaluateWatch(
   instruments: Map<string, InstrumentRow>,
   macroEvents: MacroEvent[],
   shadowMode: boolean,
+  nowMs: number = Date.now(),
 ): Promise<WatchOutcome> {
-  const nowMs = Date.now();
   const direction = watch.direction === "SHORT" ? "SHORT" : "LONG";
 
   // Expiry is checked before anything is fetched: a dead watch costs nothing.
@@ -187,6 +191,49 @@ async function evaluateWatch(
   const point = pointSizeFor(instrument.point_size ?? null, resolved.digits) ?? 0;
   const rules = precisionRulesFor(rulebook, watch.symbol);
 
+  // Live two-sided price. Always cheap, always fetched: it is the only input
+  // that changes between M1 closes.
+  const liveQuote = await marketData().getQuote(brokerSymbol).catch(() => null);
+  const targets = Array.isArray(watch.targets) ? (watch.targets as number[]) : [];
+  const tp1 = targets[0] ?? null;
+
+  // A new M1 candle only exists once a minute. Re-downloading 120 unchanged
+  // candles every pass burned the single provider slot for nothing, so between
+  // closes we evaluate proximity, spread and expiry from the quote alone.
+  const newestClosed = lastClosedM1Time(nowMs);
+  const alreadyAnalysed =
+    watch.last_m1_candle_time !== null &&
+    new Date(watch.last_m1_candle_time).getTime() >= new Date(newestClosed).getTime();
+  const previousCheck = ((watch.metadata ?? {}) as Record<string, unknown>).last_check as
+    | { micro_confirmed?: boolean }
+    | undefined;
+  // A confirmed trigger may promote on price alone, so never short-circuit it.
+  const quoteOnly = alreadyAnalysed && previousCheck?.micro_confirmed !== true;
+
+  if (quoteOnly) {
+    const spreadNow = liveQuote !== null ? liveQuote.ask - liveQuote.bid : null;
+    const priceNow = liveQuote !== null ? executionPrice(liveQuote, direction) : null;
+    const distanceNow =
+      priceNow !== null && watch.preferred_entry !== null && point > 0
+        ? distanceToEntryPoints(priceNow, watch.preferred_entry, point)
+        : null;
+    await updateWatch(admin, watch.id, {
+      last_checked_at: new Date(nowMs).toISOString(),
+      check_count: watch.check_count + 1,
+      metadata: {
+        ...((watch.metadata ?? {}) as Record<string, unknown>),
+        quote_check: {
+          at: new Date(nowMs).toISOString(),
+          price: priceNow,
+          spread: spreadNow,
+          distance_points: distanceNow,
+          note: "No new closed M1 candle since the last full evaluation.",
+        },
+      } as never,
+    });
+    return "QUOTE_ONLY";
+  }
+
   const raw = await marketData().getCandles(brokerSymbol, MICRO_TF, 120);
   const { candles: m1 } = normaliseCandles(raw, MICRO_TF);
   const lastClosedCandle = m1.at(-1) ?? null;
@@ -205,8 +252,6 @@ async function evaluateWatch(
     return "RESOLVED";
   }
 
-  const targets = Array.isArray(watch.targets) ? (watch.targets as number[]) : [];
-  const tp1 = targets[0] ?? null;
   const extremeSinceArmed =
     direction === "LONG"
       ? m1.reduce<number | null>((m, c) => (m === null || c.high > m ? c.high : m), null)
@@ -219,9 +264,6 @@ async function evaluateWatch(
     return "RESOLVED";
   }
 
-  // Live two-sided price: the reward is proved at the price a manual trade
-  // would actually pay, not at the mid or the last close.
-  const liveQuote = await marketData().getQuote(brokerSymbol).catch(() => null);
   const quote =
     liveQuote !== null
       ? liveQuote.ask - liveQuote.bid
@@ -251,16 +293,39 @@ async function evaluateWatch(
   gates.push(spreadGate(quote, atrM1, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null));
   gates.push(invalidationGate(watch.invalidation_price !== null, watch.invalidation_condition));
 
-  // 4. The micro trigger: rejection, displacement, break of structure, retest.
-  const trigger = detectMicroTrigger({
-    candles: m1,
-    direction,
-    zoneLow: watch.entry_zone_low ?? watch.preferred_entry ?? 0,
-    zoneHigh: watch.entry_zone_high ?? watch.preferred_entry ?? 0,
-    atrM1,
-    displacementMinAtr: Math.min(1, rulebook.displacement_min_atr),
-    retestWithinBars: rulebook.precision?.trigger_expiry_bars ?? 3,
-  });
+  // 4. The micro trigger.
+  //
+  // ARMED: search for a brand new rejection -> displacement -> BOS sequence.
+  // MICRO_TRIGGERED: the sequence already happened and is stored. Re-running
+  // the full search would let a later, different sequence silently replace the
+  // level the plan was built on, so we only look for the persisted level's
+  // retest and we keep the original deadline.
+  const triggerBars = rulebook.precision?.trigger_expiry_bars ?? 3;
+  const persistedTriggerLive =
+    watch.state === "MICRO_TRIGGERED" &&
+    watch.trigger_level !== null &&
+    (watch.retest_deadline === null || new Date(watch.retest_deadline).getTime() > nowMs);
+
+  const trigger = persistedTriggerLive
+    ? detectPersistedTriggerRetest({
+        candles: m1,
+        atrM1,
+        retestWithinBars: triggerBars,
+        trigger: {
+          brokenLevel: watch.trigger_level as number,
+          bosCandleTime: watch.trigger_candle_time,
+          direction,
+        },
+      })
+    : detectNewMicroTrigger({
+        candles: m1,
+        direction,
+        zoneLow: watch.entry_zone_low ?? watch.preferred_entry ?? 0,
+        zoneHigh: watch.entry_zone_high ?? watch.preferred_entry ?? 0,
+        atrM1,
+        displacementMinAtr: Math.min(1, rulebook.displacement_min_atr),
+        retestWithinBars: triggerBars,
+      });
   gates.push(microTrigger(trigger.triggered, trigger.failures));
   gates.push(microRetest(trigger.confirmed, trigger.brokenLevel));
 
@@ -334,6 +399,7 @@ async function evaluateWatch(
     await updateWatch(admin, watch.id, {
       state: transition(watch.state as never, nextState),
       last_checked_at: checkedAt,
+      last_m1_candle_time: lastClosedCandle?.time ?? watch.last_m1_candle_time,
       check_count: watch.check_count + 1,
       preferred_entry: preferredEntry,
       entry_zone_low: zone ? roundToDigits(zone.entryLow, resolved.digits) : watch.entry_zone_low,
@@ -412,6 +478,7 @@ async function evaluateWatch(
     // next pass may find a better price. Never alert an unresolved tier.
     await updateWatch(admin, watch.id, {
       last_checked_at: checkedAt,
+      last_m1_candle_time: lastClosedCandle?.time ?? watch.last_m1_candle_time,
       check_count: watch.check_count + 1,
       metadata: {
         ...meta,
@@ -460,6 +527,7 @@ async function evaluateWatch(
     entry_ready_at: checkedAt,
     resolved_at: checkedAt,
     last_checked_at: checkedAt,
+    last_m1_candle_time: lastClosedCandle?.time ?? watch.last_m1_candle_time,
     check_count: watch.check_count + 1,
     preferred_entry: preferredEntry,
     entry_zone_low: zone ? roundToDigits(zone.entryLow, resolved.digits) : null,
