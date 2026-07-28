@@ -685,7 +685,17 @@ async function evaluateInstrument(
     resolved.digits,
   );
 
-  gates.push(biasConflict(bias as Bias, direction));
+  // Bias eligibility, not blind alignment: reversal families (sweep, CHOCH)
+  // are allowed to trade against the H4 bias; continuations are not.
+  const biasDecision: BiasDecision = evaluateBiasPolicy({
+    setup,
+    direction,
+    bias: bias as Bias,
+    d1: d1 as Bias,
+    rulebook,
+  });
+  gates.push(biasPolicyGate(biasDecision));
+
   gates.push(invalidStop(entry, stop, direction, atrValue, rulebook.max_stop_atr_multiple));
 
   // Opposing liquidity ahead of the entry: prior swing highs for a long, prior
