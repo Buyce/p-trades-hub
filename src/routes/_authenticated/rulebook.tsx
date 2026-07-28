@@ -28,6 +28,22 @@ export const Route = createFileRoute("/_authenticated/rulebook")({
 });
 
 /**
+ * Flattens the stored rulebook JSON into dotted leaf paths so nested rule
+ * families are readable instead of collapsing to "[object Object]".
+ */
+function flattenRules(value: unknown, prefix = ""): Array<[string, string]> {
+  if (value === null || value === undefined) return [];
+  if (Array.isArray(value)) {
+    return [[prefix, value.length === 0 ? "—" : value.map((v) => String(v)).join(", ")]];
+  }
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, child]) =>
+      flattenRules(child, prefix ? `${prefix}.${key}` : key),
+    );
+  }
+  return [[prefix, String(value)]];
+}
+
  * Principles only. Every number — grade bands, R:R floors, expiry, tolerances
  * — is read from the active rulebook above, never restated here. A duplicated
  * threshold in the UI is a threshold that will silently go out of date.
