@@ -60,7 +60,9 @@ import { utcTradingDay } from "./time";
 
 export { utcTradingDay };
 
-export const MAX_DAILY_ALERTS = 30;
+/** Kept for reference only: the scanner no longer enforces a daily alert cap. */
+export const MAX_DAILY_ALERTS = 0;
+
 
 /* ---- journal / performance analytics (reporting only, not trading logic) ---- */
 
