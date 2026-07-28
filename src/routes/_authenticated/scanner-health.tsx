@@ -58,6 +58,8 @@ function ScannerHealth() {
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
   const { data: lastPurge } = useQuery({ ...lastPurgeQuery(), enabled: isStaff });
+  const { data: coverage = [] } = useQuery({ ...instrumentCoverageQuery(), enabled: isStaff });
+
 
 
   // Governance diagnostic only: reads the active rulebook's own bands and
