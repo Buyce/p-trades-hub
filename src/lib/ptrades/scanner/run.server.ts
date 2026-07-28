@@ -214,26 +214,13 @@ function scanTargets(
 type FetchedCandles = {
   candles: Record<Timeframe, Candle[]>;
   rejects: Array<{ timeframe: Timeframe; rejects: CandleReject[] }>;
-  /** Timeframes served from the last-good series after repeated fetch failures. */
+  /** Timeframes the store could not serve and that had to be fetched live. */
   degraded: Array<{ timeframe: Timeframe; message: string; firstMessage: string }>;
+  /** Where each timeframe came from — proof the data plane is working. */
+  sources: Record<string, "STORE" | "LIVE" | "MISSING">;
+  /** Age in seconds of each served series, measured from its close. */
+  ages: Record<string, number | null>;
 };
-
-
-/**
- * Fetches every required timeframe and pushes it through the single
- * normaliser. Malformed candles are dropped and reported, never repaired.
- *
- * Timeframes are fetched two at a time: firing all five at once caused
- * provider read timeouts, while a fully sequential fetch made a whole scan
- * overrun its worker invocation so runs never finished.
- *
- * Higher timeframes are additionally cached in-process: H4 and D1 cannot
- * change between minute-by-minute scans, and re-reading them every minute was
- * the main source of provider read timeouts on a single resource slot. The
- * cache only ever serves candles that are still inside their own timeframe
- * interval, so no stale bar can reach a gate.
- */
-const FETCH_CONCURRENCY = 2;
 
 /**
  * Single source of truth for how long a run may hold the scan lock. Stale-run
@@ -242,115 +229,102 @@ const FETCH_CONCURRENCY = 2;
  */
 export const SCAN_LOCK_TTL_SECONDS = 180;
 
+/**
+ * Hard runtime budget for a whole context scan. The run stops cleanly at the
+ * budget and reports PARTIAL rather than being killed mid-write, which is what
+ * used to leave the lock behind and skip every subsequent tick.
+ */
+export const SCAN_BUDGET_MS = 100_000;
 
 /**
- * Candle cache keyed by CANDLE CLOSE TIME, not by wall-clock TTL. A timeframe
- * cannot produce new information until its next bar closes, so re-reading H1,
- * H4 or D1 every minute burnt the single provider resource slot for nothing and
- * was the main cause of context runs overrunning the lock.
+ * The context scan READS the durable candle store; it does not download
+ * history. The `sync-market-data` pass owns downloads.
+ *
+ * A live fetch is still attempted for a timeframe the store cannot serve, so a
+ * cold start or a sync outage degrades rather than blacks out — and every such
+ * fallback is recorded, because a silent fallback is how a broken data plane
+ * stays invisible.
  */
-function closeBucket(tf: Timeframe, nowMs = Date.now()): number {
-  return Math.floor(nowMs / (TIMEFRAME_SECONDS[tf] * 1000));
-}
-
-const candleCache = new Map<string, { bucket: number; candles: Candle[] }>();
-
-/**
- * Last successful series per symbol/timeframe, kept as a retry fallback only.
- * Serving it can never leak a stale bar into a decision: the freshness and
- * candle-sanity gates measure the candles themselves, so a fallback series that
- * is too old simply rejects the candidate with STALE_DATA instead of failing
- * the whole instrument with no diagnosis.
- */
-const LAST_GOOD_TTL_MS = 60 * 60_000;
-const lastGood = new Map<string, { at: number; candles: Candle[] }>();
-
-function cachedCandles(symbol: string, tf: Timeframe): Candle[] | null {
-  const hit = candleCache.get(`${symbol}:${tf}`);
-  if (!hit || hit.bucket !== closeBucket(tf)) return null;
-  return hit.candles;
-}
-
-function rememberCandles(symbol: string, tf: Timeframe, candles: Candle[]): void {
-  if (candles.length === 0) return;
-  lastGood.set(`${symbol}:${tf}`, { at: Date.now(), candles });
-  candleCache.set(`${symbol}:${tf}`, { bucket: closeBucket(tf), candles });
-}
-
-function lastGoodCandles(symbol: string, tf: Timeframe): Candle[] | null {
-  const hit = lastGood.get(`${symbol}:${tf}`);
-  if (!hit || Date.now() - hit.at > LAST_GOOD_TTL_MS) return null;
-  return hit.candles;
-}
-
-async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
+async function fetchTimeframes(
+  admin: Admin,
+  instrument: string,
+  symbol: string,
+  feedBudgetSeconds: number,
+  minBars: number,
+): Promise<FetchedCandles> {
   const rejects: FetchedCandles["rejects"] = [];
   const degraded: FetchedCandles["degraded"] = [];
+  const sources: FetchedCandles["sources"] = {};
+  const ages: FetchedCandles["ages"] = {};
   const entries: Array<readonly [Timeframe, Candle[]]> = [];
 
-  const pending: Timeframe[] = [];
-  for (const tf of REQUIRED) {
-    const cached = cachedCandles(symbol, tf);
-    if (cached) entries.push([tf, cached] as const);
-    else pending.push(tf);
-  }
+  const stored = await readSeries(admin, {
+    brokerSymbol: symbol,
+    timeframes: REQUIRED,
+    limit: 200,
+  });
 
-  // One retry per timeframe: the single provider resource slot times out often
-  // enough that a first-attempt failure is usually transient.
-  const fetchOne = async (tf: Timeframe) => {
-    const limit = tf === "1d" ? 120 : 200;
+  for (const tf of REQUIRED) {
+    const series = stored[tf] ?? { candles: [], ageSeconds: null };
+    const label = TIMEFRAME_LABEL[tf];
+    const usable =
+      series.candles.length >= minBars && isStoreFresh(series.ageSeconds, tf, feedBudgetSeconds);
+
+    if (usable) {
+      sources[label] = "STORE";
+      ages[label] = series.ageSeconds;
+      entries.push([tf, series.candles] as const);
+      continue;
+    }
+
     try {
-      return await withTimeout(
-        marketData().getCandles(symbol, tf, limit),
+      const raw = await withTimeout(
+        marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200),
         CANDLE_FETCH_TIMEOUT_MS,
         `getCandles(${symbol}/${tf})`,
       );
-    } catch (first) {
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        return await withTimeout(
-          marketData().getCandles(symbol, tf, limit),
-          CANDLE_FETCH_TIMEOUT_MS,
-          `getCandles(${symbol}/${tf}) retry`,
-        );
-      } catch (second) {
-        const fallback = lastGoodCandles(symbol, tf);
-        if (!fallback) throw second;
-        degraded.push({
-          timeframe: tf,
-          message: second instanceof Error ? second.message : String(second),
-          firstMessage: first instanceof Error ? first.message : String(first),
-        });
-        return null;
-      }
-    }
-  };
-
-  for (let i = 0; i < pending.length; i += FETCH_CONCURRENCY) {
-    const batch = pending.slice(i, i + FETCH_CONCURRENCY);
-    const fetched = await Promise.all(
-      batch.map(async (tf) => {
-        const raw = await fetchOne(tf);
-        return [tf, raw === null ? null : normaliseCandles(raw, tf)] as const;
-      }),
-    );
-    for (const [tf, normalised] of fetched) {
-      if (normalised === null) {
-        entries.push([tf, lastGoodCandles(symbol, tf) ?? []] as const);
-        continue;
-      }
+      const normalised = normaliseCandles(raw, tf);
       const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
       if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
-      rememberCandles(symbol, tf, normalised.candles);
+      // Write it back so the next scan reads it from the store.
+      await storeCandles(admin, {
+        instrument,
+        brokerSymbol: symbol,
+        timeframe: tf,
+        candles: normalised.candles,
+      });
+      sources[label] = "LIVE";
+      ages[label] = null;
+      degraded.push({
+        timeframe: tf,
+        message: series.candles.length === 0 ? "no stored series" : "stored series too old",
+        firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
+      });
       entries.push([tf, normalised.candles] as const);
+    } catch (error) {
+      // Serve whatever the store has. The freshness and sanity gates judge it
+      // on its own merits, so a stale series rejects with a diagnosis instead
+      // of failing the whole instrument silently.
+      sources[label] = series.candles.length > 0 ? "STORE" : "MISSING";
+      ages[label] = series.ageSeconds;
+      degraded.push({
+        timeframe: tf,
+        message: error instanceof Error ? error.message : String(error),
+        firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
+      });
+      entries.push([tf, series.candles] as const);
     }
   }
+
   return {
     candles: Object.fromEntries(entries) as Record<Timeframe, Candle[]>,
     rejects,
     degraded,
+    sources,
+    ages,
   };
 }
+
 
 
 
