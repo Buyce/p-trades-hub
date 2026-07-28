@@ -268,8 +268,9 @@ async function evaluateInstrument(
     entryCandles,
     ENTRY_TF,
     60,
-    rulebook.max_candle_gap_multiple,
+    candleGapMultipleFor(rulebook, instrument.symbol),
   );
+
   gates.push(candleSanity(sanity.ok, sanity.problems));
 
   // The freshness budget is measured from the close of the last closed entry
