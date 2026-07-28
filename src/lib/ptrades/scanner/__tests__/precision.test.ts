@@ -134,10 +134,20 @@ function longSequence(): Candle[] {
     candles.push({ time: new Date(t).toISOString(), open, high, low, close, volume: 1 });
     t += 60_000;
   };
-  // Base range that establishes swing highs around 1.1010.
-  for (let i = 0; i < 10; i += 1) {
-    push(1.1, 1.101, 1.0995, 1.1);
-  }
+  // A wavy base so the micro swing detector has real pivots to protect.
+  const base = [
+    [1.1, 1.1008, 1.0996, 1.1002],
+    [1.1002, 1.1012, 1.1, 1.1006],
+    [1.1006, 1.1004, 1.0994, 1.0998],
+    [1.0998, 1.1006, 1.0992, 1.1],
+    [1.1, 1.1014, 1.0998, 1.1008],
+    [1.1008, 1.1005, 1.0993, 1.0996],
+    [1.0996, 1.1003, 1.0991, 1.1],
+    [1.1, 1.101, 1.0997, 1.1004],
+    [1.1004, 1.1002, 1.099, 1.0995],
+    [1.0995, 1.1001, 1.0989, 1.0998],
+  ];
+  for (const [o, h, l, c] of base) push(o, h, l, c);
   push(1.1, 1.1005, 1.0985, 1.1002); // rejection wick into the zone
   push(1.1002, 1.1035, 1.1002, 1.1032); // displacement
   push(1.1032, 1.1045, 1.103, 1.1042); // closes beyond the protected swing (BOS)
