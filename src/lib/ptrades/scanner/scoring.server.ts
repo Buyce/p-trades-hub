@@ -24,7 +24,7 @@ export type ScoreInput = {
   macroAligned?: boolean;
 };
 
-export type Grade = "A_PLUS" | "A" | "B";
+export type Grade = "A_PLUS" | "A" | "B" | "C";
 
 export type ScoreOutput = {
   score: number;
@@ -36,12 +36,37 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-/** Maps a score to A+, A, B or null (reject) using the active rulebook bands. */
+/** Maps a score to A+, A, B, C or null (reject) using the active rulebook bands. */
 export function gradeForScore(score: number, rulebook: Rulebook): Grade | null {
   if (score >= rulebook.grades.A_PLUS) return "A_PLUS";
   if (score >= rulebook.grades.A) return "A";
   if (score >= rulebook.grades.B) return "B";
+  if (score >= rulebook.grades.C) return "C";
   return null;
+}
+
+const TIER_ORDER: Grade[] = ["A_PLUS", "A", "B", "C"];
+
+/**
+ * Resolves the tier a candidate actually earns. A tier requires BOTH its score
+ * band and its reward-to-risk floor; only the RR floor differs between tiers,
+ * every hard safety gate is identical. Returns null when no tier is satisfied.
+ */
+export function tierFor(score: number, rr: number | null, rulebook: Rulebook): Grade | null {
+  const scoreGrade = gradeForScore(score, rulebook);
+  if (!scoreGrade) return null;
+  if (rr === null) return null;
+  const start = TIER_ORDER.indexOf(scoreGrade);
+  for (let i = start; i < TIER_ORDER.length; i += 1) {
+    const tier = TIER_ORDER[i];
+    if (rr >= rulebook.tier_min_rr[tier]) return tier;
+  }
+  return null;
+}
+
+/** The lowest reward-to-risk any tier accepts — the hard RR gate floor. */
+export function minTierRr(rulebook: Rulebook): number {
+  return Math.min(...TIER_ORDER.map((t) => rulebook.tier_min_rr[t]));
 }
 
 export function scoreCandidate(input: ScoreInput, rulebook: Rulebook): ScoreOutput {

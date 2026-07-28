@@ -113,20 +113,26 @@ export function StatusPill({
   );
 }
 
+/**
+ * Renders the tier stored on the record. The badge never derives or upgrades a
+ * tier — an unlabelled record shows as unavailable rather than guessing.
+ */
 export function GradeBadge({ grade }: { grade: string | null | undefined }) {
   const label = gradeLabel(grade);
-  const actionable = grade === "A_PLUS" || grade === "A";
+  const top = grade === "A_PLUS" || grade === "A";
   return (
     <span
       className={cn(
         "num inline-flex items-center rounded border px-2 py-0.5 text-xs font-semibold",
-        actionable
+        top
           ? "border-primary/50 bg-primary/10 text-primary"
-          : "border-border bg-muted text-muted-foreground",
+          : grade === "B"
+            ? "border-warning/50 bg-warning/10 text-warning"
+            : "border-border bg-muted text-muted-foreground",
       )}
+      title={`Tier ${label}`}
     >
       {label}
-      {grade === "B" && <span className="ml-1.5 font-normal">journal only</span>}
     </span>
   );
 }

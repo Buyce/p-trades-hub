@@ -9,7 +9,7 @@ import { atr } from "./atr.server";
 import { higherTimeframeBias } from "./bias.server";
 import { checkLateEntry } from "./late-entry.server";
 import { fingerprint } from "./fingerprint.server";
-import { scoreCandidate } from "./scoring.server";
+import { minTierRr, scoreCandidate, tierFor } from "./scoring.server";
 import { rewardToRisk, targetsFrom } from "./risk.server";
 import { detectSetup } from "./setups.server";
 import { checkCandleSanity } from "./sanity.server";
@@ -34,8 +34,10 @@ import {
   spreadGate,
   staleData,
 } from "./gates.server";
+import { tierBucket, type Tier } from "../tiers";
 import {
   actionableCountToday,
+  closeStaleRuns,
   cacheCandle,
   claimActionableSlot,
   fingerprintExistsToday,
@@ -137,7 +139,6 @@ async function evaluateInstrument(
   instrument: InstrumentRow,
   rulebook: Rulebook,
   macroEvents: MacroEvent[],
-  actionableToday: number,
   runId: string | null,
 ): Promise<Evaluation> {
   const gates: GateResult[] = [];
@@ -291,7 +292,7 @@ async function evaluateInstrument(
   );
 
   gates.push(biasConflict(bias as Bias, direction));
-  gates.push(invalidStop(entry, stop, direction, atrValue));
+  gates.push(invalidStop(entry, stop, direction, atrValue, rulebook.max_stop_atr_multiple));
 
   let spread: number | null = null;
   try {
@@ -308,8 +309,14 @@ async function evaluateInstrument(
       ? scanTargets(entry, stop, direction).map((t) => roundToDigits(t, resolved.digits) as number)
       : [];
   const rr = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
-  const minRr = Math.max(instrument.min_rr, rulebook.min_rr_tp1);
-  gates.push(rrGate(rr, minRr));
+  // Per-instrument minimums raise the top tiers only; the hard RR gate uses the
+  // lowest tier floor, and the tier a candidate earns is decided after scoring.
+  const topTierRr = Math.max(instrument.min_rr, rulebook.tier_min_rr.A);
+  const tierRulebook: Rulebook = {
+    ...rulebook,
+    tier_min_rr: { ...rulebook.tier_min_rr, A_PLUS: topTierRr, A: topTierRr },
+  };
+  gates.push(rrGate(rr, minTierRr(tierRulebook)));
 
   const late = checkLateEntry(
     last.close,
@@ -336,10 +343,9 @@ async function evaluateInstrument(
     atr: atrValue,
   });
   gates.push(duplicate(await fingerprintExistsToday(admin, print), print));
-  gates.push(dailyCap(actionableToday, rulebook.max_daily_actionable));
 
   const spreadRatio = spread !== null && atrValue ? spread / atrValue : null;
-  const { score, grade, components } = scoreCandidate(
+  const { score, components } = scoreCandidate(
     {
       rr,
       biasAligned: bias === direction,
@@ -351,11 +357,19 @@ async function evaluateInstrument(
       lateDistanceAtr: late.distanceAtr,
       macroAligned: macro.aligned,
     },
-    rulebook,
+    tierRulebook,
   );
 
+  // Tier requires both the score band and that tier's reward-to-risk floor.
+  const tier = tierFor(score, rr, tierRulebook);
+  const bucket = tier ? tierBucket(tier) : "A";
+  const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
+  gates.push(dailyCap(await actionableCountToday(admin, bucket), bucketMax));
+
   const failed = failedGates(gates);
-  const qualified = failed.length === 0 && (grade === "A_PLUS" || grade === "A");
+  const qualified = failed.length === 0 && tier !== null;
+  // A setup that failed a hard gate is never labelled with a tradable tier.
+  const grade = qualified ? tier : null;
 
   const candidate: Candidate = {
     instrument: instrument.symbol,
@@ -468,6 +482,9 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
     .eq("enabled", true)
     .order("sort_order");
 
+  // Close any run a killed worker left open before starting a new one.
+  await closeStaleRuns(admin);
+
   const rows = (instruments ?? []) as InstrumentRow[];
   const symbols = rows.map((i) => i.symbol);
   const runId = await startRun(admin, symbols, rulebook.version);
@@ -482,16 +499,8 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   let errorMessage: string | null = null;
 
   for (const instrument of rows) {
-    const actionableToday = await actionableCountToday(admin);
     try {
-      const result = await evaluateInstrument(
-        admin,
-        instrument,
-        rulebook,
-        macroEvents,
-        actionableToday,
-        runId,
-      );
+      const result = await evaluateInstrument(admin, instrument, rulebook, macroEvents, runId);
       const failed = failedGates(result.gates);
       rejectionCount += failed.length;
       for (const f of failed) {
@@ -537,8 +546,15 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
       }
 
       // Live mode: claim a slot atomically BEFORE promoting, so concurrent work
-      // can never exceed the daily cap.
-      const claimed = await claimActionableSlot(admin, rulebook.max_daily_actionable);
+      // can never exceed that tier's daily cap.
+      const tier = (result.candidate.grade ?? "C") as Tier;
+      const bucket = tierBucket(tier);
+      const claimed = await claimActionableSlot(
+        admin,
+        rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable,
+        bucket,
+      );
+
       if (!claimed) {
         runRejections.push({
           instrument: instrument.symbol,

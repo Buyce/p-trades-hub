@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { ArrowRight } from "lucide-react";
 import {
@@ -12,7 +12,10 @@ import {
   MAX_DAILY_ALERTS,
 } from "@/lib/ptrades/queries";
 import { getScannerLink } from "@/lib/ptrades/backend.functions";
-import { useTimezone } from "@/lib/ptrades/session";
+import { useProfile, useSessionUser, useTimezone } from "@/lib/ptrades/session";
+import { updateAlertPreferences } from "@/lib/ptrades/queries";
+import { TierToggle } from "@/components/ptrades/tier-toggle";
+import { DEFAULT_TERMINAL_TIERS, parseTiers, isTier, type Tier } from "@/lib/ptrades/tiers";
 import { field, formatTime, relativeFromNow, rr, score } from "@/lib/ptrades/format";
 import {
   DataRow,
@@ -58,6 +61,21 @@ function Dashboard() {
     refetchInterval: 120_000,
     retry: false,
   });
+
+  const { data: user } = useSessionUser();
+  const { data: profile } = useProfile();
+  const queryClient = useQueryClient();
+  const terminalTiers = parseTiers(profile?.alert_tiers_terminal, DEFAULT_TERMINAL_TIERS);
+  const saveTiers = useMutation({
+    mutationFn: (next: Tier[]) =>
+      updateAlertPreferences({ userId: user?.id, terminalTiers: next }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["profile"] }),
+  });
+
+  // Terminal filtering is display-only: it hides rows, it never re-tiers them.
+  const visibleSignals = signals.filter(
+    (s) => isTier(s.grade) && terminalTiers.includes(s.grade),
+  );
 
   const actionable = signals.filter((s) => s.is_actionable);
   const alertsToday = Math.min(actionable.length, MAX_DAILY_ALERTS);
@@ -143,8 +161,8 @@ function Dashboard() {
           <div className="rounded-md border border-border bg-surface px-4 py-6 text-center">
             <p className="text-sm font-semibold text-foreground">No qualified setup right now</p>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              A no-trade day is a valid, successful outcome. The scanner will alert only when an A
-              or A+ setup meets every rulebook condition, up to {MAX_DAILY_ALERTS} per UTC day.
+              A no-trade day is a valid, successful outcome. The scanner alerts only when a setup
+              meets every rulebook condition for its tier, up to {MAX_DAILY_ALERTS} per UTC day.
             </p>
           </div>
         </SectionCard>
@@ -197,14 +215,28 @@ function Dashboard() {
       </SectionCard>
 
       <SectionCard title="Today's records">
-        {signals.length === 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-3">
+          <span className="text-xs text-muted-foreground">Tiers shown</span>
+          <TierToggle
+            idPrefix="terminal-tier"
+            size="sm"
+            value={terminalTiers}
+            disabled={saveTiers.isPending}
+            onChange={(next) => saveTiers.mutate(next)}
+          />
+        </div>
+        {visibleSignals.length === 0 ? (
           <EmptyState
-            title="Nothing recorded yet"
-            description="Signals appear here once the scanner reports a run for this UTC day."
+            title={signals.length === 0 ? "Nothing recorded yet" : "No signals in the selected tiers"}
+            description={
+              signals.length === 0
+                ? "Signals appear here once the scanner reports a run for this UTC day."
+                : "Turn a tier back on above to see the rest of today's records."
+            }
           />
         ) : (
           <ul className="divide-y divide-border/60">
-            {signals.map((s) => (
+            {visibleSignals.map((s) => (
               <li key={s.id}>
                 <Link
                   to="/signals/$signalId"

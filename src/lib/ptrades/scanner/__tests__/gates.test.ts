@@ -43,8 +43,8 @@ describe("gate reasons", () => {
       newsLockout(true, ["US CPI"]),
       biasConflict("LONG", "LONG"),
       biasConflict("SHORT", "LONG"),
-      invalidStop(100, 95, "LONG", 10),
-      invalidStop(100, 105, "LONG", 10),
+      invalidStop(100, 95, "LONG", 10, 4),
+      invalidStop(100, 105, "LONG", 10, 4),
       rrGate(2.5, 2),
       rrGate(1.2, 2),
       rrGate(null, 2),
@@ -115,27 +115,27 @@ describe("biasConflict", () => {
 
 describe("invalidStop", () => {
   it("passes a stop beyond structure on the correct side", () => {
-    expect(invalidStop(100, 95, "LONG", 10).passed).toBe(true);
-    expect(invalidStop(100, 105, "SHORT", 10).passed).toBe(true);
+    expect(invalidStop(100, 95, "LONG", 10, 4).passed).toBe(true);
+    expect(invalidStop(100, 105, "SHORT", 10, 4).passed).toBe(true);
   });
 
   it("rejects a stop on the wrong side of entry", () => {
-    expect(invalidStop(100, 105, "LONG", 10).passed).toBe(false);
-    expect(invalidStop(100, 95, "SHORT", 10).passed).toBe(false);
+    expect(invalidStop(100, 105, "LONG", 10, 4).passed).toBe(false);
+    expect(invalidStop(100, 95, "SHORT", 10, 4).passed).toBe(false);
   });
 
   it("rejects a zero-distance stop", () => {
-    expect(invalidStop(100, 100, "LONG", 10).passed).toBe(false);
+    expect(invalidStop(100, 100, "LONG", 10, 4).passed).toBe(false);
   });
 
   it("rejects a stop wider than 4x ATR as undefinable risk", () => {
-    expect(invalidStop(100, 59, "LONG", 10).passed).toBe(false);
-    expect(invalidStop(100, 61, "LONG", 10).passed).toBe(true);
+    expect(invalidStop(100, 59, "LONG", 10, 4).passed).toBe(false);
+    expect(invalidStop(100, 61, "LONG", 10, 4).passed).toBe(true);
   });
 
   it("fails closed when entry or stop is missing", () => {
-    expect(invalidStop(null, 95, "LONG", 10).passed).toBe(false);
-    expect(invalidStop(100, null, "LONG", 10).passed).toBe(false);
+    expect(invalidStop(null, 95, "LONG", 10, 4).passed).toBe(false);
+    expect(invalidStop(100, null, "LONG", 10, 4).passed).toBe(false);
   });
 });
 

@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 Direction = Literal["LONG", "SHORT"]
 Bias = Literal["LONG", "SHORT", "NEUTRAL"]
-Grade = Literal["A_PLUS", "A", "B"]
+Grade = Literal["A_PLUS", "A", "B", "C"]
 Session = Literal["ASIA", "LONDON", "NEWYORK"]
 Timeframe = Literal["M5", "M15", "1h", "4h", "1d"]
 
@@ -77,13 +77,27 @@ class Grades(Strict):
     A_PLUS: Score
     A: Score
     B: Score
+    C: Score
+
+
+class TierMinRr(Strict):
+    A_PLUS: Annotated[float, Field(ge=0)]
+    A: Annotated[float, Field(ge=0)]
+    B: Annotated[float, Field(ge=0)]
+    C: Annotated[float, Field(ge=0)]
+
+
+class TierDailyMax(Strict):
+    A: Annotated[int, Field(ge=0, le=30)]
+    B: Annotated[int, Field(ge=0, le=30)]
+    C: Annotated[int, Field(ge=0, le=30)]
 
 
 class Rulebook(Strict):
     version: str
     closed_candles_only: bool
     min_rr_tp1: Annotated[float, Field(ge=0)]
-    max_daily_actionable: Annotated[int, Field(ge=0, le=10)]
+    max_daily_actionable: Annotated[int, Field(ge=0, le=30)]
     grades: Grades
     max_data_age_seconds: float | None = None
     max_spread_atr_ratio: float | None = None
@@ -94,6 +108,9 @@ class Rulebook(Strict):
     displacement_min_atr: float | None = None
     allowed_sessions: list[Session] | None = None
     signal_expiry_minutes: float | None = None
+    max_stop_atr_multiple: float | None = None
+    tier_min_rr: TierMinRr | None = None
+    tier_daily_max: TierDailyMax | None = None
     max_candle_gap_multiple: float | None = None
     macro_lookahead_minutes: float | None = None
 

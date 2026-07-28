@@ -14,7 +14,7 @@ describe("rulebook-driven feature settings", () => {
   });
 
   it("keeps the locked grade bands and minimum R:R", () => {
-    expect(DEFAULT_RULEBOOK.grades).toEqual({ A_PLUS: 95, A: 90, B: 80 });
+    expect(DEFAULT_RULEBOOK.grades).toEqual({ A_PLUS: 95, A: 90, B: 80, C: 70 });
     expect(DEFAULT_RULEBOOK.min_rr_tp1).toBe(2);
     expect(DEFAULT_RULEBOOK.max_daily_actionable).toBe(30);
   });

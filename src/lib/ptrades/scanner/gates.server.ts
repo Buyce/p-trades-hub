@@ -95,6 +95,7 @@ export function invalidStop(
   stop: number | null,
   direction: "LONG" | "SHORT",
   atrValue: number | null,
+  maxStopAtrMultiple: number,
 ): GateResult {
   if (entry === null || stop === null) {
     return gate("INVALID_STOP", false, "Entry or stop could not be derived from structure.", {});
@@ -110,11 +111,13 @@ export function invalidStop(
   if (distance <= 0) {
     return gate("INVALID_STOP", false, "Stop distance is zero.", { entry, stop });
   }
-  if (atrValue && distance > atrValue * 4) {
-    return gate("INVALID_STOP", false, "Stop distance exceeds 4x ATR, so risk is undefinable.", {
-      distance,
-      atr: atrValue,
-    });
+  if (atrValue && distance > atrValue * maxStopAtrMultiple) {
+    return gate(
+      "INVALID_STOP",
+      false,
+      `Stop distance exceeds ${maxStopAtrMultiple}x ATR, so risk is undefinable.`,
+      { distance, atr: atrValue, maxStopAtrMultiple },
+    );
   }
   return gate("INVALID_STOP", true, "Stop sits beyond structure with a measurable risk distance.", {
     entry,

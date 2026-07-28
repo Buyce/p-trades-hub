@@ -47,16 +47,25 @@ export async function updateAlertPreferences(input: {
   userId: string | undefined;
   emailAlertsEnabled?: boolean;
   pushAlertsEnabled?: boolean;
+  emailTiers?: string[];
+  pushTiers?: string[];
+  terminalTiers?: string[];
 }): Promise<void> {
   const userId = requireUserId(input.userId);
   const patch: {
     updated_at: string;
     email_alerts_enabled?: boolean;
     push_alerts_enabled?: boolean;
+    alert_tiers_email?: string[];
+    alert_tiers_push?: string[];
+    alert_tiers_terminal?: string[];
   } = { updated_at: new Date().toISOString() };
   if (input.emailAlertsEnabled !== undefined)
     patch.email_alerts_enabled = input.emailAlertsEnabled;
   if (input.pushAlertsEnabled !== undefined) patch.push_alerts_enabled = input.pushAlertsEnabled;
+  if (input.emailTiers) patch.alert_tiers_email = input.emailTiers;
+  if (input.pushTiers) patch.alert_tiers_push = input.pushTiers;
+  if (input.terminalTiers) patch.alert_tiers_terminal = input.terminalTiers;
 
   const { error } = await db.from("profiles").update(patch).eq("id", userId);
   if (error) throw fromPostgrest(error, { repo: "profile.updateAlerts" });

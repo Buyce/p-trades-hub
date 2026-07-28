@@ -21,7 +21,7 @@
     "atr": { "type": ["number", "null"], "minimum": 0 },
     "spread": { "type": ["number", "null"], "minimum": 0 },
     "score": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
-    "grade": { "type": ["string", "null"], "enum": ["A_PLUS", "A", "B", null] },
+    "grade": { "type": ["string", "null"], "enum": ["A_PLUS", "A", "B", "C", null] },
     "score_components": {
       "type": "object",
       "additionalProperties": { "type": "number" }
