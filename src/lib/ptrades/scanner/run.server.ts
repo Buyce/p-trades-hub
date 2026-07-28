@@ -512,7 +512,7 @@ async function evaluateInstrument(
     // non-armable sweep partial can never mask an armable break/retest.
     (candidate) => isArmableSetup(candidate, rulebook, instrument.symbol),
   );
-  const setup = detection.selected ?? {
+  const setup: SetupResult = detection.selected ?? {
     found: false,
     setupType: "SWEEP_DISPLACEMENT_RETEST" as const,
     direction: null,
@@ -524,8 +524,11 @@ async function evaluateInstrument(
     displacementAtr: null,
     retestFound: false,
     structureType: null,
+    sequence: { sweepIndex: null, breakIndex: null, displacementIndex: null, retestIndex: null },
+    sequenceValid: true,
     detail: {},
   };
+
 
   // Detection telemetry. Without it a "no setup" rejection says only that
   // nothing formed; with it we can see which stage of which family stopped,
