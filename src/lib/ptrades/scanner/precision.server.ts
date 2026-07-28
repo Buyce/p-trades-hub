@@ -71,37 +71,42 @@ export type PrecisionSummary = {
   watched: number;
   entryReady: number;
   resolved: number;
+  /** Watches evaluated from the live quote alone because no new M1 closed. */
+  quoteOnly: number;
 };
 
-export type PrecisionLoopOptions = {
-  /** How long the loop may run inside one invocation. */
-  budgetMs?: number;
-  /** Gap between passes. */
-  intervalMs?: number;
-  now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
+export type PrecisionPassOptions = {
   /** Overrides the stored scanner setting. Shadow mode never notifies. */
   shadowMode?: boolean;
+  now?: () => number;
 };
 
-const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/** Close time of the newest M1 candle that can already be closed. */
+export function lastClosedM1Time(nowMs: number): string {
+  return new Date(Math.floor(nowMs / 60_000) * 60_000 - 60_000).toISOString();
+}
 
 /**
- * Polls the armed watches until the time budget is spent. Returns as soon as
- * there is nothing left to watch, so an idle minute costs no broker calls.
+ * ONE pass over every open watch, then exit.
+ *
+ * The scheduled endpoint must not hold a request open: a long-lived invocation
+ * overruns its lock, is killed mid-flight and leaves no heartbeat, which is
+ * exactly how the runtime went silent. Frequency is the scheduler's job, not
+ * this function's.
  */
-export async function runPrecisionLoop(
+export async function runPrecisionPass(
   admin: Admin,
   rulebook: Rulebook = DEFAULT_RULEBOOK,
-  options: PrecisionLoopOptions = {},
+  options: PrecisionPassOptions = {},
 ): Promise<PrecisionSummary> {
-  const budgetMs = options.budgetMs ?? 45_000;
-  const intervalMs = options.intervalMs ?? 5_000;
   const now = options.now ?? (() => Date.now());
-  const sleep = options.sleep ?? defaultSleep;
-  const deadline = now() + budgetMs;
-
-  const summary: PrecisionSummary = { passes: 0, watched: 0, entryReady: 0, resolved: 0 };
+  const summary: PrecisionSummary = {
+    passes: 0,
+    watched: 0,
+    entryReady: 0,
+    resolved: 0,
+    quoteOnly: 0,
+  };
   if (rulebook.precision?.enabled === false) return summary;
 
   // Delivery mode is read from the stored setting, never hardcoded.
@@ -115,41 +120,37 @@ export async function runPrecisionLoop(
     shadowMode = settings?.shadow_mode ?? true;
   }
 
+  const watches = await listOpenWatches(admin);
+  summary.watched = watches.length;
+  if (watches.length === 0) return summary;
+
+  summary.passes = 1;
   const instruments = await loadInstruments(admin);
   const macroEvents = await loadMacroEvents(admin);
 
-  while (now() < deadline) {
-    const watches = await listOpenWatches(admin);
-    if (watches.length === 0) break;
-
-    summary.passes += 1;
-    summary.watched = Math.max(summary.watched, watches.length);
-
-    for (const watch of watches) {
-      try {
-        const outcome = await evaluateWatch(
-          admin,
-          watch,
-          rulebook,
-          instruments,
-          macroEvents,
-          shadowMode,
-        );
-        if (outcome === "ENTRY_READY") summary.entryReady += 1;
-        if (outcome === "RESOLVED") summary.resolved += 1;
-      } catch (error) {
-        await recordScannerError(admin, {
-          runId: null,
-          instrument: watch.symbol,
-          stage: "PRECISION",
-          error,
-          detail: { watch_id: watch.id, state: watch.state },
-        });
-      }
+  for (const watch of watches) {
+    try {
+      const outcome = await evaluateWatch(
+        admin,
+        watch,
+        rulebook,
+        instruments,
+        macroEvents,
+        shadowMode,
+        now(),
+      );
+      if (outcome === "ENTRY_READY") summary.entryReady += 1;
+      if (outcome === "RESOLVED") summary.resolved += 1;
+      if (outcome === "QUOTE_ONLY") summary.quoteOnly += 1;
+    } catch (error) {
+      await recordScannerError(admin, {
+        runId: null,
+        instrument: watch.symbol,
+        stage: "PRECISION",
+        error,
+        detail: { watch_id: watch.id, state: watch.state },
+      });
     }
-
-    if (now() + intervalMs >= deadline) break;
-    await sleep(intervalMs);
   }
 
   return summary;
