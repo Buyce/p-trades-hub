@@ -360,29 +360,44 @@ export type Database = {
       }
       rulebook_versions: {
         Row: {
+          author: string | null
+          change_summary: string | null
+          checksum: string | null
           created_at: string
           effective_from: string
           id: string
           is_active: boolean
+          retired_at: string | null
           rules: Json
+          status: string
           summary: string | null
           version: string
         }
         Insert: {
+          author?: string | null
+          change_summary?: string | null
+          checksum?: string | null
           created_at?: string
           effective_from?: string
           id?: string
           is_active?: boolean
+          retired_at?: string | null
           rules?: Json
+          status?: string
           summary?: string | null
           version: string
         }
         Update: {
+          author?: string | null
+          change_summary?: string | null
+          checksum?: string | null
           created_at?: string
           effective_from?: string
           id?: string
           is_active?: boolean
+          retired_at?: string | null
           rules?: Json
+          status?: string
           summary?: string | null
           version?: string
         }
@@ -452,6 +467,7 @@ export type Database = {
           finished_at: string | null
           id: string
           rejections: Json
+          rulebook_checksum: string | null
           rulebook_version: string | null
           signals_emitted: number
           started_at: string
@@ -464,6 +480,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           rejections?: Json
+          rulebook_checksum?: string | null
           rulebook_version?: string | null
           signals_emitted?: number
           started_at?: string
@@ -476,6 +493,7 @@ export type Database = {
           finished_at?: string | null
           id?: string
           rejections?: Json
+          rulebook_checksum?: string | null
           rulebook_version?: string | null
           signals_emitted?: number
           started_at?: string
@@ -534,6 +552,7 @@ export type Database = {
           qualified: boolean
           reasons: Json
           rr_tp1: number | null
+          rulebook_checksum: string | null
           rulebook_version: string | null
           scanner_run_id: string | null
           score: number | null
@@ -565,6 +584,7 @@ export type Database = {
           qualified?: boolean
           reasons?: Json
           rr_tp1?: number | null
+          rulebook_checksum?: string | null
           rulebook_version?: string | null
           scanner_run_id?: string | null
           score?: number | null
@@ -596,6 +616,7 @@ export type Database = {
           qualified?: boolean
           reasons?: Json
           rr_tp1?: number | null
+          rulebook_checksum?: string | null
           rulebook_version?: string | null
           scanner_run_id?: string | null
           score?: number | null
@@ -718,6 +739,7 @@ export type Database = {
           reasons: Json
           rejection_reasons: Json
           rr_tp1: number | null
+          rulebook_checksum: string | null
           rulebook_version: string | null
           scanner_run_id: string | null
           score: number | null
@@ -751,6 +773,7 @@ export type Database = {
           reasons?: Json
           rejection_reasons?: Json
           rr_tp1?: number | null
+          rulebook_checksum?: string | null
           rulebook_version?: string | null
           scanner_run_id?: string | null
           score?: number | null
@@ -784,6 +807,7 @@ export type Database = {
           reasons?: Json
           rejection_reasons?: Json
           rr_tp1?: number | null
+          rulebook_checksum?: string | null
           rulebook_version?: string | null
           scanner_run_id?: string | null
           score?: number | null
