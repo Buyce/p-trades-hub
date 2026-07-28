@@ -143,6 +143,7 @@ export async function promoteToSignal(
     candidateId: string | null;
     runId: string | null;
     rulebookVersion: string;
+    rulebookChecksum?: string | null;
     shadowMode: boolean;
     macroContext?: Record<string, unknown>;
   },
@@ -181,6 +182,7 @@ export async function promoteToSignal(
         shadow_mode: meta.shadowMode,
         status: "ACTIVE",
         rulebook_version: meta.rulebookVersion,
+        rulebook_checksum: meta.rulebookChecksum ?? null,
         scanner_run_id: meta.runId,
         signal_time_utc: new Date().toISOString(),
         trading_day_utc: tradingDayUtc(),
