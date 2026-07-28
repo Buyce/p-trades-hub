@@ -26,7 +26,6 @@ import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_auth
 import { Route as LovableEmailAuthWebhookRouteImport } from './routes/lovable/email/auth/webhook'
 import { Route as LovableEmailAuthPreviewRouteImport } from './routes/lovable/email/auth/preview'
 import { Route as ApiPublicHooksScanPrecisionRouteImport } from './routes/api/public/hooks/scan-precision'
-import { Route as ApiPublicHooksScanMarketsRouteImport } from './routes/api/public/hooks/scan-markets'
 import { Route as ApiPublicHooksScanContextRouteImport } from './routes/api/public/hooks/scan-context'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -119,12 +118,6 @@ const ApiPublicHooksScanPrecisionRoute =
     path: '/api/public/hooks/scan-precision',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicHooksScanMarketsRoute =
-  ApiPublicHooksScanMarketsRouteImport.update({
-    id: '/api/public/hooks/scan-markets',
-    path: '/api/public/hooks/scan-markets',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 const ApiPublicHooksScanContextRoute =
   ApiPublicHooksScanContextRouteImport.update({
     id: '/api/public/hooks/scan-context',
@@ -147,7 +140,6 @@ export interface FileRoutesByFullPath {
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
-  '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
@@ -167,7 +159,6 @@ export interface FileRoutesByTo {
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
-  '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
@@ -189,7 +180,6 @@ export interface FileRoutesById {
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
-  '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
@@ -211,7 +201,6 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/signals/$signalId'
     | '/api/public/hooks/scan-context'
-    | '/api/public/hooks/scan-markets'
     | '/api/public/hooks/scan-precision'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
@@ -231,7 +220,6 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/signals/$signalId'
     | '/api/public/hooks/scan-context'
-    | '/api/public/hooks/scan-markets'
     | '/api/public/hooks/scan-precision'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
@@ -252,7 +240,6 @@ export interface FileRouteTypes {
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
     | '/api/public/hooks/scan-context'
-    | '/api/public/hooks/scan-markets'
     | '/api/public/hooks/scan-precision'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
@@ -264,7 +251,6 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiPublicHooksScanContextRoute: typeof ApiPublicHooksScanContextRoute
-  ApiPublicHooksScanMarketsRoute: typeof ApiPublicHooksScanMarketsRoute
   ApiPublicHooksScanPrecisionRoute: typeof ApiPublicHooksScanPrecisionRoute
   LovableEmailAuthPreviewRoute: typeof LovableEmailAuthPreviewRoute
   LovableEmailAuthWebhookRoute: typeof LovableEmailAuthWebhookRoute
@@ -391,13 +377,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksScanPrecisionRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/hooks/scan-markets': {
-      id: '/api/public/hooks/scan-markets'
-      path: '/api/public/hooks/scan-markets'
-      fullPath: '/api/public/hooks/scan-markets'
-      preLoaderRoute: typeof ApiPublicHooksScanMarketsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/public/hooks/scan-context': {
       id: '/api/public/hooks/scan-context'
       path: '/api/public/hooks/scan-context'
@@ -443,7 +422,6 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiPublicHooksScanContextRoute: ApiPublicHooksScanContextRoute,
-  ApiPublicHooksScanMarketsRoute: ApiPublicHooksScanMarketsRoute,
   ApiPublicHooksScanPrecisionRoute: ApiPublicHooksScanPrecisionRoute,
   LovableEmailAuthPreviewRoute: LovableEmailAuthPreviewRoute,
   LovableEmailAuthWebhookRoute: LovableEmailAuthWebhookRoute,
