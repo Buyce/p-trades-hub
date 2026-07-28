@@ -71,4 +71,38 @@ describe("setup families", () => {
     expect(result.sweepFound).toBe(true);
     expect(result.direction).toBe("LONG");
   });
+
+  it("preserves an armable break/displacement before the retest completes", () => {
+    const rows: Array<{ open: number; high: number; low: number; close: number }> = [];
+    let price = 100;
+    for (let leg = 0; leg < 3; leg += 1) {
+      for (let i = 0; i < 6; i += 1) {
+        rows.push({ open: price, high: price + 1, low: price - 1, close: price });
+      }
+      rows.push({ open: price, high: price + 6, low: price, close: price + 5 });
+      for (let i = 0; i < 6; i += 1) {
+        rows.push({ open: price + 2, high: price + 3, low: price + 1, close: price + 2 });
+      }
+      price += 4;
+    }
+    rows.push({ open: price + 8, high: price + 12, low: price + 7, close: price + 11 });
+
+    const candles = rows.map((r, i) => ({
+      time: new Date(Date.UTC(2026, 0, 5) + i * 900_000).toISOString(),
+      ...r,
+      volume: 100,
+    }));
+
+    const result = detectBreakRetest({
+      ...base,
+      candles,
+      atr: 2,
+      displacementMinAtr: 1,
+    });
+    expect(result.found).toBe(false);
+    expect(result.direction).toBe("LONG");
+    expect(result.structureType).not.toBeNull();
+    expect(result.displacementAtr).not.toBeNull();
+    expect(result.retestFound).toBe(false);
+  });
 });

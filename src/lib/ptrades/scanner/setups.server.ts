@@ -104,14 +104,32 @@ export function detectPullbackContinuation(input: SetupInput): SetupResult {
   const direction = bias;
   const displacement = detectDisplacement(candles, direction, atr, displacementMinAtr);
   const retest = detectRetest(candles, direction, structure.level, atr);
-  if (!retest.found || !atr) {
-    return empty("PULLBACK_CONTINUATION", { structure: structure.type, retest: retest.found });
-  }
-
   const highs = swingHighs(candles, swingLookback);
   const lows = swingLows(candles, swingLookback);
   const extreme =
     direction === "LONG" ? (lows.at(-1)?.price ?? null) : (highs.at(-1)?.price ?? null);
+
+  if (!atr || !displacement.found || !retest.found) {
+    return {
+      found: false,
+      setupType: "PULLBACK_CONTINUATION",
+      direction,
+      level: structure.level,
+      extreme,
+      entryLow: retest.entryLow,
+      entryHigh: retest.entryHigh,
+      sweepFound: false,
+      displacementAtr: displacement.bodyAtr,
+      retestFound: retest.found,
+      structureType: "BOS",
+      detail: {
+        brokeAt: structure.at,
+        retestAt: retest.at,
+        priorTrend: structure.priorTrend,
+        armableWithoutRetest: displacement.found && !retest.found,
+      },
+    };
+  }
 
   return {
     found: true,
@@ -138,12 +156,32 @@ export function detectBreakRetest(input: SetupInput): SetupResult {
   const direction = structure.direction;
   const displacement = detectDisplacement(candles, direction, atr, displacementMinAtr);
   const retest = detectRetest(candles, direction, structure.level, atr);
-  if (!retest.found) return empty("BREAK_RETEST", { brokeAt: structure.at });
-
   const highs = swingHighs(candles, swingLookback);
   const lows = swingLows(candles, swingLookback);
   const extreme =
     direction === "LONG" ? (lows.at(-1)?.price ?? null) : (highs.at(-1)?.price ?? null);
+
+  if (!displacement.found || !retest.found) {
+    return {
+      found: false,
+      setupType: "BREAK_RETEST",
+      direction,
+      level: structure.level,
+      extreme,
+      entryLow: retest.entryLow,
+      entryHigh: retest.entryHigh,
+      sweepFound: false,
+      displacementAtr: displacement.bodyAtr,
+      retestFound: retest.found,
+      structureType: structure.type,
+      detail: {
+        brokeAt: structure.at,
+        retestAt: retest.at,
+        structureType: structure.type,
+        armableWithoutRetest: displacement.found && !retest.found,
+      },
+    };
+  }
 
   return {
     found: true,

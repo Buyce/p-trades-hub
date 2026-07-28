@@ -40,11 +40,17 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
 
         try {
           const summary = await runScan(supabaseAdmin);
+          if (!summary.ok || summary.message === "A scan is already running") {
+            return Response.json({ ...summary, precision: null, watchdog: null }, { status: summary.ok ? 200 : 503 });
+          }
           // Execution timing lives in the remainder of this invocation: armed
           // setups are polled every few seconds until the minute is nearly up.
           // Only this loop may turn a setup into an actionable alert.
           const rulebook = await loadActiveRulebook(supabaseAdmin);
-          const precision = await runPrecisionLoop(supabaseAdmin, rulebook);
+          const precision = await runPrecisionLoop(supabaseAdmin, rulebook, {
+            budgetMs: 15_000,
+            intervalMs: 3_000,
+          });
           // Reporting only: raises one operator alert when setups arm all day
           // and none of them ever becomes tradable.
           const { checkExecutionStall } = await import("@/lib/ptrades/scanner/watchdog.server");

@@ -233,7 +233,7 @@ export function noSetup(found: boolean, setupType: string, detail: Record<string
     "NO_SETUP",
     found,
     found
-      ? `A complete ${setupType} setup formed on the entry timeframe.`
+      ? `A ${setupType} setup was detected on the entry timeframe.`
       : "No setup family completed on the entry timeframe.",
     detail,
   );
