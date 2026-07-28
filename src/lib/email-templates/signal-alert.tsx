@@ -13,15 +13,21 @@ import {
   Text,
 } from "@react-email/components";
 import { main, container, h1, text, button, footer, urlBlock, fallbackText } from "./styles";
+import { tierCopy } from "./tier-alert-copy";
+import type { Tier } from "@/lib/ptrades/tiers";
 
 /**
- * Alert email for a qualified A / A+ setup. Renders only values produced by the
- * scanner — nothing here is calculated or inferred at render time.
+ * Alert email for a qualified setup. Subject and body copy are chosen by the
+ * tier stored on the signal, so B and C alerts read differently from A / A+.
+ * Renders only values produced by the scanner — nothing here is calculated,
+ * inferred or upgraded at render time.
  */
 
 export interface SignalAlertEmailProps {
   siteName: string;
   signalUrl: string;
+  /** Stored tier code. Null renders neutral, unlabelled copy. */
+  tier: Tier | null;
   instrument: string;
   direction: string;
   grade: string;
@@ -62,6 +68,7 @@ function Line({ label, value }: { label: string; value: string }) {
 export const SignalAlertEmail = ({
   siteName,
   signalUrl,
+  tier,
   instrument,
   direction,
   grade,
@@ -73,20 +80,37 @@ export const SignalAlertEmail = ({
   rrTp1,
   score,
   reasons,
-}: SignalAlertEmailProps) => (
+}: SignalAlertEmailProps) => {
+  const copy = tierCopy(tier);
+  return (
   <Html lang="en" dir="ltr">
     <Head />
     <Preview>
-      {instrument} {direction} — {grade} setup, {rrTp1} to TP1
+      Tier {grade} · {instrument} {direction} — {rrTp1} to TP1
     </Preview>
     <Body style={main}>
       <Container style={container}>
+        <Text
+          style={{
+            display: "inline-block",
+            fontSize: "11px",
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+            color: copy.accent,
+            backgroundColor: copy.accentBg,
+            border: `1px solid ${copy.accentBorder}`,
+            borderRadius: "4px",
+            padding: "5px 10px",
+            margin: "0 0 14px",
+          }}
+        >
+          {copy.banner}
+        </Text>
         <Heading style={h1}>
-          {instrument} {direction} — {grade}
+          {instrument} {direction} — Tier {grade}
         </Heading>
         <Text style={text}>
-          A qualified setup passed every rulebook gate. {siteName} does not place trades — you
-          decide and execute manually.
+          {copy.intro} {siteName} does not place trades — you decide and execute manually.
         </Text>
 
         <Line label="Direction" value={direction} />
@@ -99,7 +123,7 @@ export const SignalAlertEmail = ({
         ))}
         <Line label="R:R at TP1" value={rrTp1} />
         <Line label="Confidence score" value={score} />
-        <Line label="Grade" value={grade} />
+        <Line label="Tier" value={grade} />
 
         <Hr style={{ borderColor: "#e3e8ee", margin: "22px 0" }} />
 
@@ -112,6 +136,21 @@ export const SignalAlertEmail = ({
           </Text>
         ))}
 
+        <Text
+          style={{
+            ...text,
+            margin: "18px 0 0",
+            padding: "12px 14px",
+            fontSize: "13px",
+            color: copy.accent,
+            backgroundColor: copy.accentBg,
+            border: `1px solid ${copy.accentBorder}`,
+            borderRadius: "6px",
+          }}
+        >
+          {copy.note}
+        </Text>
+
         <Button style={{ ...button, marginTop: "18px" }} href={signalUrl}>
           Open signal detail
         </Button>
@@ -120,12 +159,13 @@ export const SignalAlertEmail = ({
         <Text style={urlBlock}>{signalUrl}</Text>
 
         <Text style={footer}>
-          You are receiving this because email alerts are switched on in your {siteName} settings.
-          Turn them off any time under Settings → Alerts.
+          You are receiving this because Tier {grade} email alerts are switched on in your{" "}
+          {siteName} settings. Change which tiers reach your inbox any time under Settings → Alerts.
         </Text>
       </Container>
     </Body>
   </Html>
-);
+  );
+};
 
 export default SignalAlertEmail;

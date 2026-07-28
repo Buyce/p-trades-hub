@@ -8,6 +8,8 @@ import * as React from "react";
 import { render } from "@react-email/render";
 import { sendLovableEmail } from "@lovable.dev/email-js";
 import { SignalAlertEmail } from "@/lib/email-templates/signal-alert";
+import { tierSubject } from "@/lib/email-templates/tier-alert-copy";
+import type { Tier } from "@/lib/ptrades/tiers";
 
 const SITE_NAME = "P-Trades";
 const FROM_DOMAIN = "notify.getptrades.com";
@@ -15,6 +17,8 @@ const SITE_URL = "https://getptrades.com";
 
 export type AlertEmailInput = {
   signalId: string;
+  /** Stored tier code — drives the subject line and the body copy. */
+  tier: Tier | null;
   instrument: string;
   direction: string;
   grade: string;
@@ -50,10 +54,10 @@ export async function sendAlertEmail(
         to: recipient,
         from: `${SITE_NAME} <alerts@${FROM_DOMAIN}>`,
         sender_domain: FROM_DOMAIN,
-        subject: `${input.instrument} ${input.direction} — ${input.grade} setup (${input.rrTp1} to TP1)`,
+        subject: tierSubject(input.tier, input),
         html,
         text,
-        purpose: "signal-alert",
+        purpose: input.tier ? `signal-alert-${input.tier.toLowerCase()}` : "signal-alert",
         idempotency_key: `signal-${input.signalId}-${recipient}`,
       },
       { apiKey, sendUrl: process.env.LOVABLE_SEND_URL },
