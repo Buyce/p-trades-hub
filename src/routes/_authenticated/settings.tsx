@@ -80,6 +80,77 @@ function Settings() {
     onError: (e: unknown) => toast.error(userMessageOf(e)),
   });
 
+  /* ---- alert channels ---- */
+  const keyFn = useServerFn(getPushPublicKey);
+  const { data: pushKey } = useQuery({
+    queryKey: ["push", "publicKey"],
+    queryFn: () => keyFn(),
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  const [deviceSubscribed, setDeviceSubscribed] = useState(false);
+  const supported = pushSupported();
+
+  useEffect(() => {
+    let active = true;
+    currentPushSubscription()
+      .then((sub) => active && setDeviceSubscribed(Boolean(sub)))
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const emailAlerts = useMutation({
+    mutationFn: (enabled: boolean) =>
+      updateAlertPreferences({ userId: user?.id, emailAlertsEnabled: enabled }),
+    onSuccess: (_d, enabled) => {
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      toast.success(enabled ? "Email alerts on" : "Email alerts off");
+    },
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
+  });
+
+  const pushAlerts = useMutation({
+    mutationFn: (enabled: boolean) =>
+      updateAlertPreferences({ userId: user?.id, pushAlertsEnabled: enabled }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["profile"] }),
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
+  });
+
+  const enableDevice = useMutation({
+    mutationFn: async () => {
+      if (!pushKey?.publicKey) throw new Error("Push is not configured on the server.");
+      const keys = await subscribeToPush(pushKey.publicKey);
+      await savePushSubscription({
+        userId: user?.id,
+        endpoint: keys.endpoint,
+        p256dh: keys.p256dh,
+        auth: keys.auth,
+        userAgent: typeof navigator === "undefined" ? null : navigator.userAgent,
+      });
+    },
+    onSuccess: () => {
+      setDeviceSubscribed(true);
+      pushAlerts.mutate(true);
+      toast.success("Push notifications enabled on this device");
+    },
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
+  });
+
+  const disableDevice = useMutation({
+    mutationFn: async () => {
+      const endpoint = await unsubscribeFromPush();
+      if (endpoint) await removePushSubscription(endpoint);
+    },
+    onSuccess: () => {
+      setDeviceSubscribed(false);
+      toast.success("Push notifications disabled on this device");
+    },
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
+  });
+
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
