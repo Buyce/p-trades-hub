@@ -67,15 +67,21 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
             "@/lib/ptrades/scanner/watchdog.server"
           );
           const watchdog = await checkExecutionStall(supabaseAdmin).catch(() => null);
+          // Delivery readiness is reported every pass so a dead channel is
+          // visible before a signal needs it, not after one is missed.
+          const { verifyNotificationChannels } = await import(
+            "@/lib/ptrades/scanner/notify.server"
+          );
+          const channels = await verifyNotificationChannels(supabaseAdmin).catch(() => null);
           await safeHeartbeat(supabaseAdmin, {
             source: "PRECISION_SCANNER",
             // No open watches is a healthy idle scanner, not a fault.
             status: precision.watched === 0 ? "IDLE" : "OK",
             metaapiConnected: null,
             rulebookVersion: rulebook.version ?? null,
-            detail: { ...precision, duration_ms: Date.now() - startedAt },
+            detail: { ...precision, channels, duration_ms: Date.now() - startedAt },
           });
-          return Response.json({ ok: true, precision, watchdog });
+          return Response.json({ ok: true, precision, watchdog, channels });
         } catch (error) {
           const message = error instanceof Error ? error.message : "precision pass failed";
           console.error("scan-precision failed", message);
