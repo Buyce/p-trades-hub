@@ -1,33 +1,45 @@
-## Short answer
+## What the data shows
 
-Your MetaApi settings are fine. The scanner is not broken by configuration — the version of the scanner that actually runs every minute is **an older build than the code in this project**, so none of the tier/duplicate fixes are live yet.
+Verified against live tables (last 40 minutes and full day 2026-07-28):
 
-## Evidence (from your database, not assumptions)
+- **Coverage is fine.** Every minute-run scans all 5 enabled instruments (XAUUSD, GBPAUD, GBPUSD, EURUSD, USDJPY) — 389–391 candidates each today. NAS100 is disabled by configuration, as intended. The published build is live: the R:R gate now correctly applies the lowest tier floor (`minRr 1.2`), and rulebook `v1.6.0-live` with the 1.5 ATR late-entry allowance is in effect.
+- **C tier is mathematically unreachable.** Every hard gate is also a large scoring component: sweep = 20 pts, retest = 15, displacement ≥ 1 ATR = 15, bias-aligned = 12. Anything that survives all hard gates already scores ≈ 83.5 minimum. Today: 477 candidates landed in the C band (70–79.9), and every single one failed a hard gate (NO_SETUP, NO_DISPLACEMENT, BIAS_CONFLICT). A C-band score and a passing candidate are mutually exclusive by construction.
+- **A+ is also unreachable.** Targets are hard-coded at 2R/3R from the stop, so `rr_tp1` is ≈2.00 for every candidate and `structure_confirmation` is permanently pinned at 7.5/15. Maximum attainable score = 92.5, below the A+ band of 95.
+- **Reachable range is 83.5 – 92.5**, i.e. only B and A can ever fire. Two B alerts in 20 minutes is the system working exactly as coded.
+- Side effect of the fixed 2R target: float rounding produces `rr_tp1` of 1.9655 / 1.998 / 2.003, which used to trip the old 2.0 hard floor.
 
-- `signals` table: **0 rows, ever**. 3,279 candidates in the last 3 days, **0 qualified**.
-- A GBPUSD candidate at 08:02 today passed every gate except two, and was graded `B` while `qualified = false`. Current code can never do that — it stores `grade = null` when a candidate is not qualified. So the running build is older.
-- That same candidate's reward-to-risk gate recorded `minRr: 2`. The active rulebook `v1.5.0-live` stores `tier_min_rr = {A+ 2.0, A 2.0, B 1.5, C 1.2}`, and current code gates on the **lowest** floor (1.2). A hard `2.0` is exactly what the pre-tier build used. **This is why no B or C alert can ever fire** — every B/C setup is killed by an A-tier R:R floor.
-- `DUPLICATE` is the #1 rejection (2,671 in 3 days) even though zero signals have ever been promoted. Current code scopes duplicates to promoted `signals`; the running build still scopes to `signal_candidates`, so every setup is "a duplicate of itself" one minute after it appears.
-- The cron job posts every minute to the **preview** URL (`...-dev.lovable.app/api/public/hooks/scan-markets`), which serves the last built preview deployment — that build predates the tier work.
+## The fix
 
-## Real issues that remain even after the correct build is live
+### 1. Structure-based targets (`risk.server.ts`, `run.server.ts`)
 
-1. **Late-entry gate is very tight.** `late_entry_max_atr_from_entry = 0.5`. Today's fully-valid GBPUSD short was rejected at 2.04 ATR; other rejections show 3.36 ATR. On M5 with a 1-minute scan cadence, price routinely travels >0.5 ATR before the retest candle closes. 957 rejections in 12h come from this alone.
-2. **MetaApi timeouts.** 132 `TIMEOUT` errors (`getCandles timed out after 15000ms`) and 50 scanner runs ended in `TIMEOUT` status. Your account has **1 resource slot** and you are pulling 5 timeframes per symbol every 60 seconds. This is a throughput limit, not a code bug.
-3. **Stale-data budget is inconsistent.** Some rejections show `maxAge: 180` (rulebook default) against 966s-old data, others show `maxAge: 1080` (per-instrument override). Instruments without `max_data_age_seconds` set are being judged on a budget shorter than one M15 candle.
-4. **`rulebook_checksum` is null on every run and on the active rulebook row** — the governance/traceability trail is not being written.
+Replace the fixed 2R/3R target ladder with targets derived from real market structure:
 
-## Proposed fix, in order
+- TP1 = nearest opposing liquidity level ahead of entry (prior swing high/low from the existing swing detector, or the swept level on the opposite side), floored so it never sits inside the entry zone.
+- TP2 / TP3 = next two structural levels out; fall back to the current R-multiples only when no further structure exists within a sane distance.
+- Reject a setup only through the existing `RR_BELOW_MIN` gate (lowest tier floor, 1.2) — no new hard gate.
+- Round targets to instrument digits once, and round `rr_tp1` to 2 dp on write so 1.9999 stops presenting as "2.00 but rejected".
 
-1. **Publish the app** so the current scanner build actually serves the cron endpoint, then verify against live data that a fresh candidate records `minRr: 1.2` and that `DUPLICATE` stops firing while `signals` is empty. This alone should unblock B and C alerts.
-2. **Relax the late-entry gate** in rulebook `v1.6.0-live` from `0.5` to a value that matches M5 reality (proposed `1.5` ATR), keeping every other hard gate untouched. Scoring already penalises late entries, so late setups will land in B/C rather than A.
-3. **Reduce MetaApi load**: fetch D1/H4 less often than every minute (cache them), and raise the candle fetch timeout with one retry. Optionally raise resource slots to 2 on the MetaApi side.
-4. **Backfill `max_data_age_seconds` per instrument** to `entry timeframe duration + feed budget`, so no symbol is judged on a 180s budget.
-5. **Write the rulebook checksum** on every run and backfill it on the active rulebook row.
-6. Add a **daily "why nothing alerted" summary** on Scanner Health: top blocking gate per instrument, so this is visible without querying the database.
+Effect: `rr_tp1` genuinely varies, `structure_confirmation` uses its full 0–15 range, and the per-tier R:R floors (2.0 / 2.0 / 1.5 / 1.2) become meaningful for the first time.
+
+### 2. Observe, then recalibrate bands (rulebook `v1.7.0-live`)
+
+Structure-based targets change the score distribution, so bands are recalibrated *after* measuring, not guessed:
+
+- Ship step 1, let the scanner run through a full London + New York session.
+- Query the observed score distribution for gate-passing candidates only.
+- Set bands to quartiles of that real distribution so each tier is populated, e.g. roughly A+ ≈ top decile, A ≈ next quartile, B ≈ middle, C ≈ the weakest gate-passing setups. Exact numbers come from the measured data.
+- Publish as rulebook `v1.7.0-live` through the versioning system with checksum and change summary. **No hard gate, no tier R:R floor and no daily cap changes** — C stays fully gate-compliant, just the weakest qualifying band, as you chose.
+
+### 3. Guardrail against this recurring
+
+Add a "tier reachability" check to Scanner Health: for the active rulebook, compute the theoretical minimum and maximum score a gate-passing candidate can achieve, and flag any tier band that falls outside that window as unreachable. This would have surfaced the C and A+ dead bands immediately.
 
 ## Technical notes
 
-- Steps 2, 4 and 5 are database migrations (a new rulebook version row plus instrument updates); the scanner reads the rulebook from the database, so no code change is needed for the gate values themselves.
-- Step 1 requires no code change at all — it is a deployment step, and it is the single largest cause of the symptom you reported.
-- Nothing in this plan adds, or moves toward, any trade-execution path. All MetaApi access stays on the read-only allowlist.
+- Files touched: `src/lib/ptrades/scanner/risk.server.ts` (target derivation), `src/lib/ptrades/scanner/run.server.ts` (wire structural levels from the swing/sweep detector into target building), `src/lib/ptrades/scanner/scoring.server.ts` (unchanged weights; only the now-live R:R range), `src/routes/_authenticated/scanner-health.tsx` + `health.repo.ts` (reachability panel), plus a rulebook migration for `v1.7.0-live`.
+- Test updates: `risk.test.ts` and `scoring.test.ts` gain cases for varying R:R; a new test asserts every tier band is reachable given the active rulebook.
+- Nothing in this plan adds any execution capability — targets are still descriptive plan data only.
+
+## Sequencing
+
+Step 1 and step 3 ship together now. Step 2 (band recalibration) needs one session of live data first; I'll run the distribution query and propose exact band numbers before publishing v1.7.0.
