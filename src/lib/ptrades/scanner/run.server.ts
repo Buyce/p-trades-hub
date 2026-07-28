@@ -665,6 +665,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
     rulebookVersion: rulebook.version,
     detail: {
       shadow_mode: shadowMode,
+      rulebook_checksum: checksum,
       session: sessionAt(new Date()),
       instruments: symbols,
       candidates,
