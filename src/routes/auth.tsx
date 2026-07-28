@@ -29,6 +29,8 @@ export const Route = createFileRoute("/auth")({
         property: "og:description",
         content: "Sign in or create an account for the P-Trades cockpit.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: AuthPage,
