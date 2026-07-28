@@ -18,6 +18,7 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedScannerHealthRouteImport } from './routes/_authenticated/scanner-health'
 import { Route as AuthenticatedRulebookRouteImport } from './routes/_authenticated/rulebook'
 import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenticated/performance'
+import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
 import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedAdminInvitesRouteImport } from './routes/_authenticated/admin-invites'
@@ -72,6 +73,12 @@ const AuthenticatedPerformanceRoute =
     path: '/performance',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedNotificationsRoute =
+  AuthenticatedNotificationsRouteImport.update({
+    id: '/notifications',
+    path: '/notifications',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedJournalRoute = AuthenticatedJournalRouteImport.update({
   id: '/journal',
   path: '/journal',
@@ -118,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/admin-invites': typeof AuthenticatedAdminInvitesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/journal': typeof AuthenticatedJournalRoute
+  '/notifications': typeof AuthenticatedNotificationsRoute
   '/performance': typeof AuthenticatedPerformanceRoute
   '/rulebook': typeof AuthenticatedRulebookRoute
   '/scanner-health': typeof AuthenticatedScannerHealthRoute
@@ -135,6 +143,7 @@ export interface FileRoutesByTo {
   '/admin-invites': typeof AuthenticatedAdminInvitesRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/journal': typeof AuthenticatedJournalRoute
+  '/notifications': typeof AuthenticatedNotificationsRoute
   '/performance': typeof AuthenticatedPerformanceRoute
   '/rulebook': typeof AuthenticatedRulebookRoute
   '/scanner-health': typeof AuthenticatedScannerHealthRoute
@@ -154,6 +163,7 @@ export interface FileRoutesById {
   '/_authenticated/admin-invites': typeof AuthenticatedAdminInvitesRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/journal': typeof AuthenticatedJournalRoute
+  '/_authenticated/notifications': typeof AuthenticatedNotificationsRoute
   '/_authenticated/performance': typeof AuthenticatedPerformanceRoute
   '/_authenticated/rulebook': typeof AuthenticatedRulebookRoute
   '/_authenticated/scanner-health': typeof AuthenticatedScannerHealthRoute
@@ -173,6 +183,7 @@ export interface FileRouteTypes {
     | '/admin-invites'
     | '/dashboard'
     | '/journal'
+    | '/notifications'
     | '/performance'
     | '/rulebook'
     | '/scanner-health'
@@ -190,6 +201,7 @@ export interface FileRouteTypes {
     | '/admin-invites'
     | '/dashboard'
     | '/journal'
+    | '/notifications'
     | '/performance'
     | '/rulebook'
     | '/scanner-health'
@@ -208,6 +220,7 @@ export interface FileRouteTypes {
     | '/_authenticated/admin-invites'
     | '/_authenticated/dashboard'
     | '/_authenticated/journal'
+    | '/_authenticated/notifications'
     | '/_authenticated/performance'
     | '/_authenticated/rulebook'
     | '/_authenticated/scanner-health'
@@ -294,6 +307,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedPerformanceRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/notifications': {
+      id: '/_authenticated/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof AuthenticatedNotificationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/journal': {
       id: '/_authenticated/journal'
       path: '/journal'
@@ -350,6 +370,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAdminInvitesRoute: typeof AuthenticatedAdminInvitesRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedJournalRoute: typeof AuthenticatedJournalRoute
+  AuthenticatedNotificationsRoute: typeof AuthenticatedNotificationsRoute
   AuthenticatedPerformanceRoute: typeof AuthenticatedPerformanceRoute
   AuthenticatedRulebookRoute: typeof AuthenticatedRulebookRoute
   AuthenticatedScannerHealthRoute: typeof AuthenticatedScannerHealthRoute
@@ -362,6 +383,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAdminInvitesRoute: AuthenticatedAdminInvitesRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedJournalRoute: AuthenticatedJournalRoute,
+  AuthenticatedNotificationsRoute: AuthenticatedNotificationsRoute,
   AuthenticatedPerformanceRoute: AuthenticatedPerformanceRoute,
   AuthenticatedRulebookRoute: AuthenticatedRulebookRoute,
   AuthenticatedScannerHealthRoute: AuthenticatedScannerHealthRoute,
