@@ -3,6 +3,7 @@ import {
   DEFAULT_RULEBOOK,
   TIMEFRAME_LABEL,
   TIMEFRAME_SECONDS,
+  armingDisplacementFor,
   candleGapMultipleFor,
   precisionRulesFor,
 } from "./types";
@@ -20,7 +21,7 @@ import { rulebookChecksum } from "./rulebook.server";
 import { minTierRr, scoreCandidate } from "./scoring.server";
 import { rewardToRisk, structuralTargets } from "./risk.server";
 import { swingHighs, swingLows } from "./swings.server";
-import { detectSetup, type SetupResult } from "./setups.server";
+import { detectSetupDetailed, type SetupResult } from "./setups.server";
 import { checkCandleSanity } from "./sanity.server";
 import { sessionAt } from "./sessions.server";
 import { currenciesFor, macroContextFor, type MacroEvent } from "./macro.server";
@@ -82,9 +83,17 @@ export function armingFailedGates(gates: GateResult[]): GateResult[] {
   return gates.filter((g) => !g.passed && !EXECUTION_ONLY_GATES.has(g.code));
 }
 
-export function isArmableSetup(setup: SetupResult, rulebook: Rulebook): boolean {
-  const displacementOk =
-    setup.displacementAtr !== null && setup.displacementAtr >= rulebook.displacement_min_atr;
+/**
+ * Arming boundary. A watch may open on a lower displacement than final quality
+ * requires: the measured value is preserved and re-judged at ENTRY_READY.
+ */
+export function isArmableSetup(
+  setup: SetupResult,
+  rulebook: Rulebook,
+  symbol?: string | null,
+): boolean {
+  const threshold = armingDisplacementFor(rulebook, symbol);
+  const displacementOk = setup.displacementAtr !== null && setup.displacementAtr >= threshold;
   const hasStructure = setup.sweepFound || setup.structureType !== null;
   return Boolean(setup.direction && setup.level !== null && hasStructure && displacementOk);
 }
