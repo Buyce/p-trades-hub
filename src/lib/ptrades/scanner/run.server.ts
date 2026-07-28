@@ -35,12 +35,20 @@ import { entryAnchorForSetup } from "./entry-anchor.server";
 import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
 import { buildInvalidation, hasInvalidation } from "./invalidation.server";
 import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
-import { SCAN_LOCK_KEY, acquireScanLock, newLockHolder, releaseScanLock } from "./lock.server";
+import {
+  SCAN_LOCK_KEY,
+  acquireScanLock,
+  createDeadline,
+  newLockHolder,
+  readLock,
+  releaseScanLock,
+  renewScanLock,
+} from "./lock.server";
 import { armedExpiry } from "./lifecycle.server";
 import {
-  biasConflict,
   candleSanity,
   duplicate,
+  gate,
   invalidStop,
   invalidationGate,
   missingData,
@@ -49,6 +57,7 @@ import {
   sessionGate,
   staleData,
 } from "./gates.server";
+
 import {
   closeStaleRuns,
   cacheCandle,
