@@ -11,7 +11,8 @@ import { checkLateEntry } from "./late-entry.server";
 import { fingerprint } from "./fingerprint.server";
 import { rulebookChecksum } from "./rulebook.server";
 import { minTierRr, scoreCandidate, tierFor } from "./scoring.server";
-import { rewardToRisk, targetsFrom } from "./risk.server";
+import { rewardToRisk, structuralTargets } from "./risk.server";
+import { swingHighs, swingLows } from "./swings.server";
 import { detectSetup } from "./setups.server";
 import { checkCandleSanity } from "./sanity.server";
 import { sessionAt } from "./sessions.server";
@@ -363,11 +364,29 @@ async function evaluateInstrument(
     spreadGate(spread, atrValue, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null),
   );
 
+  // Opposing liquidity ahead of the entry: prior swing highs for a long, prior
+  // swing lows for a short. These are the destinations the setup is actually
+  // trading towards, so they define the target ladder.
+  const opposingLevels = (
+    direction === "LONG"
+      ? swingHighs(entryCandles, rulebook.swing_lookback)
+      : swingLows(entryCandles, rulebook.swing_lookback)
+  ).map((s) => s.price);
+
   const targets =
     entry !== null && stop !== null
-      ? scanTargets(entry, stop, direction).map((t) => roundToDigits(t, resolved.digits) as number)
+      ? scanTargets(
+          entry,
+          stop,
+          direction,
+          opposingLevels,
+          atrValue,
+          minTierRr(rulebook),
+        ).map((t) => roundToDigits(t, resolved.digits) as number)
       : [];
-  const rr = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
+  const rrRaw = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
+  // Stored to two decimals so a displayed R:R always matches the stored one.
+  const rr = rrRaw === null ? null : Number(rrRaw.toFixed(2));
   // Per-instrument minimums raise the top tiers only; the hard RR gate uses the
   // lowest tier floor, and the tier a candidate earns is decided after scoring.
   const topTierRr = Math.max(instrument.min_rr, rulebook.tier_min_rr.A);
