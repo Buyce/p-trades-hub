@@ -547,7 +547,15 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
           instrument: result.candidate.instrument,
           direction: result.candidate.direction,
           grade: result.candidate.grade,
+          setupType: result.candidate.setup_type,
+          timeframe: result.candidate.timeframe,
+          entryZoneLow: result.candidate.entry_zone_low,
+          entryZoneHigh: result.candidate.entry_zone_high,
+          stopLoss: result.candidate.stop_loss,
+          targets: result.candidate.targets,
           rr: result.candidate.rr_tp1,
+          score: result.candidate.score,
+          reasons: result.candidate.reasons,
         });
       }
     } catch (error) {
