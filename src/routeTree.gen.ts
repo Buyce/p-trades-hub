@@ -26,6 +26,7 @@ import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_auth
 import { Route as LovableEmailAuthWebhookRouteImport } from './routes/lovable/email/auth/webhook'
 import { Route as LovableEmailAuthPreviewRouteImport } from './routes/lovable/email/auth/preview'
 import { Route as ApiPublicHooksScanMarketsRouteImport } from './routes/api/public/hooks/scan-markets'
+import { Route as ApiPublicHooksScanContextRouteImport } from './routes/api/public/hooks/scan-context'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -117,6 +118,12 @@ const ApiPublicHooksScanMarketsRoute =
     path: '/api/public/hooks/scan-markets',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksScanContextRoute =
+  ApiPublicHooksScanContextRouteImport.update({
+    id: '/api/public/hooks/scan-context',
+    path: '/api/public/hooks/scan-context',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -132,6 +139,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
@@ -150,6 +158,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
@@ -170,6 +179,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-markets': typeof ApiPublicHooksScanMarketsRoute
   '/lovable/email/auth/preview': typeof LovableEmailAuthPreviewRoute
   '/lovable/email/auth/webhook': typeof LovableEmailAuthWebhookRoute
@@ -190,6 +200,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-markets'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
@@ -208,6 +219,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-markets'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
@@ -227,6 +239,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
+    | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-markets'
     | '/lovable/email/auth/preview'
     | '/lovable/email/auth/webhook'
@@ -237,6 +250,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ApiPublicHooksScanContextRoute: typeof ApiPublicHooksScanContextRoute
   ApiPublicHooksScanMarketsRoute: typeof ApiPublicHooksScanMarketsRoute
   LovableEmailAuthPreviewRoute: typeof LovableEmailAuthPreviewRoute
   LovableEmailAuthWebhookRoute: typeof LovableEmailAuthWebhookRoute
@@ -363,6 +377,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksScanMarketsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/scan-context': {
+      id: '/api/public/hooks/scan-context'
+      path: '/api/public/hooks/scan-context'
+      fullPath: '/api/public/hooks/scan-context'
+      preLoaderRoute: typeof ApiPublicHooksScanContextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -400,6 +421,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ApiPublicHooksScanContextRoute: ApiPublicHooksScanContextRoute,
   ApiPublicHooksScanMarketsRoute: ApiPublicHooksScanMarketsRoute,
   LovableEmailAuthPreviewRoute: LovableEmailAuthPreviewRoute,
   LovableEmailAuthWebhookRoute: LovableEmailAuthWebhookRoute,
