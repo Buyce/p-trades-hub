@@ -78,7 +78,7 @@ function Dashboard() {
   );
 
   const actionable = signals.filter((s) => s.is_actionable);
-  const alertsToday = Math.min(actionable.length, MAX_DAILY_ALERTS);
+  const alertsToday = actionable.length;
   const latestQualified = signals.find((s) => s.grade === "A_PLUS" || s.grade === "A") ?? null;
   const openTrades = trades.filter((t) => t.status === "OPEN");
   const weekly = expectancy(tradesSince(trades, Date.now() - 7 * 86_400_000));
@@ -142,8 +142,9 @@ function Dashboard() {
       <div className="grid grid-cols-2 gap-3">
         <StatTile
           label="Alerts today"
-          value={`${alertsToday}/${MAX_DAILY_ALERTS}`}
-          hint="A/A+ only"
+          value={alertsToday}
+          hint="All tiers · no daily cap"
+
           tone={alertsToday > 0 ? "accent" : "neutral"}
         />
         <StatTile label="Open trades" value={openTrades.length} hint="Your journal" />
@@ -161,8 +162,9 @@ function Dashboard() {
           <div className="rounded-md border border-border bg-surface px-4 py-6 text-center">
             <p className="text-sm font-semibold text-foreground">No qualified setup right now</p>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              A no-trade day is a valid, successful outcome. The scanner alerts only when a setup
-              meets every rulebook condition for its tier, up to {MAX_DAILY_ALERTS} per UTC day.
+              A no-trade day is a valid, successful outcome. The scanner alerts whenever a setup
+              meets every rulebook condition for its tier — there is no daily alert limit.
+
             </p>
           </div>
         </SectionCard>
