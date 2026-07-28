@@ -9,7 +9,7 @@ import {
   signalsTodayQuery,
   expectancy,
   tradesSince,
-  MAX_DAILY_ALERTS,
+  
 } from "@/lib/ptrades/queries";
 import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import { useProfile, useSessionUser, useTimezone } from "@/lib/ptrades/session";
