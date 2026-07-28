@@ -1,50 +1,31 @@
-## Audit result (verified against the live backend)
+## What your two screenshots show
 
-| Question | Answer |
-|---|---|
-| Connected to MT5? | **Yes.** Account 5053558014, MetaQuotes-Demo, London, DEPLOYED / CONNECTED. Heartbeat every ~60s, status OK. |
-| Scanning Gold + our markets? | **Yes.** XAUUSD, GBPAUD, GBPUSD, EURUSD, USDJPY every minute. NAS100 is present but disabled. |
-| Rules applied? | **Yes.** Rulebook v1.2.0-shadow, all 14 gates firing with real counts. 2,717 candidates stored, 118 scored A-grade, 242 B-grade. |
-| Alerts on A-grade only? | Logic is correct, but **nothing can alert today**: shadow mode is on, and no A-grade candidate has yet passed every hard gate (0 qualified). |
-| Where do alerts go? | **Nowhere.** An alert is only a database row; there is no notification UI, no push, no email. This is the main gap. |
-| Reports direction/entry/stop/targets/RR/score/why? | **Yes** — all seven are stored and rendered on the signal detail page. |
+**Image 1 — Dashboard / Market data link.** The backend is healthy: heartbeat 13s old, scanner status OK, MT5 connection Connected, active rulebook `v1.3.0-live` (live mode, shadow off). "Broker feed: Unavailable" is a cosmetic gap — that field isn't being populated by the health payload.
 
-Defects found: 1,021 STALE_DATA rejections plus 132 MetaApi `getCandles` timeouts and a 504 — real setups are being dropped for data-freshness reasons. Duplicate-fingerprint rejections are re-logged every minute (1,219 today), flooding the health view. Scanner Health colours run pills against `"SUCCESS"` while heartbeats use `"OK"`.
+**Image 2 — Alerts.** "No alerts yet" is the empty state, not an error. The scanner is running and evaluating, it simply hasn't produced a setup that passes every gate.
 
-## What I'll build
+## Why no alert has arrived (verified from the database)
 
-### 1. Go live (out of shadow mode)
-Flip `scanner_settings.shadow_mode` to false and publish rulebook `v1.3.0-live`. Live behaviour: only A/A+ candidates that pass every gate promote to signals, the daily slot is claimed atomically, cap stays at 2 per UTC day, minimum 2.0R at TP1. B-grade stays journal-only. No execution path is added — the system stays strictly read-only.
+- Last 2 hours: 114 scanner runs, all `SUCCESS`. 2,814 candidates evaluated in the last day.
+- Zero qualified. Rejections in the last day, by gate: DUPLICATE 2671, STALE_DATA 2242, SESSION 2199, NO_DISPLACEMENT 2103, RR_BELOW_MIN 1859, BIAS_CONFLICT 1671, INVALID_STOP 1530, NO_SETUP 1475, NO_SWEEP/NO_RETEST 1260 each.
+- `daily_alert_counters` has no row for today, so no actionable slot has ever been claimed.
 
-### 2. In-app notification centre
-- Bell in the app shell with an unread count, and a `/notifications` page listing each alert with instrument, direction, grade, R:R and time, linking to the signal detail.
-- Mark-as-read, mark-all-read, delete. Live updates via realtime so an alert appears without a refresh.
-- Insert policy added so the scanner can write notification rows per user.
+So the pipeline works end to end; the rulebook is just very strict, which is by design. One thing is **not** by design: `STALE_DATA` is firing on all five instruments roughly every run (≈140 each in 3 hours). That gate alone can veto otherwise-valid setups, and it points at market-data freshness rather than trading logic. This is a suspected, not yet confirmed, cause — diagnosing it is step 1 below.
 
-### 3. Browser push
-- Service worker plus VAPID web-push. A "Enable push alerts on this device" button in Settings requests permission and registers the device.
-- New `push_subscriptions` table (user-scoped RLS). On a qualified signal the scanner sends a push containing instrument, direction, grade and R:R; tapping it opens the signal.
-- Dead subscriptions are pruned on send failure.
+## Plan
 
-### 4. Email alerts — user's choice, visible toggle
-- Settings gains a clearly visible **"Also email me when an alert fires"** switch, off by default, stored on the profile.
-- When on, a branded P-Trades email goes out from your verified domain with direction, entry zone, stop-loss, all three targets, R:R at TP1, confidence score and grade, and the qualifying reasons — plus a link to the signal.
-- The switch is surfaced once in the notification centre too, so it's discoverable rather than buried.
+1. **Diagnose STALE_DATA.** Instrument the market-data path to log, per symbol and timeframe, the last candle time vs. now and the configured `max_data_age_seconds`. Determine whether the age threshold is simply too tight for the higher timeframes (e.g. an H1 candle is by definition up to an hour old) or whether MetaApi reads are genuinely lagging. Fix accordingly: correct per-timeframe age budgets, or per-instrument `max_data_age_seconds` on `instruments`.
+2. **Raise the daily alert cap to 30.** Three places must move together:
+   - `scanner_settings.max_daily_alerts` → 30 (migration).
+   - A new rulebook version `v1.4.0-live` with `max_daily_actionable: 30`, set active, everything else copied from `v1.3.0-live` (migration).
+   - `contracts/rulebook.schema.json` currently caps `max_daily_actionable` at 10 — raise the schema maximum to 30, and update `DEFAULT_RULEBOOK` in `src/lib/ptrades/scanner/types.ts` plus the two tests that assert `2` / reject `25`.
+3. **Fix "Broker feed: Unavailable"** on the dashboard by surfacing the field the heartbeat actually reports.
+4. **Verify.** Re-run typecheck and the full Vitest suite, then confirm from the database that the active rulebook reads 30 and that the cap gate no longer references 2.
 
-### 5. Harden market data (fixes STALE_DATA)
-- Raise the candle timeout, add bounded retry with backoff, and fetch timeframes with limited concurrency instead of five simultaneous calls.
-- Cache the last good candle set per symbol/timeframe so a single slow call doesn't fail the whole instrument, while still rejecting genuinely stale data (fail-closed preserved).
-- Record timeout/retry counts on the run so Scanner Health shows feed quality.
+## Note on the safety envelope
 
-### 6. Health surface cleanup
-- Log a duplicate rejection once per fingerprint per day instead of every minute.
-- Fix the run status pill mapping, and add an "Alerts today x/2", "Feed quality" and "Live / Shadow" indicator to Scanner Health.
+Your stored project rule is "0–2 actionable alerts per UTC day". Raising the cap to 30 supersedes that; I'll update the project memory so future sessions don't revert it. A/A+ only and minimum 2.0R at TP1 stay unchanged — the cap is a volume limit, not a quality filter, so this makes the system louder, not looser.
 
-## Technical notes
-- Alert fan-out lives in `notify.server.ts`, called from the existing live-mode branch in `run.server.ts`; delivery channels (in-app, push, email) run independently so one failing channel never blocks the others or the scan.
-- Push send and email send happen inside the scanner's server-side path with the admin client; VAPID keys stored as backend secrets (I'll generate them).
-- Migrations: `push_subscriptions` table with grants + RLS, `notifications` insert policy, `profiles.email_alerts_enabled` column, new rulebook version row, shadow-mode flag update.
-- No frontend recalculation of any trading value — the UI keeps rendering stored backend fields only.
+## Technical detail
 
-## What I still need from you
-- Confirm you want to go live on the **demo** account feed (MetaQuotes-Demo) — that's what's wired now. Alerts will be real alerts on demo-account data until a live account is connected.
+No trade-execution surface is added or touched. All changes are configuration, one schema bound, one UI field, and diagnostics.

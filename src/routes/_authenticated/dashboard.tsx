@@ -71,6 +71,12 @@ function Dashboard() {
   const linkState =
     heartbeatAgeMin === null ? "idle" : heartbeatAgeMin < 10 ? "ok" : heartbeatAgeMin < 60 ? "warn" : "down";
 
+  // The scanner records the broker server on every heartbeat, so the feed name
+  // is available even when the direct MetaApi account lookup is unavailable.
+  const heartbeatServer =
+    (heartbeat?.detail as { account?: { server?: string | null } } | null | undefined)?.account
+      ?.server ?? null;
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -104,7 +110,7 @@ function Dashboard() {
                   : "Disconnected"
           }
         />
-        <DataRow label="Broker feed" value={field(link?.server)} />
+        <DataRow label="Broker feed" value={field(link?.server ?? heartbeatServer)} />
         <DataRow
           label="Last heartbeat"
           value={heartbeat ? formatTime(heartbeat.received_at, tz) : undefined}

@@ -1,5 +1,5 @@
 import type { Bias, Candidate, Candle, GateResult, Rulebook, Timeframe } from "./types";
-import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL } from "./types";
+import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL, TIMEFRAME_SECONDS } from "./types";
 import { marketData } from "./market-data.server";
 
 import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
@@ -96,19 +96,28 @@ type FetchedCandles = {
  * Fetches every required timeframe and pushes it through the single
  * normaliser. Malformed candles are dropped and reported, never repaired.
  *
- * Timeframes are fetched sequentially: firing five concurrent history requests
- * at the provider was the main source of read timeouts and the STALE_DATA
- * rejections that followed.
+ * Timeframes are fetched two at a time: firing all five at once caused
+ * provider read timeouts, while a fully sequential fetch made a whole scan
+ * overrun its worker invocation so runs never finished.
  */
+const FETCH_CONCURRENCY = 2;
+
 async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
   const rejects: FetchedCandles["rejects"] = [];
   const entries: Array<readonly [Timeframe, Candle[]]> = [];
-  for (const tf of REQUIRED) {
-    const raw = await marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200);
-    const normalised = normaliseCandles(raw, tf);
-    const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
-    if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
-    entries.push([tf, normalised.candles] as const);
+  for (let i = 0; i < REQUIRED.length; i += FETCH_CONCURRENCY) {
+    const batch = REQUIRED.slice(i, i + FETCH_CONCURRENCY);
+    const fetched = await Promise.all(
+      batch.map(async (tf) => {
+        const raw = await marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200);
+        return [tf, normaliseCandles(raw, tf)] as const;
+      }),
+    );
+    for (const [tf, normalised] of fetched) {
+      const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
+      if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
+      entries.push([tf, normalised.candles] as const);
+    }
   }
   return {
     candles: Object.fromEntries(entries) as Record<Timeframe, Candle[]>,
@@ -202,7 +211,12 @@ async function evaluateInstrument(
   );
   gates.push(candleSanity(sanity.ok, sanity.problems));
 
-  const maxAge = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
+  // The freshness budget is measured from the close of the last closed entry
+  // candle, which by definition ages a full timeframe interval before the next
+  // one closes. Without that allowance a 300s budget on M15 rejects two thirds
+  // of all minute-by-minute scans as STALE_DATA even on a perfectly live feed.
+  const feedBudget = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
+  const maxAge = feedBudget + TIMEFRAME_SECONDS[ENTRY_TF];
   gates.push(staleData(dataAgeSeconds(entryCandles, ENTRY_TF), maxAge));
 
   // Macro lockout scoped to the currencies this instrument actually trades.
