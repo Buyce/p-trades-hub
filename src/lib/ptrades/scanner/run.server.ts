@@ -101,14 +101,49 @@ type FetchedCandles = {
  * Timeframes are fetched two at a time: firing all five at once caused
  * provider read timeouts, while a fully sequential fetch made a whole scan
  * overrun its worker invocation so runs never finished.
+ *
+ * Higher timeframes are additionally cached in-process: H4 and D1 cannot
+ * change between minute-by-minute scans, and re-reading them every minute was
+ * the main source of provider read timeouts on a single resource slot. The
+ * cache only ever serves candles that are still inside their own timeframe
+ * interval, so no stale bar can reach a gate.
  */
 const FETCH_CONCURRENCY = 2;
+
+/** How long a fetched series may be reused, per timeframe. */
+const CANDLE_CACHE_TTL_MS: Partial<Record<Timeframe, number>> = {
+  "4h": 10 * 60_000,
+  "1d": 30 * 60_000,
+};
+
+const candleCache = new Map<string, { at: number; candles: Candle[] }>();
+
+function cachedCandles(symbol: string, tf: Timeframe): Candle[] | null {
+  const ttl = CANDLE_CACHE_TTL_MS[tf];
+  if (!ttl) return null;
+  const hit = candleCache.get(`${symbol}:${tf}`);
+  if (!hit || Date.now() - hit.at > ttl) return null;
+  return hit.candles;
+}
+
+function rememberCandles(symbol: string, tf: Timeframe, candles: Candle[]): void {
+  if (!CANDLE_CACHE_TTL_MS[tf] || candles.length === 0) return;
+  candleCache.set(`${symbol}:${tf}`, { at: Date.now(), candles });
+}
 
 async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
   const rejects: FetchedCandles["rejects"] = [];
   const entries: Array<readonly [Timeframe, Candle[]]> = [];
-  for (let i = 0; i < REQUIRED.length; i += FETCH_CONCURRENCY) {
-    const batch = REQUIRED.slice(i, i + FETCH_CONCURRENCY);
+
+  const pending: Timeframe[] = [];
+  for (const tf of REQUIRED) {
+    const cached = cachedCandles(symbol, tf);
+    if (cached) entries.push([tf, cached] as const);
+    else pending.push(tf);
+  }
+
+  for (let i = 0; i < pending.length; i += FETCH_CONCURRENCY) {
+    const batch = pending.slice(i, i + FETCH_CONCURRENCY);
     const fetched = await Promise.all(
       batch.map(async (tf) => {
         const raw = await marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200);
@@ -118,6 +153,7 @@ async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
     for (const [tf, normalised] of fetched) {
       const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
       if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
+      rememberCandles(symbol, tf, normalised.candles);
       entries.push([tf, normalised.candles] as const);
     }
   }
@@ -126,6 +162,7 @@ async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
     rejects,
   };
 }
+
 
 type Evaluation = {
   candidate: Candidate | null;
