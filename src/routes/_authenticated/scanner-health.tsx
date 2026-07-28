@@ -7,6 +7,9 @@ import {
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
+  lastPurgeQuery,
+  RETENTION_WINDOWS,
+
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
 import { tierReachability } from "@/lib/ptrades/scanner/reachability";
