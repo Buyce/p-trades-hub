@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   ListChecks,
@@ -7,11 +8,13 @@ import {
   BarChart3,
   Activity,
   BookOpen,
+  Bell,
   Settings as SettingsIcon,
   UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useIsStaff } from "@/lib/ptrades/session";
+import { useIsStaff, useSessionUser } from "@/lib/ptrades/session";
+import { myNotificationsQuery, unreadCount } from "@/lib/ptrades/queries";
 
 const NAV = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, staff: false },
@@ -24,9 +27,21 @@ const NAV = [
   { to: "/settings", label: "Settings", icon: SettingsIcon, staff: false },
 ] as const;
 
+function UnreadDot({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <span className="num absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   const isStaff = useIsStaff();
   const items = NAV.filter((item) => !item.staff || isStaff);
+  const { data: user } = useSessionUser();
+  const { data: notifications = [] } = useQuery(myNotificationsQuery(user?.id, 50));
+  const unread = unreadCount(notifications);
 
   return (
     <div className="min-h-screen bg-background lg:flex">
