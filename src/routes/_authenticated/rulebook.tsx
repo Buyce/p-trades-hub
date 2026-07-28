@@ -44,6 +44,7 @@ function flattenRules(value: unknown, prefix = ""): Array<[string, string]> {
   return [[prefix, String(value)]];
 }
 
+/**
  * Principles only. Every number — grade bands, R:R floors, expiry, tolerances
  * — is read from the active rulebook above, never restated here. A duplicated
  * threshold in the UI is a threshold that will silently go out of date.
