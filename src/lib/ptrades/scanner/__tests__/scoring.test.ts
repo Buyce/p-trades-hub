@@ -34,7 +34,7 @@ const empty: ScoreInput = {
 
 describe("gradeForScore", () => {
   it("uses the Master Handoff bands", () => {
-    expect(rulebook.grades).toEqual({ A_PLUS: 95, A: 90, B: 80 });
+    expect(rulebook.grades).toEqual({ A_PLUS: 95, A: 90, B: 80, C: 70 });
   });
 
   it("assigns A+ from 95 upward", () => {
@@ -52,8 +52,13 @@ describe("gradeForScore", () => {
     expect(gradeForScore(80, rulebook)).toBe("B");
   });
 
-  it("rejects below 80", () => {
-    expect(gradeForScore(79.99, rulebook)).toBeNull();
+  it("assigns C from 70 to just under 80", () => {
+    expect(gradeForScore(79.99, rulebook)).toBe("C");
+    expect(gradeForScore(70, rulebook)).toBe("C");
+  });
+
+  it("rejects below 70", () => {
+    expect(gradeForScore(69.99, rulebook)).toBeNull();
     expect(gradeForScore(0, rulebook)).toBeNull();
   });
 });
@@ -124,7 +129,9 @@ describe("scoreCandidate", () => {
       rulebook,
     );
     expect(sweepOnly.score).toBe(75);
-    expect(sweepOnly.grade).toBeNull();
+    // 75 lands in the C band on score alone; a missing retest is a hard gate
+    // elsewhere in the pipeline, so scoring does not have to reject it.
+    expect(sweepOnly.grade).toBe("C");
   });
 
   it("reaches A only when the retest also confirms", () => {

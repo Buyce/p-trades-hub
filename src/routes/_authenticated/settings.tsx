@@ -21,6 +21,14 @@ import { userMessageOf } from "@/lib/ptrades/errors";
 import { useIsStaff, useProfile, useSessionUser } from "@/lib/ptrades/session";
 import { TIMEZONES } from "@/lib/ptrades/format";
 import { DataRow, PageHeader, SectionCard } from "@/components/ptrades/primitives";
+import { TierToggle } from "@/components/ptrades/tier-toggle";
+import {
+  DEFAULT_EMAIL_TIERS,
+  DEFAULT_PUSH_TIERS,
+  DEFAULT_TERMINAL_TIERS,
+  parseTiers,
+  type Tier,
+} from "@/lib/ptrades/tiers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -112,6 +120,20 @@ function Settings() {
     onError: (e: unknown) => toast.error(userMessageOf(e)),
   });
 
+  const tierPrefs = useMutation({
+    mutationFn: (patch: { emailTiers?: Tier[]; pushTiers?: Tier[]; terminalTiers?: Tier[] }) =>
+      updateAlertPreferences({ userId: user?.id, ...patch }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      toast.success("Alert tiers updated.");
+    },
+    onError: (error) => toast.error(userMessageOf(error)),
+  });
+
+  const emailTiers = parseTiers(profile?.alert_tiers_email, DEFAULT_EMAIL_TIERS);
+  const pushTiers = parseTiers(profile?.alert_tiers_push, DEFAULT_PUSH_TIERS);
+  const terminalTiers = parseTiers(profile?.alert_tiers_terminal, DEFAULT_TERMINAL_TIERS);
+
   const pushAlerts = useMutation({
     mutationFn: (enabled: boolean) =>
       updateAlertPreferences({ userId: user?.id, pushAlertsEnabled: enabled }),
@@ -200,8 +222,9 @@ function Settings() {
       <SectionCard title="Alerts">
         <div className="space-y-5">
           <p className="text-xs text-muted-foreground">
-            Alerts fire only for A / A+ setups that pass every rulebook gate, capped at the daily
-            limit. They always appear in the in-app alert list; these switches add delivery.
+            Every tier passes the same safety gates; only the reward-to-risk floor differs (A+/A
+            2.0R, B 1.5R, C 1.2R). Each tier has its own daily cap. Alerts always appear in the
+            in-app list — these controls decide what is delivered and what the terminal shows.
           </p>
 
           <div className="flex items-start justify-between gap-4">
@@ -217,6 +240,16 @@ function Settings() {
               checked={Boolean(profile?.email_alerts_enabled)}
               disabled={emailAlerts.isPending}
               onCheckedChange={(checked) => emailAlerts.mutate(checked)}
+            />
+          </div>
+
+          <div className="space-y-2 rounded border border-border/60 bg-muted/20 p-3">
+            <Label className="text-xs">Email me these tiers</Label>
+            <TierToggle
+              idPrefix="tier-email"
+              value={emailTiers}
+              disabled={tierPrefs.isPending || !profile?.email_alerts_enabled}
+              onChange={(next) => tierPrefs.mutate({ emailTiers: next })}
             />
           </div>
 
@@ -236,6 +269,26 @@ function Settings() {
               checked={Boolean(profile?.push_alerts_enabled)}
               disabled={pushAlerts.isPending}
               onCheckedChange={(checked) => pushAlerts.mutate(checked)}
+            />
+          </div>
+
+          <div className="space-y-2 rounded border border-border/60 bg-muted/20 p-3">
+            <Label className="text-xs">Push me these tiers</Label>
+            <TierToggle
+              idPrefix="tier-push"
+              value={pushTiers}
+              disabled={tierPrefs.isPending || !profile?.push_alerts_enabled}
+              onChange={(next) => tierPrefs.mutate({ pushTiers: next })}
+            />
+          </div>
+
+          <div className="space-y-2 rounded border border-border/60 bg-muted/20 p-3">
+            <Label className="text-xs">Show these tiers in the terminal</Label>
+            <TierToggle
+              idPrefix="tier-terminal"
+              value={terminalTiers}
+              disabled={tierPrefs.isPending}
+              onChange={(next) => tierPrefs.mutate({ terminalTiers: next })}
             />
           </div>
 

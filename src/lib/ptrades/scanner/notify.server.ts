@@ -7,6 +7,14 @@
  * In SHADOW MODE nothing is delivered on any channel.
  */
 
+import {
+  DEFAULT_EMAIL_TIERS,
+  DEFAULT_PUSH_TIERS,
+  isTier,
+  parseTiers,
+  tierLabel,
+  type Tier,
+} from "../tiers";
 import { sendPushToUsers } from "./push.server";
 import { sendAlertEmail, type AlertEmailInput } from "./alert-email.server";
 
@@ -51,14 +59,17 @@ export async function notifyQualifiedSignal(
 
   const { data: profiles, error } = await admin
     .from("profiles")
-    .select("id, email_alerts_enabled, push_alerts_enabled");
+    .select("id, email_alerts_enabled, push_alerts_enabled, alert_tiers_email, alert_tiers_push");
 
   if (error || !profiles?.length) {
     if (error) console.error("notification recipients lookup failed", error.message);
     return { sent: 0, push: 0, emails: 0, suppressed: false };
   }
 
-  const title = `${alert.instrument} ${alert.direction} — ${alert.grade ?? "graded"}`;
+  // The tier stored on the signal is the only tier ever shown or sent.
+  const tier: Tier | null = isTier(alert.grade) ? alert.grade : null;
+  const label = tierLabel(alert.grade);
+  const title = `${alert.instrument} ${alert.direction} — Tier ${label}`;
   const body = alert.rr
     ? `Qualified setup with ${alert.rr.toFixed(2)}R to TP1. You place the trade manually.`
     : "Qualified setup. You place the trade manually.";
@@ -74,7 +85,14 @@ export async function notifyQualifiedSignal(
   if (insertError) console.error("notification insert failed", insertError.message);
 
   // Push
-  const pushUsers = profiles.filter((p) => p.push_alerts_enabled !== false).map((p) => p.id);
+  const pushUsers = profiles
+    .filter(
+      (p) =>
+        p.push_alerts_enabled !== false &&
+        tier !== null &&
+        parseTiers(p.alert_tiers_push, DEFAULT_PUSH_TIERS).includes(tier),
+    )
+    .map((p) => p.id);
   const push = await sendPushToUsers(admin, pushUsers, {
     title,
     body,
@@ -87,7 +105,7 @@ export async function notifyQualifiedSignal(
     signalId: alert.signalId,
     instrument: alert.instrument,
     direction: alert.direction,
-    grade: alert.grade ?? "—",
+    grade: label,
     setupType: alert.setupType ?? "—",
     timeframe: alert.timeframe ?? "—",
     entryZone: zone(alert.entryZoneLow, alert.entryZoneHigh),
@@ -99,7 +117,13 @@ export async function notifyQualifiedSignal(
   };
 
   let emails = 0;
-  for (const profile of profiles.filter((p) => p.email_alerts_enabled)) {
+  const emailRecipients = profiles.filter(
+    (p) =>
+      p.email_alerts_enabled &&
+      tier !== null &&
+      parseTiers(p.alert_tiers_email, DEFAULT_EMAIL_TIERS).includes(tier),
+  );
+  for (const profile of emailRecipients) {
     try {
       const { data: user } = await admin.auth.admin.getUserById(profile.id);
       const address = user?.user?.email;

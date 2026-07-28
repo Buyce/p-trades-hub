@@ -80,11 +80,17 @@ export type Rulebook = {
   signal_expiry_minutes: number;
   max_candle_gap_multiple: number;
   macro_lookahead_minutes: number;
-  grades: { A_PLUS: number; A: number; B: number };
+  /** Widest stop the scanner accepts, as a multiple of ATR. */
+  max_stop_atr_multiple: number;
+  grades: { A_PLUS: number; A: number; B: number; C: number };
+  /** Minimum reward-to-risk at TP1 per tier. Only C relaxes the RR floor. */
+  tier_min_rr: { A_PLUS: number; A: number; B: number; C: number };
+  /** Daily actionable allowance per tier bucket (A+ and A share the A bucket). */
+  tier_daily_max: { A: number; B: number; C: number };
 };
 
 export const DEFAULT_RULEBOOK: Rulebook = {
-  version: "v1.4.0-live",
+  version: "v1.5.0-live",
   closed_candles_only: true,
   min_rr_tp1: 2.0,
   max_daily_actionable: 30,
@@ -99,8 +105,12 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   signal_expiry_minutes: 60,
   max_candle_gap_multiple: 6,
   macro_lookahead_minutes: 60,
-  grades: { A_PLUS: 95, A: 90, B: 80 },
+  max_stop_atr_multiple: 4,
+  grades: { A_PLUS: 95, A: 90, B: 80, C: 70 },
+  tier_min_rr: { A_PLUS: 2.0, A: 2.0, B: 1.5, C: 1.2 },
+  tier_daily_max: { A: 30, B: 20, C: 20 },
 };
+
 
 export type Candidate = {
   instrument: string;
@@ -117,7 +127,7 @@ export type Candidate = {
   atr: number | null;
   spread: number | null;
   score: number | null;
-  grade: "A_PLUS" | "A" | "B" | null;
+  grade: "A_PLUS" | "A" | "B" | "C" | null;
   score_components: Record<string, number>;
   gate_results: GateResult[];
   reasons: string[];

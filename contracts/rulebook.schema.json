@@ -30,15 +30,38 @@
     },
     "signal_expiry_minutes": { "type": "number", "minimum": 0 },
     "max_candle_gap_multiple": { "type": "number", "minimum": 1 },
+    "max_stop_atr_multiple": { "type": "number", "minimum": 0 },
     "macro_lookahead_minutes": { "type": "number", "minimum": 0 },
     "grades": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["A_PLUS", "A", "B"],
+      "required": ["A_PLUS", "A", "B", "C"],
       "properties": {
         "A_PLUS": { "type": "number", "minimum": 0, "maximum": 100 },
         "A": { "type": "number", "minimum": 0, "maximum": 100 },
-        "B": { "type": "number", "minimum": 0, "maximum": 100 }
+        "B": { "type": "number", "minimum": 0, "maximum": 100 },
+        "C": { "type": "number", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "tier_min_rr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["A_PLUS", "A", "B", "C"],
+      "properties": {
+        "A_PLUS": { "type": "number", "minimum": 0 },
+        "A": { "type": "number", "minimum": 0 },
+        "B": { "type": "number", "minimum": 0 },
+        "C": { "type": "number", "minimum": 0 }
+      }
+    },
+    "tier_daily_max": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["A", "B", "C"],
+      "properties": {
+        "A": { "type": "integer", "minimum": 0, "maximum": 30 },
+        "B": { "type": "integer", "minimum": 0, "maximum": 30 },
+        "C": { "type": "integer", "minimum": 0, "maximum": 30 }
       }
     }
   }

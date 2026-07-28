@@ -90,7 +90,7 @@ def test_rulebook_cap_bounds():
         "closed_candles_only": True,
         "min_rr_tp1": 2.0,
         "max_daily_actionable": 2,
-        "grades": {"A_PLUS": 95, "A": 90, "B": 80},
+        "grades": {"A_PLUS": 95, "A": 90, "B": 80, "C": 70},
     }
     validator_for("rulebook").validate(payload)
     assert Rulebook.model_validate(payload).max_daily_actionable == 2

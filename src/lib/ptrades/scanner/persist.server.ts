@@ -195,23 +195,49 @@ export async function promoteToSignal(
   return data?.id ?? null;
 }
 
-export async function actionableCountToday(admin: Admin): Promise<number> {
-  const { data } = await admin
+export async function actionableCountToday(admin: Admin, bucket?: string): Promise<number> {
+  let query = admin
     .from("daily_alert_counters")
     .select("actionable_count")
-    .eq("trading_day_utc", tradingDayUtc())
-    .maybeSingle();
-  return data?.actionable_count ?? 0;
+    .eq("trading_day_utc", tradingDayUtc());
+  if (bucket) query = query.eq("tier", bucket);
+  const { data } = await query;
+  return (data ?? []).reduce((sum, row) => sum + (row.actionable_count ?? 0), 0);
 }
 
-export async function incrementActionableCount(admin: Admin, max: number) {
+/**
+ * Closes runs a previous worker abandoned. A worker that is killed mid-scan
+ * never writes `finished_at`, so without this the run list fills with rows
+ * stuck in RUNNING and the health screen cannot tell a live run from a dead
+ * one.
+ */
+export async function closeStaleRuns(admin: Admin, olderThanSeconds = 600): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanSeconds * 1000).toISOString();
+  const { data, error } = await admin
+    .from("scanner_runs")
+    .update({
+      status: "TIMEOUT",
+      finished_at: new Date().toISOString(),
+      error_message: "Run did not finish within the scan lock TTL.",
+    })
+    .eq("status", "RUNNING")
+    .lt("started_at", cutoff)
+    .select("id");
+  if (error) {
+    console.error("stale run cleanup failed", error.message);
+    return 0;
+  }
+  return data?.length ?? 0;
+}
+
+export async function incrementActionableCount(admin: Admin, max: number, bucket = "A") {
   const day = tradingDayUtc();
-  const current = await actionableCountToday(admin);
+  const current = await actionableCountToday(admin, bucket);
   const { error } = await admin
     .from("daily_alert_counters")
     .upsert(
-      { trading_day_utc: day, actionable_count: current + 1, max_allowed: max },
-      { onConflict: "trading_day_utc" },
+      { trading_day_utc: day, tier: bucket, actionable_count: current + 1, max_allowed: max },
+      { onConflict: "trading_day_utc,tier" },
     );
   if (error) console.error("daily counter update failed", error.message);
 }
@@ -239,13 +265,20 @@ export async function cacheCandle(
   if (error) console.error("candle cache upsert failed", error.message);
 }
 
+/**
+ * Duplicate detection is scoped to signals that were actually PROMOTED today,
+ * not to every candidate evaluated today. A candidate row is written on every
+ * minute-by-minute scan, so scoping to candidates meant a setup that missed a
+ * gate on the minute it first appeared could never alert for the rest of the
+ * day — which is why no alert had ever been issued.
+ */
 export async function fingerprintExistsToday(
   admin: Admin,
   fingerprint: string | null,
 ): Promise<boolean> {
   if (!fingerprint) return false;
   const { data } = await admin
-    .from("signal_candidates")
+    .from("signals")
     .select("id")
     .eq("fingerprint", fingerprint)
     .eq("trading_day_utc", tradingDayUtc())
@@ -257,10 +290,15 @@ export async function fingerprintExistsToday(
  * Atomically claims one of the day's limited actionable slots. Returns false
  * when the cap is already used, so two concurrent runs can never both alert.
  */
-export async function claimActionableSlot(admin: Admin, max: number): Promise<boolean> {
+export async function claimActionableSlot(
+  admin: Admin,
+  max: number,
+  bucket = "A",
+): Promise<boolean> {
   const { data, error } = await admin.rpc("claim_actionable_slot", {
     _day: tradingDayUtc(),
     _max: max,
+    _tier: bucket,
   });
   if (error) {
     console.error("claim_actionable_slot failed", error.message);

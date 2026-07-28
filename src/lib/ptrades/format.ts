@@ -36,6 +36,7 @@ export const GRADE_LABEL: Record<string, string> = {
   A_PLUS: "A+",
   A: "A",
   B: "B",
+  C: "C",
 };
 
 export function gradeLabel(grade: string | null | undefined): string {

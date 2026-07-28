@@ -90,18 +90,21 @@ export type Database = {
         Row: {
           actionable_count: number
           max_allowed: number
+          tier: string
           trading_day_utc: string
           updated_at: string
         }
         Insert: {
           actionable_count?: number
           max_allowed?: number
+          tier?: string
           trading_day_utc: string
           updated_at?: string
         }
         Update: {
           actionable_count?: number
           max_allowed?: number
+          tier?: string
           trading_day_utc?: string
           updated_at?: string
         }
@@ -291,6 +294,9 @@ export type Database = {
       }
       profiles: {
         Row: {
+          alert_tiers_email: string[]
+          alert_tiers_push: string[]
+          alert_tiers_terminal: string[]
           created_at: string
           display_name: string | null
           email_alerts_enabled: boolean
@@ -300,6 +306,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          alert_tiers_email?: string[]
+          alert_tiers_push?: string[]
+          alert_tiers_terminal?: string[]
           created_at?: string
           display_name?: string | null
           email_alerts_enabled?: boolean
@@ -309,6 +318,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          alert_tiers_email?: string[]
+          alert_tiers_push?: string[]
+          alert_tiers_terminal?: string[]
           created_at?: string
           display_name?: string | null
           email_alerts_enabled?: boolean
@@ -1038,7 +1050,7 @@ export type Database = {
         Returns: boolean
       }
       claim_actionable_slot: {
-        Args: { _day: string; _max?: number }
+        Args: { _day: string; _max?: number; _tier?: string }
         Returns: boolean
       }
       has_role: {
@@ -1055,7 +1067,7 @@ export type Database = {
     Enums: {
       app_role: "owner" | "admin" | "trader"
       decision_type: "TAKEN" | "SKIPPED" | "EXPIRED" | "INVALIDATED"
-      signal_grade: "A_PLUS" | "A" | "B"
+      signal_grade: "A_PLUS" | "A" | "B" | "C"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1185,7 +1197,7 @@ export const Constants = {
     Enums: {
       app_role: ["owner", "admin", "trader"],
       decision_type: ["TAKEN", "SKIPPED", "EXPIRED", "INVALIDATED"],
-      signal_grade: ["A_PLUS", "A", "B"],
+      signal_grade: ["A_PLUS", "A", "B", "C"],
     },
   },
 } as const
