@@ -124,6 +124,8 @@ describe("setup selection hierarchy", () => {
     displacementAtr: null,
     retestFound: false,
     structureType: null,
+    sequence: { sweepIndex: null, breakIndex: null, displacementIndex: null, retestIndex: null },
+    sequenceValid: true,
     detail: {},
   };
   const armableBreak: SetupResult = {
@@ -138,6 +140,8 @@ describe("setup selection hierarchy", () => {
     displacementAtr: 0.8,
     retestFound: false,
     structureType: "BOS",
+    sequence: { sweepIndex: null, breakIndex: null, displacementIndex: null, retestIndex: null },
+    sequenceValid: true,
     detail: { armableWithoutRetest: true },
   };
 

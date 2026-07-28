@@ -11,6 +11,11 @@ import {
 import { marketData } from "./market-data.server";
 
 import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
+import { isStoreFresh, readSeries, storeCandles } from "./market-candles.server";
+import { evaluateBiasPolicy, biasPolicyGate, type BiasDecision } from "./bias-policy.server";
+import { structuralIdeaId } from "./structural-idea";
+import { validateRulebook } from "./rulebook-validate";
+
 import { recordScannerError } from "./errors.server";
 import { AppError } from "../errors";
 import { atr } from "./atr.server";
@@ -30,12 +35,20 @@ import { entryAnchorForSetup } from "./entry-anchor.server";
 import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
 import { buildInvalidation, hasInvalidation } from "./invalidation.server";
 import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
-import { SCAN_LOCK_KEY, acquireScanLock, newLockHolder, releaseScanLock } from "./lock.server";
+import {
+  SCAN_LOCK_KEY,
+  acquireScanLock,
+  createDeadline,
+  newLockHolder,
+  readLock,
+  releaseScanLock,
+  renewScanLock,
+} from "./lock.server";
 import { armedExpiry } from "./lifecycle.server";
 import {
-  biasConflict,
   candleSanity,
   duplicate,
+  gate,
   invalidStop,
   invalidationGate,
   missingData,
@@ -44,6 +57,7 @@ import {
   sessionGate,
   staleData,
 } from "./gates.server";
+
 import {
   closeStaleRuns,
   cacheCandle,
@@ -136,11 +150,29 @@ export async function loadActiveRulebook(admin: Admin): Promise<Rulebook> {
   return parseRulebook(data);
 }
 
-function parseRulebook(row: { version: string; rules: unknown } | null): Rulebook {
+/**
+ * Deep-merges and VALIDATES the stored rulebook. A shallow spread used to let a
+ * partial override delete every sibling key it did not mention, and nothing
+ * checked that the resulting grade bands were reachable. An invalid rulebook is
+ * now rejected outright in favour of the known-good defaults.
+ */
+export function parseRulebook(row: { version: string; rules: unknown } | null): Rulebook {
   if (!row) return DEFAULT_RULEBOOK;
-  const rules = (row.rules ?? {}) as Partial<Rulebook>;
-  return { ...DEFAULT_RULEBOOK, ...rules, version: row.version };
+  const result = validateRulebook(row.rules ?? {}, row.version);
+  if (!result.valid) {
+    console.error(
+      `rulebook ${row.version} rejected, falling back to defaults:`,
+      result.issues.map((i) => `${i.path}: ${i.message}`).join("; "),
+    );
+  }
+  return result.rulebook;
 }
+
+/** The validation report, for governance telemetry. */
+export function inspectRulebook(row: { version: string; rules: unknown } | null) {
+  return validateRulebook(row?.rules ?? {}, row?.version ?? DEFAULT_RULEBOOK.version);
+}
+
 
 async function loadMacroEvents(admin: Admin): Promise<MacroEvent[]> {
   const now = Date.now();
@@ -182,26 +214,13 @@ function scanTargets(
 type FetchedCandles = {
   candles: Record<Timeframe, Candle[]>;
   rejects: Array<{ timeframe: Timeframe; rejects: CandleReject[] }>;
-  /** Timeframes served from the last-good series after repeated fetch failures. */
+  /** Timeframes the store could not serve and that had to be fetched live. */
   degraded: Array<{ timeframe: Timeframe; message: string; firstMessage: string }>;
+  /** Where each timeframe came from — proof the data plane is working. */
+  sources: Record<string, "STORE" | "LIVE" | "MISSING">;
+  /** Age in seconds of each served series, measured from its close. */
+  ages: Record<string, number | null>;
 };
-
-
-/**
- * Fetches every required timeframe and pushes it through the single
- * normaliser. Malformed candles are dropped and reported, never repaired.
- *
- * Timeframes are fetched two at a time: firing all five at once caused
- * provider read timeouts, while a fully sequential fetch made a whole scan
- * overrun its worker invocation so runs never finished.
- *
- * Higher timeframes are additionally cached in-process: H4 and D1 cannot
- * change between minute-by-minute scans, and re-reading them every minute was
- * the main source of provider read timeouts on a single resource slot. The
- * cache only ever serves candles that are still inside their own timeframe
- * interval, so no stale bar can reach a gate.
- */
-const FETCH_CONCURRENCY = 2;
 
 /**
  * Single source of truth for how long a run may hold the scan lock. Stale-run
@@ -210,115 +229,102 @@ const FETCH_CONCURRENCY = 2;
  */
 export const SCAN_LOCK_TTL_SECONDS = 180;
 
+/**
+ * Hard runtime budget for a whole context scan. The run stops cleanly at the
+ * budget and reports PARTIAL rather than being killed mid-write, which is what
+ * used to leave the lock behind and skip every subsequent tick.
+ */
+export const SCAN_BUDGET_MS = 100_000;
 
 /**
- * Candle cache keyed by CANDLE CLOSE TIME, not by wall-clock TTL. A timeframe
- * cannot produce new information until its next bar closes, so re-reading H1,
- * H4 or D1 every minute burnt the single provider resource slot for nothing and
- * was the main cause of context runs overrunning the lock.
+ * The context scan READS the durable candle store; it does not download
+ * history. The `sync-market-data` pass owns downloads.
+ *
+ * A live fetch is still attempted for a timeframe the store cannot serve, so a
+ * cold start or a sync outage degrades rather than blacks out — and every such
+ * fallback is recorded, because a silent fallback is how a broken data plane
+ * stays invisible.
  */
-function closeBucket(tf: Timeframe, nowMs = Date.now()): number {
-  return Math.floor(nowMs / (TIMEFRAME_SECONDS[tf] * 1000));
-}
-
-const candleCache = new Map<string, { bucket: number; candles: Candle[] }>();
-
-/**
- * Last successful series per symbol/timeframe, kept as a retry fallback only.
- * Serving it can never leak a stale bar into a decision: the freshness and
- * candle-sanity gates measure the candles themselves, so a fallback series that
- * is too old simply rejects the candidate with STALE_DATA instead of failing
- * the whole instrument with no diagnosis.
- */
-const LAST_GOOD_TTL_MS = 60 * 60_000;
-const lastGood = new Map<string, { at: number; candles: Candle[] }>();
-
-function cachedCandles(symbol: string, tf: Timeframe): Candle[] | null {
-  const hit = candleCache.get(`${symbol}:${tf}`);
-  if (!hit || hit.bucket !== closeBucket(tf)) return null;
-  return hit.candles;
-}
-
-function rememberCandles(symbol: string, tf: Timeframe, candles: Candle[]): void {
-  if (candles.length === 0) return;
-  lastGood.set(`${symbol}:${tf}`, { at: Date.now(), candles });
-  candleCache.set(`${symbol}:${tf}`, { bucket: closeBucket(tf), candles });
-}
-
-function lastGoodCandles(symbol: string, tf: Timeframe): Candle[] | null {
-  const hit = lastGood.get(`${symbol}:${tf}`);
-  if (!hit || Date.now() - hit.at > LAST_GOOD_TTL_MS) return null;
-  return hit.candles;
-}
-
-async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
+async function fetchTimeframes(
+  admin: Admin,
+  instrument: string,
+  symbol: string,
+  feedBudgetSeconds: number,
+  minBars: number,
+): Promise<FetchedCandles> {
   const rejects: FetchedCandles["rejects"] = [];
   const degraded: FetchedCandles["degraded"] = [];
+  const sources: FetchedCandles["sources"] = {};
+  const ages: FetchedCandles["ages"] = {};
   const entries: Array<readonly [Timeframe, Candle[]]> = [];
 
-  const pending: Timeframe[] = [];
-  for (const tf of REQUIRED) {
-    const cached = cachedCandles(symbol, tf);
-    if (cached) entries.push([tf, cached] as const);
-    else pending.push(tf);
-  }
+  const stored = await readSeries(admin, {
+    brokerSymbol: symbol,
+    timeframes: REQUIRED,
+    limit: 200,
+  });
 
-  // One retry per timeframe: the single provider resource slot times out often
-  // enough that a first-attempt failure is usually transient.
-  const fetchOne = async (tf: Timeframe) => {
-    const limit = tf === "1d" ? 120 : 200;
+  for (const tf of REQUIRED) {
+    const series = stored[tf] ?? { candles: [], ageSeconds: null };
+    const label = TIMEFRAME_LABEL[tf];
+    const usable =
+      series.candles.length >= minBars && isStoreFresh(series.ageSeconds, tf, feedBudgetSeconds);
+
+    if (usable) {
+      sources[label] = "STORE";
+      ages[label] = series.ageSeconds;
+      entries.push([tf, series.candles] as const);
+      continue;
+    }
+
     try {
-      return await withTimeout(
-        marketData().getCandles(symbol, tf, limit),
+      const raw = await withTimeout(
+        marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200),
         CANDLE_FETCH_TIMEOUT_MS,
         `getCandles(${symbol}/${tf})`,
       );
-    } catch (first) {
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        return await withTimeout(
-          marketData().getCandles(symbol, tf, limit),
-          CANDLE_FETCH_TIMEOUT_MS,
-          `getCandles(${symbol}/${tf}) retry`,
-        );
-      } catch (second) {
-        const fallback = lastGoodCandles(symbol, tf);
-        if (!fallback) throw second;
-        degraded.push({
-          timeframe: tf,
-          message: second instanceof Error ? second.message : String(second),
-          firstMessage: first instanceof Error ? first.message : String(first),
-        });
-        return null;
-      }
-    }
-  };
-
-  for (let i = 0; i < pending.length; i += FETCH_CONCURRENCY) {
-    const batch = pending.slice(i, i + FETCH_CONCURRENCY);
-    const fetched = await Promise.all(
-      batch.map(async (tf) => {
-        const raw = await fetchOne(tf);
-        return [tf, raw === null ? null : normaliseCandles(raw, tf)] as const;
-      }),
-    );
-    for (const [tf, normalised] of fetched) {
-      if (normalised === null) {
-        entries.push([tf, lastGoodCandles(symbol, tf) ?? []] as const);
-        continue;
-      }
+      const normalised = normaliseCandles(raw, tf);
       const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
       if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
-      rememberCandles(symbol, tf, normalised.candles);
+      // Write it back so the next scan reads it from the store.
+      await storeCandles(admin, {
+        instrument,
+        brokerSymbol: symbol,
+        timeframe: tf,
+        candles: normalised.candles,
+      });
+      sources[label] = "LIVE";
+      ages[label] = null;
+      degraded.push({
+        timeframe: tf,
+        message: series.candles.length === 0 ? "no stored series" : "stored series too old",
+        firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
+      });
       entries.push([tf, normalised.candles] as const);
+    } catch (error) {
+      // Serve whatever the store has. The freshness and sanity gates judge it
+      // on its own merits, so a stale series rejects with a diagnosis instead
+      // of failing the whole instrument silently.
+      sources[label] = series.candles.length > 0 ? "STORE" : "MISSING";
+      ages[label] = series.ageSeconds;
+      degraded.push({
+        timeframe: tf,
+        message: error instanceof Error ? error.message : String(error),
+        firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
+      });
+      entries.push([tf, series.candles] as const);
     }
   }
+
   return {
     candles: Object.fromEntries(entries) as Record<Timeframe, Candle[]>,
     rejects,
     degraded,
+    sources,
+    ages,
   };
 }
+
 
 
 
@@ -384,10 +390,17 @@ async function evaluateInstrument(
     });
   }
 
+  const feedBudget = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
+  const minBars = rulebook.atr_period + 2;
+
   let candles: Record<Timeframe, Candle[]>;
+  let dataSources: Record<string, string> = {};
+  let dataAges: Record<string, number | null> = {};
   try {
-    const fetched = await fetchTimeframes(symbol);
+    const fetched = await fetchTimeframes(admin, instrument.symbol, symbol, feedBudget, minBars);
     candles = fetched.candles;
+    dataSources = fetched.sources;
+    dataAges = fetched.ages;
     for (const entry of fetched.degraded) {
       await recordScannerError(admin, {
         runId,
@@ -395,12 +408,12 @@ async function evaluateInstrument(
         stage: "MARKET_DATA",
         error: new AppError(
           "UPSTREAM",
-          `${TIMEFRAME_LABEL[entry.timeframe]} served from last-good series after two failed fetches`,
+          `${TIMEFRAME_LABEL[entry.timeframe]} could not be served from the candle store`,
         ),
         detail: {
           broker_symbol: symbol,
-          first_error: entry.firstMessage,
-          retry_error: entry.message,
+          store_state: entry.firstMessage,
+          fallback_result: entry.message,
         },
       });
     }
@@ -434,14 +447,17 @@ async function evaluateInstrument(
     return { candidate: null, gates, macroContext: {} };
   }
 
-  const haveAll = REQUIRED.every((tf) => candles[tf].length >= rulebook.atr_period + 2);
+  const haveAll = REQUIRED.every((tf) => candles[tf].length >= minBars);
   gates.push(
     missingData(haveAll, {
       broker_symbol: symbol,
       resolved_from: resolved.resolvedFrom,
+      data_sources: dataSources,
+      store_age_seconds: dataAges,
       ...Object.fromEntries(REQUIRED.map((tf) => [TIMEFRAME_LABEL[tf], candles[tf].length])),
     }),
   );
+
   if (!haveAll) return { candidate: null, gates, macroContext: {} };
 
   const entryCandles = candles[ENTRY_TF];
@@ -461,8 +477,8 @@ async function evaluateInstrument(
   // candle, which by definition ages a full timeframe interval before the next
   // one closes. Without that allowance a 300s budget on M15 rejects two thirds
   // of all minute-by-minute scans as STALE_DATA even on a perfectly live feed.
-  const feedBudget = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
   const maxAge = feedBudget + TIMEFRAME_SECONDS[ENTRY_TF];
+
   gates.push(staleData(dataAgeSeconds(entryCandles, ENTRY_TF), maxAge));
 
   // Macro lockout scoped to the currencies this instrument actually trades.
@@ -496,7 +512,7 @@ async function evaluateInstrument(
     // non-armable sweep partial can never mask an armable break/retest.
     (candidate) => isArmableSetup(candidate, rulebook, instrument.symbol),
   );
-  const setup = detection.selected ?? {
+  const setup: SetupResult = detection.selected ?? {
     found: false,
     setupType: "SWEEP_DISPLACEMENT_RETEST" as const,
     direction: null,
@@ -508,8 +524,11 @@ async function evaluateInstrument(
     displacementAtr: null,
     retestFound: false,
     structureType: null,
+    sequence: { sweepIndex: null, breakIndex: null, displacementIndex: null, retestIndex: null },
+    sequenceValid: true,
     detail: {},
   };
+
 
   // Detection telemetry. Without it a "no setup" rejection says only that
   // nothing formed; with it we can see which stage of which family stopped,
@@ -666,7 +685,17 @@ async function evaluateInstrument(
     resolved.digits,
   );
 
-  gates.push(biasConflict(bias as Bias, direction));
+  // Bias eligibility, not blind alignment: reversal families (sweep, CHOCH)
+  // are allowed to trade against the H4 bias; continuations are not.
+  const biasDecision: BiasDecision = evaluateBiasPolicy({
+    setup,
+    direction,
+    bias: bias as Bias,
+    d1: d1 as Bias,
+    rulebook,
+  });
+  gates.push(biasPolicyGate(biasDecision));
+
   gates.push(invalidStop(entry, stop, direction, atrValue, rulebook.max_stop_atr_multiple));
 
   // Opposing liquidity ahead of the entry: prior swing highs for a long, prior
@@ -772,7 +801,7 @@ async function evaluateInstrument(
       invalidation,
       armedExpiryMinutes: precisionRules.armedExpiryMinutes,
       scoreInput: {
-        bias_aligned: bias === direction,
+        bias_aligned: biasDecision.aligned,
         d1_aligned: d1 === direction,
         displacement_atr: setup.displacementAtr,
         sweep_found: setup.sweepFound || setup.structureType !== null,

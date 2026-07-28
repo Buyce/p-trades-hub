@@ -142,6 +142,8 @@ describe("precision arming boundary", () => {
     displacementAtr: 1.2,
     retestFound: false,
     structureType: "BOS" as const,
+    sequence: { sweepIndex: null, breakIndex: null, displacementIndex: null, retestIndex: null },
+    sequenceValid: true,
     detail: {},
   };
 
