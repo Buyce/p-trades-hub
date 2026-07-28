@@ -75,6 +75,7 @@ const EXECUTION_ONLY_GATES = new Set<GateCode>([
   "NO_MICRO_RETEST",
   "NOT_NEAR_ENTRY",
   "TARGET_TOUCHED",
+  "TIER_NOT_MET",
 ]);
 
 export function armingFailedGates(gates: GateResult[]): GateResult[] {
