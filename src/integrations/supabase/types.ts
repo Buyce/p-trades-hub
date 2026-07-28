@@ -292,6 +292,116 @@ export type Database = {
           },
         ]
       }
+      precision_watches: {
+        Row: {
+          anchor_source: string | null
+          armed_at: string
+          broker_symbol: string | null
+          check_count: number
+          created_at: string
+          direction: string
+          entry_anchor: number | null
+          entry_ready_at: string | null
+          entry_zone_high: number | null
+          entry_zone_low: number | null
+          expires_at: string
+          id: string
+          invalidation_condition: string | null
+          invalidation_price: number | null
+          invalidation_timeframe: string | null
+          last_checked_at: string | null
+          metadata: Json
+          preferred_entry: number | null
+          resolved_at: string | null
+          signal_id: string
+          state: string
+          stop_loss: number | null
+          structural_level: number | null
+          symbol: string
+          targets: Json
+          trigger_candle_time: string | null
+          trigger_level: number | null
+          trigger_summary: string | null
+          trigger_timeframe: string | null
+          updated_at: string
+          zone_width_points: number | null
+        }
+        Insert: {
+          anchor_source?: string | null
+          armed_at?: string
+          broker_symbol?: string | null
+          check_count?: number
+          created_at?: string
+          direction: string
+          entry_anchor?: number | null
+          entry_ready_at?: string | null
+          entry_zone_high?: number | null
+          entry_zone_low?: number | null
+          expires_at: string
+          id?: string
+          invalidation_condition?: string | null
+          invalidation_price?: number | null
+          invalidation_timeframe?: string | null
+          last_checked_at?: string | null
+          metadata?: Json
+          preferred_entry?: number | null
+          resolved_at?: string | null
+          signal_id: string
+          state?: string
+          stop_loss?: number | null
+          structural_level?: number | null
+          symbol: string
+          targets?: Json
+          trigger_candle_time?: string | null
+          trigger_level?: number | null
+          trigger_summary?: string | null
+          trigger_timeframe?: string | null
+          updated_at?: string
+          zone_width_points?: number | null
+        }
+        Update: {
+          anchor_source?: string | null
+          armed_at?: string
+          broker_symbol?: string | null
+          check_count?: number
+          created_at?: string
+          direction?: string
+          entry_anchor?: number | null
+          entry_ready_at?: string | null
+          entry_zone_high?: number | null
+          entry_zone_low?: number | null
+          expires_at?: string
+          id?: string
+          invalidation_condition?: string | null
+          invalidation_price?: number | null
+          invalidation_timeframe?: string | null
+          last_checked_at?: string | null
+          metadata?: Json
+          preferred_entry?: number | null
+          resolved_at?: string | null
+          signal_id?: string
+          state?: string
+          stop_loss?: number | null
+          structural_level?: number | null
+          symbol?: string
+          targets?: Json
+          trigger_candle_time?: string | null
+          trigger_level?: number | null
+          trigger_summary?: string | null
+          trigger_timeframe?: string | null
+          updated_at?: string
+          zone_width_points?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "precision_watches_signal_id_fkey"
+            columns: ["signal_id"]
+            isOneToOne: true
+            referencedRelation: "signals"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           alert_tiers_email: string[]
@@ -733,10 +843,13 @@ export type Database = {
       }
       signals: {
         Row: {
+          armed_at: string | null
           broker_symbol: string | null
           candidate_id: string | null
           created_at: string
           direction: string
+          distance_to_entry_points: number | null
+          entry_ready_at: string | null
           entry_zone_high: number | null
           entry_zone_low: number | null
           expires_at_utc: string | null
@@ -746,8 +859,13 @@ export type Database = {
           id: string
           instrument: string
           invalidation: string | null
+          invalidation_price: number | null
+          invalidation_timeframe: string | null
           is_actionable: boolean
+          lifecycle_state: string
           macro_context: Json
+          preferred_entry: number | null
+          price_at_alert: number | null
           reasons: Json
           rejection_reasons: Json
           rr_tp1: number | null
@@ -765,12 +883,20 @@ export type Database = {
           targets: Json
           timeframe: string | null
           trading_day_utc: string
+          trigger_candle_time: string | null
+          trigger_level: number | null
+          trigger_summary: string | null
+          trigger_timeframe: string | null
+          zone_width_points: number | null
         }
         Insert: {
+          armed_at?: string | null
           broker_symbol?: string | null
           candidate_id?: string | null
           created_at?: string
           direction: string
+          distance_to_entry_points?: number | null
+          entry_ready_at?: string | null
           entry_zone_high?: number | null
           entry_zone_low?: number | null
           expires_at_utc?: string | null
@@ -780,8 +906,13 @@ export type Database = {
           id?: string
           instrument: string
           invalidation?: string | null
+          invalidation_price?: number | null
+          invalidation_timeframe?: string | null
           is_actionable?: boolean
+          lifecycle_state?: string
           macro_context?: Json
+          preferred_entry?: number | null
+          price_at_alert?: number | null
           reasons?: Json
           rejection_reasons?: Json
           rr_tp1?: number | null
@@ -799,12 +930,20 @@ export type Database = {
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
+          trigger_candle_time?: string | null
+          trigger_level?: number | null
+          trigger_summary?: string | null
+          trigger_timeframe?: string | null
+          zone_width_points?: number | null
         }
         Update: {
+          armed_at?: string | null
           broker_symbol?: string | null
           candidate_id?: string | null
           created_at?: string
           direction?: string
+          distance_to_entry_points?: number | null
+          entry_ready_at?: string | null
           entry_zone_high?: number | null
           entry_zone_low?: number | null
           expires_at_utc?: string | null
@@ -814,8 +953,13 @@ export type Database = {
           id?: string
           instrument?: string
           invalidation?: string | null
+          invalidation_price?: number | null
+          invalidation_timeframe?: string | null
           is_actionable?: boolean
+          lifecycle_state?: string
           macro_context?: Json
+          preferred_entry?: number | null
+          price_at_alert?: number | null
           reasons?: Json
           rejection_reasons?: Json
           rr_tp1?: number | null
@@ -833,6 +977,11 @@ export type Database = {
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
+          trigger_candle_time?: string | null
+          trigger_level?: number | null
+          trigger_summary?: string | null
+          trigger_timeframe?: string | null
+          zone_width_points?: number | null
         }
         Relationships: [
           {

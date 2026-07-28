@@ -228,6 +228,7 @@ async function account(): Promise<{ accountId: string; region: string }> {
 
 /** MetaApi MT5 timeframe codes. */
 const API_TIMEFRAME: Record<Timeframe, string> = {
+  M1: "1m",
   M5: "5m",
   M15: "15m",
   "1h": "1h",
