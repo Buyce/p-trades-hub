@@ -85,6 +85,70 @@ export type BlockingGate = {
   total: number;
 };
 
+export type InstrumentCoverage = {
+  instrument: string;
+  scannedLastRun: boolean;
+  lastEvaluatedAt: string | null;
+  evaluationsToday: number;
+};
+
+/**
+ * Per-instrument scan coverage: whether each enabled instrument was included in
+ * the most recent run and when it was last evaluated. Reporting only.
+ */
+export const instrumentCoverageQuery = () =>
+  queryOptions({
+    queryKey: ["scanner", "coverage"],
+    refetchInterval: 60_000,
+    queryFn: async (): Promise<InstrumentCoverage[]> => {
+      const [instruments, lastRun, candidates] = await Promise.all([
+        unwrapList(
+          db
+            .from("instruments")
+            .select("symbol, enabled, sort_order")
+            .eq("enabled", true)
+            .order("sort_order", { ascending: true }),
+          { repo: "health.coverage.instruments" },
+        ),
+        unwrap(
+          db
+            .from("scanner_runs")
+            .select("symbols_scanned")
+            .order("started_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          { repo: "health.coverage.lastRun" },
+        ),
+        unwrapList(
+          db
+            .from("signal_candidates")
+            .select("instrument, evaluated_at_utc")
+            .eq("trading_day_utc", new Date().toISOString().slice(0, 10))
+            .order("evaluated_at_utc", { ascending: false })
+            .limit(1000),
+          { repo: "health.coverage.candidates" },
+        ),
+      ]);
+
+      const scanned = new Set(lastRun?.symbols_scanned ?? []);
+      const seen = new Map<string, { last: string; count: number }>();
+      for (const row of candidates) {
+        const entry = seen.get(row.instrument);
+        if (entry) entry.count += 1;
+        else seen.set(row.instrument, { last: row.evaluated_at_utc, count: 1 });
+      }
+
+      return instruments.map((i) => ({
+        instrument: i.symbol,
+        scannedLastRun: scanned.has(i.symbol),
+        lastEvaluatedAt: seen.get(i.symbol)?.last ?? null,
+        evaluationsToday: seen.get(i.symbol)?.count ?? 0,
+      }));
+    },
+  });
+
+
+
 /**
  * "Why nothing alerted today", per instrument: the gate that blocked a setup
  * most often on the current UTC trading day. Reporting only — it summarises
