@@ -9,6 +9,7 @@ import { atr } from "./atr.server";
 import { higherTimeframeBias } from "./bias.server";
 import { checkLateEntry } from "./late-entry.server";
 import { fingerprint } from "./fingerprint.server";
+import { rulebookChecksum } from "./rulebook.server";
 import { minTierRr, scoreCandidate, tierFor } from "./scoring.server";
 import { rewardToRisk, targetsFrom } from "./risk.server";
 import { detectSetup } from "./setups.server";
@@ -510,6 +511,9 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
     .limit(1)
     .maybeSingle();
   const rulebook = parseRulebook(rulebookRow);
+  // Governance: every row this run writes carries the checksum of the exact
+  // rules it was evaluated against.
+  const checksum = await rulebookChecksum(rulebookRow?.rules ?? rulebook);
 
   const { data: instruments } = await admin
     .from("instruments")
@@ -524,7 +528,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
 
   const rows = (instruments ?? []) as InstrumentRow[];
   const symbols = rows.map((i) => i.symbol);
-  const runId = await startRun(admin, symbols, rulebook.version);
+  const runId = await startRun(admin, symbols, rulebook.version, checksum);
   const macroEvents = await loadMacroEvents(admin);
 
   let candidates = 0;
