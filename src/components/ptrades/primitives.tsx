@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { UNAVAILABLE, gradeLabel } from "@/lib/ptrades/format";
+import { useTierMismatchGuard } from "@/hooks/use-tier-mismatch-guard";
 
 export function SectionCard({
   title,
