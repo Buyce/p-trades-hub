@@ -124,7 +124,10 @@ function scanTargets(
 type FetchedCandles = {
   candles: Record<Timeframe, Candle[]>;
   rejects: Array<{ timeframe: Timeframe; rejects: CandleReject[] }>;
+  /** Timeframes served from the last-good series after repeated fetch failures. */
+  degraded: Array<{ timeframe: Timeframe; message: string; firstMessage: string }>;
 };
+
 
 /**
  * Fetches every required timeframe and pushes it through the single
@@ -142,6 +145,14 @@ type FetchedCandles = {
  */
 const FETCH_CONCURRENCY = 2;
 
+/**
+ * Single source of truth for how long a run may hold the scan lock. Stale-run
+ * cleanup uses the same value, so a run can never be declared dead while it
+ * still legitimately owns the lock.
+ */
+export const SCAN_LOCK_TTL_SECONDS = 180;
+
+
 /** How long a fetched series may be reused, per timeframe. */
 const CANDLE_CACHE_TTL_MS: Partial<Record<Timeframe, number>> = {
   "4h": 10 * 60_000,
@@ -149,6 +160,16 @@ const CANDLE_CACHE_TTL_MS: Partial<Record<Timeframe, number>> = {
 };
 
 const candleCache = new Map<string, { at: number; candles: Candle[] }>();
+
+/**
+ * Last successful series per symbol/timeframe, kept as a retry fallback only.
+ * Serving it can never leak a stale bar into a decision: the freshness and
+ * candle-sanity gates measure the candles themselves, so a fallback series that
+ * is too old simply rejects the candidate with STALE_DATA instead of failing
+ * the whole instrument with no diagnosis.
+ */
+const LAST_GOOD_TTL_MS = 60 * 60_000;
+const lastGood = new Map<string, { at: number; candles: Candle[] }>();
 
 function cachedCandles(symbol: string, tf: Timeframe): Candle[] | null {
   const ttl = CANDLE_CACHE_TTL_MS[tf];
@@ -159,12 +180,21 @@ function cachedCandles(symbol: string, tf: Timeframe): Candle[] | null {
 }
 
 function rememberCandles(symbol: string, tf: Timeframe, candles: Candle[]): void {
-  if (!CANDLE_CACHE_TTL_MS[tf] || candles.length === 0) return;
+  if (candles.length === 0) return;
+  lastGood.set(`${symbol}:${tf}`, { at: Date.now(), candles });
+  if (!CANDLE_CACHE_TTL_MS[tf]) return;
   candleCache.set(`${symbol}:${tf}`, { at: Date.now(), candles });
+}
+
+function lastGoodCandles(symbol: string, tf: Timeframe): Candle[] | null {
+  const hit = lastGood.get(`${symbol}:${tf}`);
+  if (!hit || Date.now() - hit.at > LAST_GOOD_TTL_MS) return null;
+  return hit.candles;
 }
 
 async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
   const rejects: FetchedCandles["rejects"] = [];
+  const degraded: FetchedCandles["degraded"] = [];
   const entries: Array<readonly [Timeframe, Candle[]]> = [];
 
   const pending: Timeframe[] = [];
@@ -174,15 +204,42 @@ async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
     else pending.push(tf);
   }
 
+  // One retry per timeframe: the single provider resource slot times out often
+  // enough that a first-attempt failure is usually transient.
+  const fetchOne = async (tf: Timeframe) => {
+    const limit = tf === "1d" ? 120 : 200;
+    try {
+      return await marketData().getCandles(symbol, tf, limit);
+    } catch (first) {
+      await new Promise((r) => setTimeout(r, 500));
+      try {
+        return await marketData().getCandles(symbol, tf, limit);
+      } catch (second) {
+        const fallback = lastGoodCandles(symbol, tf);
+        if (!fallback) throw second;
+        degraded.push({
+          timeframe: tf,
+          message: second instanceof Error ? second.message : String(second),
+          firstMessage: first instanceof Error ? first.message : String(first),
+        });
+        return null;
+      }
+    }
+  };
+
   for (let i = 0; i < pending.length; i += FETCH_CONCURRENCY) {
     const batch = pending.slice(i, i + FETCH_CONCURRENCY);
     const fetched = await Promise.all(
       batch.map(async (tf) => {
-        const raw = await marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200);
-        return [tf, normaliseCandles(raw, tf)] as const;
+        const raw = await fetchOne(tf);
+        return [tf, raw === null ? null : normaliseCandles(raw, tf)] as const;
       }),
     );
     for (const [tf, normalised] of fetched) {
+      if (normalised === null) {
+        entries.push([tf, lastGoodCandles(symbol, tf) ?? []] as const);
+        continue;
+      }
       const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
       if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
       rememberCandles(symbol, tf, normalised.candles);
@@ -192,8 +249,10 @@ async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
   return {
     candles: Object.fromEntries(entries) as Record<Timeframe, Candle[]>,
     rejects,
+    degraded,
   };
 }
+
 
 
 type Evaluation = {
@@ -225,11 +284,40 @@ async function evaluateInstrument(
   // Symbol mapping: canonical name -> broker symbol.
   const resolved = await resolveSymbol(instrument);
   const symbol = resolved.broker;
+  if (resolved.failures?.length) {
+    // A silent fallback is how an instrument quietly stops being scanned.
+    await recordScannerError(admin, {
+      runId,
+      instrument: instrument.symbol,
+      stage: "SYMBOL_RESOLUTION",
+      error: new AppError(
+        "UPSTREAM",
+        `Symbol resolution fell back to ${symbol} (${resolved.resolvedFrom})`,
+      ),
+      detail: { broker_symbol: symbol, failures: resolved.failures.slice(0, 10) },
+    });
+  }
 
   let candles: Record<Timeframe, Candle[]>;
   try {
     const fetched = await fetchTimeframes(symbol);
     candles = fetched.candles;
+    for (const entry of fetched.degraded) {
+      await recordScannerError(admin, {
+        runId,
+        instrument: instrument.symbol,
+        stage: "MARKET_DATA",
+        error: new AppError(
+          "UPSTREAM",
+          `${TIMEFRAME_LABEL[entry.timeframe]} served from last-good series after two failed fetches`,
+        ),
+        detail: {
+          broker_symbol: symbol,
+          first_error: entry.firstMessage,
+          retry_error: entry.message,
+        },
+      });
+    }
     for (const entry of fetched.rejects) {
       await recordScannerError(admin, {
         runId,
@@ -242,6 +330,7 @@ async function evaluateInstrument(
         detail: { broker_symbol: symbol, rejects: entry.rejects.slice(0, 20) },
       });
     }
+
   } catch (error) {
     await recordScannerError(admin, {
       runId,
@@ -367,9 +456,19 @@ async function evaluateInstrument(
   let spread: number | null = null;
   try {
     spread = await marketData().getSpread(symbol);
-  } catch {
+  } catch (error) {
     spread = null;
+    // A missing spread fails the spread gate closed; without this log the
+    // instrument looks like it was rejected on merit rather than on a feed gap.
+    await recordScannerError(admin, {
+      runId,
+      instrument: instrument.symbol,
+      stage: "MARKET_DATA",
+      error,
+      detail: { broker_symbol: symbol, operation: "getSpread" },
+    });
   }
+
   gates.push(
     spreadGate(spread, atrValue, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null),
   );
@@ -542,9 +641,10 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
 
   // Overlap protection: a slow run must never race the next scheduled tick.
   const locked = await acquireScanLock(admin, {
-    ttlSeconds: 180,
+    ttlSeconds: SCAN_LOCK_TTL_SECONDS,
     holder: new Date().toISOString(),
   });
+
   if (!locked) {
     return empty("A scan is already running");
   }
@@ -578,7 +678,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
     .order("sort_order");
 
   // Close any run a killed worker left open before starting a new one.
-  await closeStaleRuns(admin);
+  await closeStaleRuns(admin, SCAN_LOCK_TTL_SECONDS);
 
   const rows = (instruments ?? []) as InstrumentRow[];
   const symbols = rows.map((i) => i.symbol);

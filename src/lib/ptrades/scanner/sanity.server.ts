@@ -30,8 +30,13 @@ export function checkCandleSanity(
     if (!Number.isFinite(t)) problems.push(`Invalid candle timestamp ${c.time}.`);
     if (![c.open, c.high, c.low, c.close].every((v) => Number.isFinite(v) && v > 0)) {
       problems.push(`Non-positive or non-finite price at ${c.time}.`);
+      // The candle is unusable for price checks, but its timestamp still
+      // advances the series: without this the next gap is measured from the
+      // candle before it and reports a gap that does not exist.
+      if (Number.isFinite(t)) previousTime = t;
       continue;
     }
+
     if (c.high < c.low) problems.push(`High below low at ${c.time}.`);
     if (c.high < Math.max(c.open, c.close)) problems.push(`High below body at ${c.time}.`);
     if (c.low > Math.min(c.open, c.close)) problems.push(`Low above body at ${c.time}.`);

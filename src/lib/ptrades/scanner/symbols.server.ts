@@ -28,9 +28,19 @@ export type ResolvedSymbol = {
   digits: number | null;
   pointSize: number | null;
   resolvedFrom: "broker_symbol" | "alias" | "canonical" | "broker_list";
+  /** Provider failures seen while resolving, so the caller can log them. */
+  failures?: Array<{ candidate: string; message: string }>;
 };
 
-const cache = new Map<string, ResolvedSymbol>();
+/**
+ * Resolutions are cached, but never forever and never for a guess. A transient
+ * provider error must not pin an instrument to a fallback symbol for the life
+ * of the worker, so only a confirmed provider lookup is cached and every entry
+ * expires.
+ */
+const CACHE_TTL_MS = 30 * 60_000;
+const cache = new Map<string, { at: number; resolved: ResolvedSymbol }>();
+
 
 function normalise(value: string): string {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -58,12 +68,14 @@ export function roundToDigits(value: number | null, digits: number | null): numb
 
 export async function resolveSymbol(instrument: InstrumentRow): Promise<ResolvedSymbol> {
   const cached = cache.get(instrument.symbol);
-  if (cached) return cached;
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) return cached.resolved;
 
   const candidates: Array<[string, ResolvedSymbol["resolvedFrom"]]> = [];
   if (instrument.broker_symbol) candidates.push([instrument.broker_symbol, "broker_symbol"]);
   for (const alias of instrument.aliases ?? []) candidates.push([alias, "alias"]);
   candidates.push([instrument.symbol, "canonical"]);
+
+  const failures: Array<{ candidate: string; message: string }> = [];
 
   for (const [name, from] of candidates) {
     try {
@@ -75,14 +87,26 @@ export async function resolveSymbol(instrument: InstrumentRow): Promise<Resolved
         pointSize: instrument.point_size ?? null,
         resolvedFrom: from,
       };
-      cache.set(instrument.symbol, resolved);
+      // Only a confirmed provider lookup is cached.
+      cache.set(instrument.symbol, { at: Date.now(), resolved });
       return resolved;
-    } catch {
-      // Try the next candidate — an unknown symbol is not an error yet.
+    } catch (error) {
+      failures.push({
+        candidate: name,
+        message: error instanceof Error ? error.message : "symbol lookup failed",
+      });
     }
   }
 
-  const symbols = await marketData().listSymbols().catch(() => [] as string[]);
+  const symbols = await marketData()
+    .listSymbols()
+    .catch((error: unknown) => {
+      failures.push({
+        candidate: "*",
+        message: error instanceof Error ? error.message : "symbol list failed",
+      });
+      return [] as string[];
+    });
   const match = matchBrokerSymbol(instrument.symbol, symbols);
   const resolved: ResolvedSymbol = {
     canonical: instrument.symbol,
@@ -90,7 +114,16 @@ export async function resolveSymbol(instrument: InstrumentRow): Promise<Resolved
     digits: instrument.digits ?? null,
     pointSize: instrument.point_size ?? null,
     resolvedFrom: match ? "broker_list" : "canonical",
+    failures,
   };
-  cache.set(instrument.symbol, resolved);
+  // A broker-list match is a real lookup and may be cached; a bare fallback to
+  // the configured name is a guess and must be retried on the next scan.
+  if (match) cache.set(instrument.symbol, { at: Date.now(), resolved });
   return resolved;
 }
+
+/** Test/maintenance helper: drops every cached resolution. */
+export function clearSymbolCache(): void {
+  cache.clear();
+}
+
