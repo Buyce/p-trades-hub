@@ -198,6 +198,7 @@ export const DEFAULT_PRECISION_INSTRUMENT: PrecisionInstrumentRules = {
 export const DEFAULT_PRECISION: PrecisionRules = {
   enabled: true,
   trigger_expiry_bars: 3,
+  displacement_m1_min_atr: 0.8,
   min_entry_ready_rr: 2.0,
   default: DEFAULT_PRECISION_INSTRUMENT,
   instruments: {
