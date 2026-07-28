@@ -15,6 +15,7 @@ export async function startRun(
   admin: Admin,
   symbols: string[],
   rulebookVersion: string,
+  rulebookChecksum: string | null = null,
 ): Promise<string | null> {
   const { data, error } = await admin
     .from("scanner_runs")
@@ -22,6 +23,7 @@ export async function startRun(
       status: "RUNNING",
       symbols_scanned: symbols,
       rulebook_version: rulebookVersion,
+      rulebook_checksum: rulebookChecksum,
     })
     .select("id")
     .maybeSingle();
@@ -59,7 +61,12 @@ export async function finishRun(
 export async function saveCandidate(
   admin: Admin,
   candidate: Candidate,
-  meta: { runId: string | null; rulebookVersion: string; shadowMode: boolean },
+  meta: {
+    runId: string | null;
+    rulebookVersion: string;
+    rulebookChecksum?: string | null;
+    shadowMode: boolean;
+  },
 ): Promise<string | null> {
   const { data, error } = await admin
     .from("signal_candidates")
