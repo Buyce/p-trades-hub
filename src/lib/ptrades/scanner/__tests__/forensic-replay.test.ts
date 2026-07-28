@@ -143,7 +143,7 @@ describe("forensic replay: M1 execution trigger", () => {
 
   it("does not fire when price never left the zone", () => {
     const flatSeries = m1(
-      Array.from({ length: 7 }, () => ({ o: 99.7, h: 99.8, l: 99.6, c: 99.7 })),
+      Array.from({ length: 12 }, () => ({ o: 99.7, h: 99.8, l: 99.6, c: 99.7 })),
     );
     const trigger = detectNewMicroTrigger({
       candles: flatSeries,
