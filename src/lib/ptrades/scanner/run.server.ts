@@ -760,7 +760,8 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   });
 
   if (settings && settings.scanning_enabled === false) {
-    await writeHeartbeat(admin, {
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
       status: "IDLE",
       metaapiConnected: null,
       rulebookVersion: settings.rulebook_version ?? null,
@@ -770,7 +771,8 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   }
 
   if (!marketData().isConfigured()) {
-    await writeHeartbeat(admin, {
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
       status: "ERROR",
       metaapiConnected: false,
       rulebookVersion: settings?.rulebook_version ?? null,
@@ -786,11 +788,31 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   });
 
   if (!locked) {
+    // The component is alive; it just could not take the lock this tick.
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
+      status: "SKIPPED",
+      metaapiConnected: null,
+      rulebookVersion: settings?.rulebook_version ?? null,
+      detail: { reason: "A scan was already running." },
+    });
     return empty("A scan is already running");
   }
 
   try {
     return await runScanLocked(admin, shadowMode);
+  } catch (error) {
+    // A thrown scan must still report liveness, otherwise a crashing scanner
+    // and a stopped scanner look identical from the dashboard.
+    const message = error instanceof Error ? error.message : "scan failed";
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
+      status: "ERROR",
+      metaapiConnected: null,
+      rulebookVersion: settings?.rulebook_version ?? null,
+      detail: { error: message },
+    });
+    throw error;
   } finally {
     await releaseScanLock(admin);
   }
