@@ -49,3 +49,80 @@ export function heartbeatLabel(health: HeartbeatHealth): string {
   if (health === "OFFLINE") return "Not reporting";
   return "No heartbeat";
 }
+
+/**
+ * Context-scan liveness. A SKIPPED heartbeat proves the scheduler fired, NOT
+ * that a scan completed: a wedged run can emit fresh SKIPPED heartbeats for
+ * hours while nothing is ever evaluated. Liveness therefore depends on the last
+ * COMPLETED context scan as well as heartbeat freshness.
+ */
+export const CONTEXT_SUCCESS_OFFLINE_MS = 5 * 60_000;
+export const CONTEXT_SKIP_STREAK_DEGRADED = 3;
+
+export type ContextRuntime = {
+  health: HeartbeatHealth;
+  reason: string;
+  skipStreak: number;
+  lastSuccessAt: string | null;
+  lastSuccessAgeMs: number | null;
+};
+
+export function contextRuntimeHealth(
+  input: {
+    latestAt: string | null | undefined;
+    /** Newest-first statuses for the context scanner. */
+    recentStatuses?: string[];
+    lastSuccessAt?: string | null;
+  },
+  nowMs: number = Date.now(),
+): ContextRuntime {
+  const base = heartbeatHealth(input.latestAt, nowMs);
+  let skipStreak = 0;
+  for (const status of input.recentStatuses ?? []) {
+    if (status === "SKIPPED") skipStreak += 1;
+    else break;
+  }
+  const lastSuccessAt = input.lastSuccessAt ?? null;
+  const lastSuccessAgeMs = lastSuccessAt ? nowMs - new Date(lastSuccessAt).getTime() : null;
+
+  if (base === "OFFLINE" || base === "UNKNOWN") {
+    return {
+      health: base,
+      reason: base === "OFFLINE" ? "No context heartbeat." : "No heartbeat recorded.",
+      skipStreak,
+      lastSuccessAt,
+      lastSuccessAgeMs,
+    };
+  }
+
+  if (lastSuccessAgeMs === null || lastSuccessAgeMs > CONTEXT_SUCCESS_OFFLINE_MS) {
+    return {
+      health: "OFFLINE",
+      reason:
+        lastSuccessAgeMs === null
+          ? "No context scan has completed."
+          : `No context scan has completed for ${Math.round(lastSuccessAgeMs / 60_000)} min.`,
+      skipStreak,
+      lastSuccessAt,
+      lastSuccessAgeMs,
+    };
+  }
+
+  if (skipStreak >= CONTEXT_SKIP_STREAK_DEGRADED) {
+    return {
+      health: "DEGRADED",
+      reason: `${skipStreak} consecutive scheduler ticks skipped — a previous run still holds the lock.`,
+      skipStreak,
+      lastSuccessAt,
+      lastSuccessAgeMs,
+    };
+  }
+
+  return {
+    health: base,
+    reason: "Context scans completing on schedule.",
+    skipStreak,
+    lastSuccessAt,
+    lastSuccessAgeMs,
+  };
+}

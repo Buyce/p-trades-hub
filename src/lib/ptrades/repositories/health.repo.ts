@@ -342,3 +342,62 @@ export const executionFunnelQuery = () =>
     },
   });
 
+
+export type ContextRuntimeSnapshot = {
+  latestAttemptAt: string | null;
+  latestStatus: string | null;
+  recentStatuses: string[];
+  lastSuccessAt: string | null;
+  lastSuccessDurationMs: number | null;
+  lastSuccessSymbolsCompleted: number | null;
+  lastSuccessSymbolsStarted: number | null;
+  lockHolder: string | null;
+  lockExpiresAt: string | null;
+  lockAgeSeconds: number | null;
+};
+
+/**
+ * Context scanner runtime: the latest ATTEMPT and the last COMPLETED scan, kept
+ * separate on purpose. A SKIPPED attempt must never hide when detection last
+ * actually ran, which is the failure that made a wedged scanner look healthy.
+ */
+export const contextRuntimeQuery = () =>
+  queryOptions({
+    queryKey: ["heartbeat", "context-runtime"],
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<ContextRuntimeSnapshot> => {
+      const rows = await unwrapList(
+        db
+          .from("system_heartbeats")
+          .select("status, received_at, detail")
+          .eq("source", "CONTEXT_SCANNER")
+          .order("received_at", { ascending: false })
+          .limit(60),
+        { repo: "health.contextRuntime" },
+      );
+
+      const latest = rows[0] ?? null;
+      const completed = rows.find(
+        (r) =>
+          (r.status === "OK" || r.status === "DEGRADED") &&
+          typeof (r.detail as Record<string, unknown>)?.completed_at === "string",
+      );
+      const detail = (completed?.detail ?? {}) as Record<string, unknown>;
+      const skipDetail = (latest?.detail ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === "number" ? v : null);
+      const text = (v: unknown) => (typeof v === "string" ? v : null);
+
+      return {
+        latestAttemptAt: latest?.received_at ?? null,
+        latestStatus: latest?.status ?? null,
+        recentStatuses: rows.map((r) => r.status),
+        lastSuccessAt: text(detail.completed_at) ?? completed?.received_at ?? null,
+        lastSuccessDurationMs: num(detail.duration_ms),
+        lastSuccessSymbolsCompleted: num(detail.symbols_completed),
+        lastSuccessSymbolsStarted: num(detail.symbols_started),
+        lockHolder: text(skipDetail.lock_holder),
+        lockExpiresAt: text(skipDetail.lock_expires_at),
+        lockAgeSeconds: num(skipDetail.lock_age_seconds),
+      };
+    },
+  });

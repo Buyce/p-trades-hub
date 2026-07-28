@@ -19,6 +19,7 @@ export {
   latestHeartbeatQuery,
   heartbeatHistoryQuery,
   componentHeartbeatsQuery,
+  contextRuntimeQuery,
   scannerRunsQuery,
   blockingGatesTodayQuery,
   instrumentCoverageQuery,

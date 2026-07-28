@@ -5,6 +5,7 @@ import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import {
   heartbeatHistoryQuery,
   componentHeartbeatsQuery,
+  contextRuntimeQuery,
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
@@ -16,6 +17,7 @@ import {
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
 import {
   HEARTBEAT_SOURCES,
+  contextRuntimeHealth,
   HEARTBEAT_SOURCE_LABEL,
   heartbeatHealth,
   heartbeatLabel,
@@ -62,6 +64,12 @@ function ScannerHealth() {
   });
   const { data: heartbeats = [] } = useQuery({ ...heartbeatHistoryQuery(20), enabled: isStaff });
   const { data: componentBeats } = useQuery({ ...componentHeartbeatsQuery(), enabled: isStaff });
+  const { data: contextSnapshot } = useQuery({ ...contextRuntimeQuery(), enabled: isStaff });
+  const contextRuntime = contextRuntimeHealth({
+    latestAt: contextSnapshot?.latestAttemptAt,
+    recentStatuses: contextSnapshot?.recentStatuses,
+    lastSuccessAt: contextSnapshot?.lastSuccessAt,
+  });
   const { data: runs = [] } = useQuery({ ...scannerRunsQuery(20), enabled: isStaff });
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
@@ -153,6 +161,50 @@ function ScannerHealth() {
       </SectionCard>
 
 
+      <SectionCard title="Context scan runtime">
+        <p className="mb-3 text-xs text-muted-foreground">
+          A skipped tick means the scheduler fired while a previous run still held the lock. Only a
+          completed scan proves detection ran.
+        </p>
+        <DataRow
+          label="Health"
+          value={`${heartbeatLabel(contextRuntime.health)} · ${contextRuntime.reason}`}
+        />
+        <DataRow
+          label="Last attempt"
+          value={
+            contextSnapshot?.latestAttemptAt
+              ? `${field(contextSnapshot.latestStatus)} · ${relativeFromNow(contextSnapshot.latestAttemptAt)}`
+              : "None recorded"
+          }
+        />
+        <DataRow
+          label="Last completed"
+          value={
+            contextSnapshot?.lastSuccessAt
+              ? `${relativeFromNow(contextSnapshot.lastSuccessAt)} · ${contextSnapshot.lastSuccessSymbolsCompleted ?? "?"}/${contextSnapshot.lastSuccessSymbolsStarted ?? "?"} symbols · ${
+                  contextSnapshot.lastSuccessDurationMs
+                    ? `${Math.round(contextSnapshot.lastSuccessDurationMs / 1000)}s`
+                    : "duration n/a"
+                }`
+              : "No context scan has completed"
+          }
+        />
+        <DataRow label="Consecutive skips" value={String(contextRuntime.skipStreak)} />
+        <DataRow
+          label="Lock"
+          value={
+            contextSnapshot?.lockHolder
+              ? `held by ${contextSnapshot.lockHolder.slice(0, 8)}${
+                  contextSnapshot.lockAgeSeconds !== null
+                    ? ` · ${Math.round(contextSnapshot.lockAgeSeconds)}s old`
+                    : ""
+                }`
+              : "Free"
+          }
+        />
+      </SectionCard>
+
       <SectionCard title="Component liveness">
         <p className="mb-3 text-xs text-muted-foreground">
           Detection and execution run on separate schedules. Liveness is measured from heartbeat
@@ -161,7 +213,10 @@ function ScannerHealth() {
         <ul className="divide-y divide-border/60">
           {HEARTBEAT_SOURCES.map((source) => {
             const beat = componentBeats?.[source] ?? null;
-            const health = heartbeatHealth(beat?.received_at);
+            const health =
+              source === "CONTEXT_SCANNER"
+                ? contextRuntime.health
+                : heartbeatHealth(beat?.received_at);
             return (
               <li key={source} className="flex items-center justify-between gap-3 py-2.5">
                 <div>

@@ -3,6 +3,7 @@ import {
   DEFAULT_RULEBOOK,
   TIMEFRAME_LABEL,
   TIMEFRAME_SECONDS,
+  armingDisplacementFor,
   candleGapMultipleFor,
   precisionRulesFor,
 } from "./types";
@@ -20,7 +21,7 @@ import { rulebookChecksum } from "./rulebook.server";
 import { minTierRr, scoreCandidate } from "./scoring.server";
 import { rewardToRisk, structuralTargets } from "./risk.server";
 import { swingHighs, swingLows } from "./swings.server";
-import { detectSetup, type SetupResult } from "./setups.server";
+import { detectSetupDetailed, type SetupResult } from "./setups.server";
 import { checkCandleSanity } from "./sanity.server";
 import { sessionAt } from "./sessions.server";
 import { currenciesFor, macroContextFor, type MacroEvent } from "./macro.server";
@@ -29,7 +30,7 @@ import { entryAnchorForSetup } from "./entry-anchor.server";
 import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
 import { buildInvalidation, hasInvalidation } from "./invalidation.server";
 import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
-import { acquireScanLock, releaseScanLock } from "./lock.server";
+import { SCAN_LOCK_KEY, acquireScanLock, newLockHolder, releaseScanLock } from "./lock.server";
 import { armedExpiry } from "./lifecycle.server";
 import {
   biasConflict,
@@ -82,9 +83,17 @@ export function armingFailedGates(gates: GateResult[]): GateResult[] {
   return gates.filter((g) => !g.passed && !EXECUTION_ONLY_GATES.has(g.code));
 }
 
-export function isArmableSetup(setup: SetupResult, rulebook: Rulebook): boolean {
-  const displacementOk =
-    setup.displacementAtr !== null && setup.displacementAtr >= rulebook.displacement_min_atr;
+/**
+ * Arming boundary. A watch may open on a lower displacement than final quality
+ * requires: the measured value is preserved and re-judged at ENTRY_READY.
+ */
+export function isArmableSetup(
+  setup: SetupResult,
+  rulebook: Rulebook,
+  symbol?: string | null,
+): boolean {
+  const threshold = armingDisplacementFor(rulebook, symbol);
+  const displacementOk = setup.displacementAtr !== null && setup.displacementAtr >= threshold;
   const hasStructure = setup.sweepFound || setup.structureType !== null;
   return Boolean(setup.direction && setup.level !== null && hasStructure && displacementOk);
 }
@@ -202,13 +211,17 @@ const FETCH_CONCURRENCY = 2;
 export const SCAN_LOCK_TTL_SECONDS = 180;
 
 
-/** How long a fetched series may be reused, per timeframe. */
-const CANDLE_CACHE_TTL_MS: Partial<Record<Timeframe, number>> = {
-  "4h": 10 * 60_000,
-  "1d": 30 * 60_000,
-};
+/**
+ * Candle cache keyed by CANDLE CLOSE TIME, not by wall-clock TTL. A timeframe
+ * cannot produce new information until its next bar closes, so re-reading H1,
+ * H4 or D1 every minute burnt the single provider resource slot for nothing and
+ * was the main cause of context runs overrunning the lock.
+ */
+function closeBucket(tf: Timeframe, nowMs = Date.now()): number {
+  return Math.floor(nowMs / (TIMEFRAME_SECONDS[tf] * 1000));
+}
 
-const candleCache = new Map<string, { at: number; candles: Candle[] }>();
+const candleCache = new Map<string, { bucket: number; candles: Candle[] }>();
 
 /**
  * Last successful series per symbol/timeframe, kept as a retry fallback only.
@@ -221,18 +234,15 @@ const LAST_GOOD_TTL_MS = 60 * 60_000;
 const lastGood = new Map<string, { at: number; candles: Candle[] }>();
 
 function cachedCandles(symbol: string, tf: Timeframe): Candle[] | null {
-  const ttl = CANDLE_CACHE_TTL_MS[tf];
-  if (!ttl) return null;
   const hit = candleCache.get(`${symbol}:${tf}`);
-  if (!hit || Date.now() - hit.at > ttl) return null;
+  if (!hit || hit.bucket !== closeBucket(tf)) return null;
   return hit.candles;
 }
 
 function rememberCandles(symbol: string, tf: Timeframe, candles: Candle[]): void {
   if (candles.length === 0) return;
   lastGood.set(`${symbol}:${tf}`, { at: Date.now(), candles });
-  if (!CANDLE_CACHE_TTL_MS[tf]) return;
-  candleCache.set(`${symbol}:${tf}`, { at: Date.now(), candles });
+  candleCache.set(`${symbol}:${tf}`, { bucket: closeBucket(tf), candles });
 }
 
 function lastGoodCandles(symbol: string, tf: Timeframe): Candle[] | null {
@@ -473,33 +483,69 @@ async function evaluateInstrument(
   const atrValue = atr(entryCandles, rulebook.atr_period, rulebook.atr_method);
   const { bias, d1 } = higherTimeframeBias(candles["4h"], candles["1d"], rulebook.swing_lookback);
 
-  const setup = detectSetup({
-    candles: entryCandles,
-    atr: atrValue,
-    bias: bias as Bias,
-    swingLookback: rulebook.swing_lookback,
-    displacementMinAtr: rulebook.displacement_min_atr,
-  });
+  const armingThreshold = armingDisplacementFor(rulebook, instrument.symbol);
+  const detection = detectSetupDetailed(
+    {
+      candles: entryCandles,
+      atr: atrValue,
+      bias: bias as Bias,
+      swingLookback: rulebook.swing_lookback,
+      displacementMinAtr: rulebook.displacement_min_atr,
+    },
+    // Armability is evaluated for EVERY family before one is selected, so a
+    // non-armable sweep partial can never mask an armable break/retest.
+    (candidate) => isArmableSetup(candidate, rulebook, instrument.symbol),
+  );
+  const setup = detection.selected ?? {
+    found: false,
+    setupType: "SWEEP_DISPLACEMENT_RETEST" as const,
+    direction: null,
+    level: null,
+    extreme: null,
+    entryLow: null,
+    entryHigh: null,
+    sweepFound: false,
+    displacementAtr: null,
+    retestFound: false,
+    structureType: null,
+    detail: {},
+  };
 
   // Detection telemetry. Without it a "no setup" rejection says only that
   // nothing formed; with it we can see which stage of which family stopped,
   // and whether the inputs themselves were degraded. Reporting only.
-  const armableSetup = isArmableSetup(setup, rulebook);
+  const armableSetup = isArmableSetup(setup, rulebook, instrument.symbol);
+  const familyTelemetry = detection.diagnosticResults.map((r) => ({
+    family: r.setupType,
+    complete: r.found,
+    armable: isArmableSetup(r, rulebook, instrument.symbol),
+    direction: r.direction,
+    level: r.level,
+    displacement_atr: r.displacementAtr,
+    sweep_found: r.sweepFound,
+    retest_found: r.retestFound,
+    structure_type: r.structureType,
+  }));
   const detectionDetail = {
     ...setup.detail,
     stage: !setup.sweepFound && setup.structureType === null
       ? "NO_STRUCTURE_EVENT"
-      : setup.displacementAtr === null || setup.displacementAtr < rulebook.displacement_min_atr
+      : setup.displacementAtr === null || setup.displacementAtr < armingThreshold
         ? "NO_DISPLACEMENT"
         : !setup.retestFound
           ? "ARMED_AWAITING_M1_EXECUTION"
           : "COMPLETE",
     armable: armableSetup,
+    selected_from: detection.selectedFrom,
     best_family: setup.setupType,
+    families: familyTelemetry,
+    complete_families: detection.completeResults.map((r) => r.setupType),
+    armable_families: detection.armableResults.map((r) => r.setupType),
     direction: setup.direction,
     level: setup.level,
     extreme: setup.extreme,
     displacement_atr: setup.displacementAtr,
+    arming_displacement_min_atr: armingThreshold,
     displacement_min_atr: rulebook.displacement_min_atr,
     sweep_found: setup.sweepFound,
     retest_found: setup.retestFound,
@@ -530,15 +576,20 @@ async function evaluateInstrument(
         : `${setup.setupType} does not require a liquidity sweep.`,
     detail: { level: setup.level, ...setup.detail },
   });
+  // Arming uses the arming threshold; the measured value is stored untouched
+  // and re-judged by scoring and the execution gates at ENTRY_READY.
   gates.push({
     code: "NO_DISPLACEMENT",
-    passed:
-      setup.displacementAtr !== null && setup.displacementAtr >= rulebook.displacement_min_atr,
+    passed: setup.displacementAtr !== null && setup.displacementAtr >= armingThreshold,
     reason:
       setup.displacementAtr !== null
         ? `Displacement candle of ${setup.displacementAtr.toFixed(2)} ATR in the ${direction} direction.`
         : "No displacement candle of sufficient size.",
-    detail: { bodyAtr: setup.displacementAtr, minAtr: rulebook.displacement_min_atr },
+    detail: {
+      bodyAtr: setup.displacementAtr,
+      armingMinAtr: armingThreshold,
+      finalMinAtr: rulebook.displacement_min_atr,
+    },
   });
   let spread: number | null = null;
   try {
@@ -782,25 +833,42 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   }
 
   // Overlap protection: a slow run must never race the next scheduled tick.
+  // The holder is unique per invocation, so a slow predecessor can never
+  // release the lock its successor now owns.
+  const holder = newLockHolder("context");
   const locked = await acquireScanLock(admin, {
     ttlSeconds: SCAN_LOCK_TTL_SECONDS,
-    holder: new Date().toISOString(),
+    holder,
   });
 
   if (!locked) {
     // The component is alive; it just could not take the lock this tick.
+    // Report WHO holds it and for how long, otherwise a SKIPPED streak is
+    // indistinguishable from a healthy idle scanner.
+    const { data: lockRow } = await admin
+      .from("scanner_locks")
+      .select("holder, locked_at, expires_at")
+      .eq("lock_key", SCAN_LOCK_KEY)
+      .maybeSingle();
+    const lockedAtMs = lockRow?.locked_at ? new Date(lockRow.locked_at).getTime() : null;
     await safeHeartbeat(admin, {
       source: "CONTEXT_SCANNER",
       status: "SKIPPED",
       metaapiConnected: null,
       rulebookVersion: settings?.rulebook_version ?? null,
-      detail: { reason: "A scan was already running." },
+      detail: {
+        reason: "A scan was already running.",
+        lock_holder: lockRow?.holder ?? null,
+        lock_locked_at: lockRow?.locked_at ?? null,
+        lock_expires_at: lockRow?.expires_at ?? null,
+        lock_age_seconds: lockedAtMs ? Math.round((Date.now() - lockedAtMs) / 1000) : null,
+      },
     });
     return empty("A scan is already running");
   }
 
   try {
-    return await runScanLocked(admin, shadowMode);
+    return await runScanLocked(admin, shadowMode, holder);
   } catch (error) {
     // A thrown scan must still report liveness, otherwise a crashing scanner
     // and a stopped scanner look identical from the dashboard.
@@ -810,15 +878,20 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
       status: "ERROR",
       metaapiConnected: null,
       rulebookVersion: settings?.rulebook_version ?? null,
-      detail: { error: message },
+      detail: { error: message, lock_holder: holder },
     });
     throw error;
   } finally {
-    await releaseScanLock(admin);
+    await releaseScanLock(admin, SCAN_LOCK_KEY, holder);
   }
 }
 
-async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSummary> {
+async function runScanLocked(
+  admin: Admin,
+  shadowMode: boolean,
+  holder: string,
+): Promise<ScanSummary> {
+  const startedAtMs = Date.now();
   const { data: rulebookRow } = await admin
     .from("rulebook_versions")
     .select("version, rules")
@@ -852,6 +925,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   let actionable = 0;
   let armed = 0;
   let rejectionCount = 0;
+  const completedSymbols: string[] = [];
   const runRejections: Array<{ instrument: string; gate: string; reason: string }> = [];
   let metaapiConnected = true;
   let errorMessage: string | null = null;
@@ -859,6 +933,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   for (const instrument of rows) {
     try {
       const result = await evaluateInstrument(admin, instrument, rulebook, macroEvents, runId);
+      completedSymbols.push(instrument.symbol);
       const failed = armingFailedGates(result.gates);
       rejectionCount += failed.length;
       for (const f of failed) {
@@ -1003,6 +1078,14 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
       rulebook_checksum: checksum,
       session: sessionAt(new Date()),
       instruments: symbols,
+      // Completion telemetry: a SKIPPED heartbeat must never hide when the
+      // last full context scan actually finished, or how long it took.
+      completed_symbols: completedSymbols,
+      symbols_completed: completedSymbols.length,
+      symbols_started: symbols.length,
+      duration_ms: Date.now() - startedAtMs,
+      completed_at: new Date().toISOString(),
+      lock_holder: holder,
       candidates,
       qualified: qualifiedCount,
       armed,

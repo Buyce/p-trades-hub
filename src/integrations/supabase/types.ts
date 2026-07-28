@@ -1253,7 +1253,9 @@ export type Database = {
         }
         Returns: Json
       }
-      release_scanner_lock: { Args: { _key: string }; Returns: undefined }
+      release_scanner_lock:
+        | { Args: { _key: string }; Returns: undefined }
+        | { Args: { _holder?: string; _key: string }; Returns: boolean }
     }
     Enums: {
       app_role: "owner" | "admin" | "trader"
