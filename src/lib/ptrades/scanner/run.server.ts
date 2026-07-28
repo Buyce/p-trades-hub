@@ -324,6 +324,15 @@ type Evaluation = {
     structuralLevel: number | null;
     invalidation: { price: number | null; condition: string | null; timeframe: string | null };
     armedExpiryMinutes: number;
+    /** Structural score inputs, fixed at arming and re-used at ENTRY_READY. */
+    scoreInput: {
+      bias_aligned: boolean;
+      d1_aligned: boolean;
+      displacement_atr: number | null;
+      sweep_found: boolean;
+      macro_aligned: boolean;
+    };
+
   };
 };
 
