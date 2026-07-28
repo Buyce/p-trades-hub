@@ -801,7 +801,7 @@ async function evaluateInstrument(
       invalidation,
       armedExpiryMinutes: precisionRules.armedExpiryMinutes,
       scoreInput: {
-        bias_aligned: bias === direction,
+        bias_aligned: biasDecision.aligned,
         d1_aligned: d1 === direction,
         displacement_atr: setup.displacementAtr,
         sweep_found: setup.sweepFound || setup.structureType !== null,
