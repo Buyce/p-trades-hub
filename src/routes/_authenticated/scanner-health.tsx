@@ -55,6 +55,8 @@ function ScannerHealth() {
   const { data: runs = [] } = useQuery({ ...scannerRunsQuery(20), enabled: isStaff });
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
+  const { data: lastPurge } = useQuery({ ...lastPurgeQuery(), enabled: isStaff });
+
 
   // Governance diagnostic only: reads the active rulebook's own bands and
   // weights to show whether each tier can ever be produced. It does not score,
