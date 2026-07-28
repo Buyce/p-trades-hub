@@ -163,7 +163,7 @@ async function evaluateWatch(
   }
 
   const resolved = await resolveSymbol(instrument);
-  const brokerSymbol = watch.broker_symbol ?? resolved.symbol;
+  const brokerSymbol = watch.broker_symbol ?? resolved.broker;
   const point = pointSizeFor(instrument.point_size ?? null, resolved.digits) ?? 0;
   const rules = precisionRulesFor(rulebook, watch.symbol);
 
