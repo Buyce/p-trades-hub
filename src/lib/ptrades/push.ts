@@ -4,13 +4,14 @@
  * All functions are safe to call only in the browser.
  */
 
-function urlBase64ToUint8Array(base64: string): Uint8Array {
+function urlBase64ToUint8Array(base64: string): BufferSource {
   const padding = "=".repeat((4 - (base64.length % 4)) % 4);
   const normalised = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
   const raw = atob(normalised);
-  const output = new Uint8Array(raw.length);
+  const buffer = new ArrayBuffer(raw.length);
+  const output = new Uint8Array(buffer);
   for (let i = 0; i < raw.length; i += 1) output[i] = raw.charCodeAt(i);
-  return output;
+  return output as unknown as BufferSource;
 }
 
 function encodeKey(buffer: ArrayBuffer | null): string {
