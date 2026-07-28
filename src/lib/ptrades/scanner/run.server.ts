@@ -30,7 +30,7 @@ import { entryAnchorForSetup } from "./entry-anchor.server";
 import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
 import { buildInvalidation, hasInvalidation } from "./invalidation.server";
 import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
-import { acquireScanLock, releaseScanLock } from "./lock.server";
+import { SCAN_LOCK_KEY, acquireScanLock, newLockHolder, releaseScanLock } from "./lock.server";
 import { armedExpiry } from "./lifecycle.server";
 import {
   biasConflict,
@@ -833,25 +833,42 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   }
 
   // Overlap protection: a slow run must never race the next scheduled tick.
+  // The holder is unique per invocation, so a slow predecessor can never
+  // release the lock its successor now owns.
+  const holder = newLockHolder("context");
   const locked = await acquireScanLock(admin, {
     ttlSeconds: SCAN_LOCK_TTL_SECONDS,
-    holder: new Date().toISOString(),
+    holder,
   });
 
   if (!locked) {
     // The component is alive; it just could not take the lock this tick.
+    // Report WHO holds it and for how long, otherwise a SKIPPED streak is
+    // indistinguishable from a healthy idle scanner.
+    const { data: lockRow } = await admin
+      .from("scanner_locks")
+      .select("holder, locked_at, expires_at")
+      .eq("lock_key", SCAN_LOCK_KEY)
+      .maybeSingle();
+    const lockedAtMs = lockRow?.locked_at ? new Date(lockRow.locked_at).getTime() : null;
     await safeHeartbeat(admin, {
       source: "CONTEXT_SCANNER",
       status: "SKIPPED",
       metaapiConnected: null,
       rulebookVersion: settings?.rulebook_version ?? null,
-      detail: { reason: "A scan was already running." },
+      detail: {
+        reason: "A scan was already running.",
+        lock_holder: lockRow?.holder ?? null,
+        lock_locked_at: lockRow?.locked_at ?? null,
+        lock_expires_at: lockRow?.expires_at ?? null,
+        lock_age_seconds: lockedAtMs ? Math.round((Date.now() - lockedAtMs) / 1000) : null,
+      },
     });
     return empty("A scan is already running");
   }
 
   try {
-    return await runScanLocked(admin, shadowMode);
+    return await runScanLocked(admin, shadowMode, holder);
   } catch (error) {
     // A thrown scan must still report liveness, otherwise a crashing scanner
     // and a stopped scanner look identical from the dashboard.
@@ -861,11 +878,11 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
       status: "ERROR",
       metaapiConnected: null,
       rulebookVersion: settings?.rulebook_version ?? null,
-      detail: { error: message },
+      detail: { error: message, lock_holder: holder },
     });
     throw error;
   } finally {
-    await releaseScanLock(admin);
+    await releaseScanLock(admin, SCAN_LOCK_KEY, holder);
   }
 }
 
