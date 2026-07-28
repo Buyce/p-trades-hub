@@ -175,10 +175,14 @@ export function detectSetup(input: SetupInput): SetupResult {
   const results = detectors.map((d) => d(input));
   const complete = results.find((r) => r.found);
   if (complete) return complete;
-  // Best partial: whichever got furthest (sweep > retest > nothing).
-  return (
-    results.find((r) => r.sweepFound) ??
-    results.find((r) => r.retestFound) ??
-    results[0]
-  );
+  // Best partial: whichever detector got furthest. Ranked, not ordered by
+  // family — a break/retest that reached its retest is a more informative
+  // rejection than a sweep that never displaced.
+  const progress = (r: SetupResult) =>
+    (r.retestFound ? 4 : 0) +
+    (r.sweepFound ? 2 : 0) +
+    (r.structureType !== null ? 1 : 0) +
+    (r.displacementAtr !== null ? 1 : 0);
+  return results.reduce((best, r) => (progress(r) > progress(best) ? r : best), results[0]);
 }
+
