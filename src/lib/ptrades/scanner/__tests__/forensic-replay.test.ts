@@ -165,8 +165,8 @@ describe("forensic replay: durable data plane freshness", () => {
   const lastCloseMs = Date.parse(series[1].time) + MINUTE;
 
   it("measures age from the close of the last candle", () => {
-    expect(seriesAgeSeconds(series, "1m", lastCloseMs)).toBe(0);
-    expect(seriesAgeSeconds(series, "1m", lastCloseMs + 90_000)).toBe(90);
+    expect(seriesAgeSeconds(series, "M1", lastCloseMs)).toBe(0);
+    expect(seriesAgeSeconds(series, "M1", lastCloseMs + 90_000)).toBe(90);
   });
 
   it("allows one full interval on top of the feed budget", () => {
