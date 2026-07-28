@@ -482,33 +482,69 @@ async function evaluateInstrument(
   const atrValue = atr(entryCandles, rulebook.atr_period, rulebook.atr_method);
   const { bias, d1 } = higherTimeframeBias(candles["4h"], candles["1d"], rulebook.swing_lookback);
 
-  const setup = detectSetup({
-    candles: entryCandles,
-    atr: atrValue,
-    bias: bias as Bias,
-    swingLookback: rulebook.swing_lookback,
-    displacementMinAtr: rulebook.displacement_min_atr,
-  });
+  const armingThreshold = armingDisplacementFor(rulebook, instrument.symbol);
+  const detection = detectSetupDetailed(
+    {
+      candles: entryCandles,
+      atr: atrValue,
+      bias: bias as Bias,
+      swingLookback: rulebook.swing_lookback,
+      displacementMinAtr: rulebook.displacement_min_atr,
+    },
+    // Armability is evaluated for EVERY family before one is selected, so a
+    // non-armable sweep partial can never mask an armable break/retest.
+    (candidate) => isArmableSetup(candidate, rulebook, instrument.symbol),
+  );
+  const setup = detection.selected ?? {
+    found: false,
+    setupType: "SWEEP_DISPLACEMENT_RETEST" as const,
+    direction: null,
+    level: null,
+    extreme: null,
+    entryLow: null,
+    entryHigh: null,
+    sweepFound: false,
+    displacementAtr: null,
+    retestFound: false,
+    structureType: null,
+    detail: {},
+  };
 
   // Detection telemetry. Without it a "no setup" rejection says only that
   // nothing formed; with it we can see which stage of which family stopped,
   // and whether the inputs themselves were degraded. Reporting only.
-  const armableSetup = isArmableSetup(setup, rulebook);
+  const armableSetup = isArmableSetup(setup, rulebook, instrument.symbol);
+  const familyTelemetry = detection.diagnosticResults.map((r) => ({
+    family: r.setupType,
+    complete: r.found,
+    armable: isArmableSetup(r, rulebook, instrument.symbol),
+    direction: r.direction,
+    level: r.level,
+    displacement_atr: r.displacementAtr,
+    sweep_found: r.sweepFound,
+    retest_found: r.retestFound,
+    structure_type: r.structureType,
+  }));
   const detectionDetail = {
     ...setup.detail,
     stage: !setup.sweepFound && setup.structureType === null
       ? "NO_STRUCTURE_EVENT"
-      : setup.displacementAtr === null || setup.displacementAtr < rulebook.displacement_min_atr
+      : setup.displacementAtr === null || setup.displacementAtr < armingThreshold
         ? "NO_DISPLACEMENT"
         : !setup.retestFound
           ? "ARMED_AWAITING_M1_EXECUTION"
           : "COMPLETE",
     armable: armableSetup,
+    selected_from: detection.selectedFrom,
     best_family: setup.setupType,
+    families: familyTelemetry,
+    complete_families: detection.completeResults.map((r) => r.setupType),
+    armable_families: detection.armableResults.map((r) => r.setupType),
     direction: setup.direction,
     level: setup.level,
     extreme: setup.extreme,
     displacement_atr: setup.displacementAtr,
+    arming_displacement_min_atr: armingThreshold,
     displacement_min_atr: rulebook.displacement_min_atr,
     sweep_found: setup.sweepFound,
     retest_found: setup.retestFound,
