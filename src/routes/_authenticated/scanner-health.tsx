@@ -5,6 +5,7 @@ import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import {
   heartbeatHistoryQuery,
   componentHeartbeatsQuery,
+  contextRuntimeQuery,
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
@@ -16,6 +17,7 @@ import {
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
 import {
   HEARTBEAT_SOURCES,
+  contextRuntimeHealth,
   HEARTBEAT_SOURCE_LABEL,
   heartbeatHealth,
   heartbeatLabel,
@@ -62,6 +64,12 @@ function ScannerHealth() {
   });
   const { data: heartbeats = [] } = useQuery({ ...heartbeatHistoryQuery(20), enabled: isStaff });
   const { data: componentBeats } = useQuery({ ...componentHeartbeatsQuery(), enabled: isStaff });
+  const { data: contextSnapshot } = useQuery({ ...contextRuntimeQuery(), enabled: isStaff });
+  const contextRuntime = contextRuntimeHealth({
+    latestAt: contextSnapshot?.latestAttemptAt,
+    recentStatuses: contextSnapshot?.recentStatuses,
+    lastSuccessAt: contextSnapshot?.lastSuccessAt,
+  });
   const { data: runs = [] } = useQuery({ ...scannerRunsQuery(20), enabled: isStaff });
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
