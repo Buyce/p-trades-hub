@@ -1062,6 +1062,15 @@ export type Database = {
       }
       is_admin: { Args: never; Returns: boolean }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      purge_scanner_diagnostics: {
+        Args: {
+          retain_candidates?: string
+          retain_errors?: string
+          retain_rejections?: string
+          retain_runs?: string
+        }
+        Returns: Json
+      }
       release_scanner_lock: { Args: { _key: string }; Returns: undefined }
     }
     Enums: {

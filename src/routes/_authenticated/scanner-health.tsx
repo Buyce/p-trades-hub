@@ -7,6 +7,9 @@ import {
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
+  lastPurgeQuery,
+  RETENTION_WINDOWS,
+
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
 import { tierReachability } from "@/lib/ptrades/scanner/reachability";
@@ -52,6 +55,8 @@ function ScannerHealth() {
   const { data: runs = [] } = useQuery({ ...scannerRunsQuery(20), enabled: isStaff });
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
+  const { data: lastPurge } = useQuery({ ...lastPurgeQuery(), enabled: isStaff });
+
 
   // Governance diagnostic only: reads the active rulebook's own bands and
   // weights to show whether each tier can ever be produced. It does not score,
@@ -193,7 +198,35 @@ function ScannerHealth() {
           </ul>
         )}
       </SectionCard>
+
+      <SectionCard title="Data retention">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Diagnostic tables are purged automatically by the database. Signals, decisions, trades and
+          notifications are never deleted.
+        </p>
+        <ul className="divide-y divide-border/60">
+          {RETENTION_WINDOWS.map((w) => {
+            const deleted = lastPurge?.counts.find((c) => c.table === w.table)?.deleted;
+            return (
+              <li key={w.table} className="flex items-center justify-between gap-3 py-2.5">
+                <p className="num text-sm">{w.table}</p>
+                <div className="text-right">
+                  <p className="num text-sm font-medium">keeps {w.keeps}</p>
+                  {deleted !== undefined && (
+                    <p className="num text-xs text-muted-foreground">{deleted} removed last run</p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="num mt-3 text-xs text-muted-foreground">
+          Last cleanup:{" "}
+          {lastPurge ? `${formatTime(lastPurge.at, tz)} (${relativeFromNow(lastPurge.at)})` : "—"}
+        </p>
+      </SectionCard>
     </div>
+
 
   );
 }

@@ -20,6 +20,9 @@ export {
   heartbeatHistoryQuery,
   scannerRunsQuery,
   blockingGatesTodayQuery,
+  lastPurgeQuery,
+  RETENTION_WINDOWS,
+
   instrumentsQuery,
   macroEventsQuery,
   activeRulebookQuery,
