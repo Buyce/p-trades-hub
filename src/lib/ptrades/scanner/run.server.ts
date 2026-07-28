@@ -390,10 +390,17 @@ async function evaluateInstrument(
     });
   }
 
+  const feedBudget = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
+  const minBars = rulebook.atr_period + 2;
+
   let candles: Record<Timeframe, Candle[]>;
+  let dataSources: Record<string, string> = {};
+  let dataAges: Record<string, number | null> = {};
   try {
-    const fetched = await fetchTimeframes(symbol);
+    const fetched = await fetchTimeframes(admin, instrument.symbol, symbol, feedBudget, minBars);
     candles = fetched.candles;
+    dataSources = fetched.sources;
+    dataAges = fetched.ages;
     for (const entry of fetched.degraded) {
       await recordScannerError(admin, {
         runId,
@@ -401,12 +408,12 @@ async function evaluateInstrument(
         stage: "MARKET_DATA",
         error: new AppError(
           "UPSTREAM",
-          `${TIMEFRAME_LABEL[entry.timeframe]} served from last-good series after two failed fetches`,
+          `${TIMEFRAME_LABEL[entry.timeframe]} could not be served from the candle store`,
         ),
         detail: {
           broker_symbol: symbol,
-          first_error: entry.firstMessage,
-          retry_error: entry.message,
+          store_state: entry.firstMessage,
+          fallback_result: entry.message,
         },
       });
     }
@@ -440,14 +447,17 @@ async function evaluateInstrument(
     return { candidate: null, gates, macroContext: {} };
   }
 
-  const haveAll = REQUIRED.every((tf) => candles[tf].length >= rulebook.atr_period + 2);
+  const haveAll = REQUIRED.every((tf) => candles[tf].length >= minBars);
   gates.push(
     missingData(haveAll, {
       broker_symbol: symbol,
       resolved_from: resolved.resolvedFrom,
+      data_sources: dataSources,
+      store_age_seconds: dataAges,
       ...Object.fromEntries(REQUIRED.map((tf) => [TIMEFRAME_LABEL[tf], candles[tf].length])),
     }),
   );
+
   if (!haveAll) return { candidate: null, gates, macroContext: {} };
 
   const entryCandles = candles[ENTRY_TF];
