@@ -993,7 +993,8 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
     "getAccount",
   ).catch(() => null);
 
-  await writeHeartbeat(admin, {
+  await safeHeartbeat(admin, {
+    source: "CONTEXT_SCANNER",
     status: errorMessage ? "DEGRADED" : "OK",
     metaapiConnected,
     rulebookVersion: rulebook.version,
