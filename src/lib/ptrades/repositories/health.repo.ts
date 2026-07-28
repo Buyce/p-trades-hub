@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { Tables } from "@/integrations/supabase/types";
+import { HEARTBEAT_SOURCES } from "@/lib/ptrades/heartbeat-health";
 import { db, unwrap, unwrapList } from "./client";
 
 /** Repository for system health, scanner runs, instruments and macro events. */
@@ -28,6 +29,7 @@ export const latestHeartbeatQuery = () =>
 export const heartbeatHistoryQuery = (limit = 30) =>
   queryOptions({
     queryKey: ["heartbeat", "history", limit],
+    refetchInterval: 60_000,
     queryFn: () =>
       unwrapList(
         db
@@ -37,6 +39,31 @@ export const heartbeatHistoryQuery = (limit = 30) =>
           .limit(limit),
         { repo: "health.heartbeatHistory" },
       ),
+  });
+
+/**
+ * The newest heartbeat for each scheduled component. Detection and execution
+ * run on separate schedules, so one can die while the other keeps reporting —
+ * a single combined heartbeat hides exactly that failure.
+ */
+export const componentHeartbeatsQuery = () =>
+  queryOptions({
+    queryKey: ["heartbeat", "components"],
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<Record<string, Heartbeat>> => {
+      const rows = await unwrapList(
+        db
+          .from("system_heartbeats")
+          .select("*")
+          .in("source", [...HEARTBEAT_SOURCES])
+          .order("received_at", { ascending: false })
+          .limit(50),
+        { repo: "health.componentHeartbeats" },
+      );
+      const latest: Record<string, Heartbeat> = {};
+      for (const row of rows) if (!latest[row.source]) latest[row.source] = row;
+      return latest;
+    },
   });
 
 export const scannerRunsQuery = (limit = 25) =>
