@@ -72,10 +72,10 @@ function Rulebook() {
   const { data: active } = useQuery(activeRulebookQuery());
   const { data: versions = [] } = useQuery(rulebookVersionsQuery());
 
-  const rules =
-    active?.rules && typeof active.rules === "object" && !Array.isArray(active.rules)
-      ? Object.entries(active.rules as Record<string, unknown>)
-      : [];
+  // The rulebook is a nested JSON document. Rendering a nested object through
+  // a scalar formatter printed "[object Object]" and hid whole rule families,
+  // so the tree is flattened to dotted leaf paths instead.
+  const rules = flattenRules(active?.rules);
 
   return (
     <div className="space-y-4">
@@ -91,8 +91,9 @@ function Rulebook() {
       >
         <DataRow label="Summary" value={field(active?.summary)} mono={false} />
         <DataRow label="Effective from" value={formatTime(active?.effective_from, tz)} />
-        {rules.length > 0 &&
-          rules.map(([key, value]) => <DataRow key={key} label={key} value={field(value)} />)}
+        {rules.map(([key, value]) => (
+          <DataRow key={key} label={key} value={value} />
+        ))}
       </SectionCard>
 
       <SectionCard title="Non-negotiable rules">
