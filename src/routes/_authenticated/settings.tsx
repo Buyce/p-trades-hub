@@ -223,7 +223,7 @@ function Settings() {
         <div className="space-y-5">
           <p className="text-xs text-muted-foreground">
             Every tier passes the same safety gates; only the reward-to-risk floor differs (A+/A
-            2.0R, B 1.5R, C 1.2R). Each tier has its own daily cap. Alerts always appear in the
+            2.0R, B 1.5R, C 1.2R). There is no daily cap. Alerts always appear in the
             in-app list — these controls decide what is delivered and what the terminal shows.
           </p>
 
