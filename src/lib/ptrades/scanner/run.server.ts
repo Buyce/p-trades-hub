@@ -581,6 +581,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
           candidateId,
           runId,
           rulebookVersion: rulebook.version,
+          rulebookChecksum: checksum,
           shadowMode,
           macroContext: result.macroContext,
         });
@@ -610,6 +611,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
         candidateId,
         runId,
         rulebookVersion: rulebook.version,
+        rulebookChecksum: checksum,
         shadowMode,
         macroContext: result.macroContext,
       });
