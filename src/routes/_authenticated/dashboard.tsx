@@ -84,17 +84,23 @@ function Dashboard() {
   const openTrades = trades.filter((t) => t.status === "OPEN");
   const weekly = expectancy(tradesSince(trades, Date.now() - 7 * 86_400_000));
 
-  const heartbeatAgeMin = heartbeat
-    ? (Date.now() - new Date(heartbeat.received_at).getTime()) / 60_000
-    : null;
-  const linkState =
-    heartbeatAgeMin === null ? "idle" : heartbeatAgeMin < 10 ? "ok" : heartbeatAgeMin < 60 ? "warn" : "down";
+  // Liveness comes from heartbeat AGE, never from the status word on the last
+  // stored row: a stale "OK" is an offline scanner, not a healthy one.
+  const contextBeat = components?.CONTEXT_SCANNER ?? null;
+  const precisionBeat = components?.PRECISION_SCANNER ?? null;
+  const contextHealth = heartbeatHealth(contextBeat?.received_at);
+  const precisionHealth = heartbeatHealth(precisionBeat?.received_at);
+  const newest = [contextBeat?.received_at, precisionBeat?.received_at, heartbeat?.received_at]
+    .filter((v): v is string => Boolean(v))
+    .sort()
+    .at(-1);
+  const overallHealth = heartbeatHealth(newest);
 
   // The scanner records the broker server on every heartbeat, so the feed name
   // is available even when the direct MetaApi account lookup is unavailable.
   const heartbeatServer =
-    (heartbeat?.detail as { account?: { server?: string | null } } | null | undefined)?.account
-      ?.server ?? null;
+    ((contextBeat ?? heartbeat)?.detail as { account?: { server?: string | null } } | null | undefined)
+      ?.account?.server ?? null;
 
   return (
     <div className="space-y-4">
@@ -106,14 +112,26 @@ function Dashboard() {
       <SectionCard
         title="Market data link"
         action={
-          <StatusPill state={linkState}>
-            {heartbeat ? `Heartbeat ${relativeFromNow(heartbeat.received_at)}` : "No heartbeat"}
+          <StatusPill state={heartbeatPillState(overallHealth)}>
+            {newest ? `${heartbeatLabel(overallHealth)} · ${relativeFromNow(newest)}` : "No heartbeat"}
           </StatusPill>
         }
       >
         <DataRow
-          label="Scanner status"
-          value={heartbeat ? field(heartbeat.status) : undefined}
+          label="Context scan"
+          value={
+            contextBeat
+              ? `${heartbeatLabel(contextHealth)} · ${field(contextBeat.status)} · ${relativeFromNow(contextBeat.received_at)}`
+              : "Not reporting"
+          }
+        />
+        <DataRow
+          label="Precision pass"
+          value={
+            precisionBeat
+              ? `${heartbeatLabel(precisionHealth)} · ${field(precisionBeat.status)} · ${relativeFromNow(precisionBeat.received_at)}`
+              : "Not reporting"
+          }
         />
         <DataRow
           label="MT5 connection"
@@ -132,7 +150,7 @@ function Dashboard() {
         <DataRow label="Broker feed" value={field(link?.server ?? heartbeatServer)} />
         <DataRow
           label="Last heartbeat"
-          value={heartbeat ? formatTime(heartbeat.received_at, tz) : undefined}
+          value={newest ? formatTime(newest, tz) : undefined}
         />
         <DataRow
           label="Active rulebook"
