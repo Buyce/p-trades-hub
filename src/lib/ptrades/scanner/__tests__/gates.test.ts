@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   allPassed,
   biasConflict,
-  dailyCap,
   duplicate,
   failedGates,
   gate,
@@ -14,9 +13,10 @@ import {
   spreadGate,
   staleData,
 } from "../gates.server";
+import * as gatesModule from "../gates.server";
 
 /**
- * Spec: apply_hard_gates rejects on stale tick, wide spread, daily limit, news
+ * Spec: apply_hard_gates rejects on stale tick, wide spread, news
  * lockout, late entry, invalid risk, missing targets and sub-minimum R:R.
  *
  * Two rules hold for EVERY gate:
@@ -52,8 +52,6 @@ describe("gate reasons", () => {
       lateEntry(true, 1.4),
       duplicate(false, "abc"),
       duplicate(true, "abc"),
-      dailyCap(0, 2),
-      dailyCap(2, 2),
     ];
     results.forEach(expectReason);
   });
@@ -169,15 +167,10 @@ describe("duplicate", () => {
   });
 });
 
-describe("dailyCap", () => {
-  it("allows the first two actionable alerts of the UTC day", () => {
-    expect(dailyCap(0, 2).passed).toBe(true);
-    expect(dailyCap(1, 2).passed).toBe(true);
-  });
-
-  it("rejects the third", () => {
-    expect(dailyCap(2, 2).passed).toBe(false);
-    expect(dailyCap(3, 2).passed).toBe(false);
+describe("no daily cap", () => {
+  it("exposes no cap gate at all — alert volume is never rationed", () => {
+    const gates = gatesModule as Record<string, unknown>;
+    expect(gates.dailyCap).toBeUndefined();
   });
 });
 
