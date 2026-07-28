@@ -160,7 +160,7 @@ function ScannerHealth() {
             <li key={t.tier} className="py-2.5">
               <div className="flex items-center justify-between gap-3">
                 <p className="num text-sm font-medium">Tier {tierLabel(t.tier)}</p>
-                <StatusPill tone={t.reachable ? "positive" : "critical"}>
+                <StatusPill state={t.reachable ? "ok" : "down"}>
                   {t.reachable ? "Reachable" : "Dead band"}
                 </StatusPill>
               </div>
