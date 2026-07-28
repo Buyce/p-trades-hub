@@ -399,6 +399,7 @@ async function evaluateWatch(
     await updateWatch(admin, watch.id, {
       state: transition(watch.state as never, nextState),
       last_checked_at: checkedAt,
+      last_m1_candle_time: lastClosedCandle?.time ?? watch.last_m1_candle_time,
       check_count: watch.check_count + 1,
       preferred_entry: preferredEntry,
       entry_zone_low: zone ? roundToDigits(zone.entryLow, resolved.digits) : watch.entry_zone_low,
