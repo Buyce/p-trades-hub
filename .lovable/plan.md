@@ -1,50 +1,33 @@
-## Audit of the recent scanner data
+## Short answer
 
-Verified against the live database (630 finished runs, 3,088 candidates, 21,853 rejections):
+Your MetaApi settings are fine. The scanner is not broken by configuration — the version of the scanner that actually runs every minute is **an older build than the code in this project**, so none of the tier/duplicate fixes are live yet.
 
-| Finding | Evidence | Verdict |
-| --- | --- | --- |
-| **Zero alerts have ever been issued** | `signals` table: 0 rows, in 630 runs | Bug |
-| **DUPLICATE gate poisons every setup** | 2,671 DUPLICATE rejections; the check reads `signal_candidates`, and a candidate row is written for every instrument on every minute, so from the 2nd minute onward the fingerprint always exists. Not one candidate in the whole table has zero failing gates. | Critical bug — this alone makes an alert mathematically impossible |
-| **Hard-coded 4× ATR stop cap** | Best-scoring candidate (EURUSD, score 92.5, RR 2.00) rejected with `INVALID_STOP: stop distance exceeds 4x ATR` (14.6 pips vs 3.4 pip M15 ATR) | Rule not in the rulebook contract, violating the "no trading constant outside the rulebook" mandate |
-| **Grades assigned to setups that failed hard gates** | 137 A-grade and 297 B-grade candidates, all with failing gates; score credits RR/structure even when the stop is invalid | Misleading labels |
-| **51 runs stuck in `RUNNING`** | Concentrated at 23:00–01:00 UTC; never got a `finished_at` | Worker timeout — run row is never closed even though the lock TTL expires |
-| **B grade is dead weight today** | 297 B candidates, none can ever alert (`qualified` requires A/A+) | Motivates the tier work below |
-| **Rulebook v1.4.0-live has no `grades` block** | `rules->'grades'` is null; code silently falls back to defaults 95/90/80 | Silent config drift |
-| Correct behaviour confirmed | Session windows, stale-data budget (feed + one M15), spread, sanity and macro gates all fire with sane reasons; read-only mandate intact (no execution code paths) | OK |
+## Evidence (from your database, not assumptions)
 
-## What I'll build
+- `signals` table: **0 rows, ever**. 3,279 candidates in the last 3 days, **0 qualified**.
+- A GBPUSD candidate at 08:02 today passed every gate except two, and was graded `B` while `qualified = false`. Current code can never do that — it stores `grade = null` when a candidate is not qualified. So the running build is older.
+- That same candidate's reward-to-risk gate recorded `minRr: 2`. The active rulebook `v1.5.0-live` stores `tier_min_rr = {A+ 2.0, A 2.0, B 1.5, C 1.2}`, and current code gates on the **lowest** floor (1.2). A hard `2.0` is exactly what the pre-tier build used. **This is why no B or C alert can ever fire** — every B/C setup is killed by an A-tier R:R floor.
+- `DUPLICATE` is the #1 rejection (2,671 in 3 days) even though zero signals have ever been promoted. Current code scopes duplicates to promoted `signals`; the running build still scopes to `signal_candidates`, so every setup is "a duplicate of itself" one minute after it appears.
+- The cron job posts every minute to the **preview** URL (`...-dev.lovable.app/api/public/hooks/scan-markets`), which serves the last built preview deployment — that build predates the tier work.
 
-### 1. Scanner correctness fixes
-- **Duplicate scoping**: fingerprint uniqueness moves off "any candidate seen today" onto *promoted signals* for the day (plus a short re-evaluation cooldown), so a setup that improves over subsequent minutes can still alert once.
-- **Stop sanity into the rulebook**: `max_stop_atr_multiple` becomes a rulebook field (default 4, contract + Python reference updated) instead of a magic number in `gates.server.ts`.
-- **Honest grading**: a candidate that fails a hard gate is stored with its score but is not labelled with a tradable tier; the UI shows "rejected" rather than a tier badge.
-- **Stuck runs**: any `RUNNING` run older than the lock TTL is closed as `TIMEOUT` at the start of the next scan, and the existing 51 rows are backfilled.
-- **Rulebook completeness**: publish `v1.5.0-live` carrying explicit grade bands and the new tier config, so nothing relies on code defaults.
+## Real issues that remain even after the correct build is live
 
-### 2. B and C tier alerts (all watched instruments)
-Tier model, per your choice — same hard safety gates for every tier, **C relaxes reward-to-risk only**:
+1. **Late-entry gate is very tight.** `late_entry_max_atr_from_entry = 0.5`. Today's fully-valid GBPUSD short was rejected at 2.04 ATR; other rejections show 3.36 ATR. On M5 with a 1-minute scan cadence, price routinely travels >0.5 ATR before the retest candle closes. 957 rejections in 12h come from this alone.
+2. **MetaApi timeouts.** 132 `TIMEOUT` errors (`getCandles timed out after 15000ms`) and 50 scanner runs ended in `TIMEOUT` status. Your account has **1 resource slot** and you are pulling 5 timeframes per symbol every 60 seconds. This is a throughput limit, not a code bug.
+3. **Stale-data budget is inconsistent.** Some rejections show `maxAge: 180` (rulebook default) against 966s-old data, others show `maxAge: 1080` (per-instrument override). Instruments without `max_data_age_seconds` set are being judged on a budget shorter than one M15 candle.
+4. **`rulebook_checksum` is null on every run and on the active rulebook row** — the governance/traceability trail is not being written.
 
-```text
-A+  score >= 95   RR >= 2.0
-A   score >= 90   RR >= 2.0
-B   score >= 80   RR >= 1.5
-C   score >= 70   RR >= 1.2
-```
+## Proposed fix, in order
 
-All tiers must still pass: data present, candle sanity, freshness, session, spread, news lockout, bias alignment, valid stop, late entry, expiry, duplicate. Fail-closed is unchanged. Per-tier daily caps (A-family keeps the 30 cap; B and C get their own caps so lower tiers can't flood the terminal). `C` is added to the `signal_grade` enum and threaded through contracts, Python reference, scoring, persistence and the UI badge.
-
-### 3. Tier controls for the user
-- **Settings** — persisted per-user opt-ins: which tiers arrive by **email** and which by **push**, as A+/A/B/C toggle buttons.
-- **Terminal** — A+/A/B/C filter chips on Dashboard, Watchlist and Signals; a saved default per user plus instant client-side filtering.
-- Notification fan-out reads the per-user tier opt-ins, so a user who only wants A+ gets only A+ emails while the terminal still shows everything they enabled.
-
-### 4. Correct tier labelling everywhere
-One shared tier helper drives the badge text, colour and email subject/heading, so the tier shown in the terminal, the push title, and the email body always come from the stored `grade` on the signal row — never recomputed on the frontend.
+1. **Publish the app** so the current scanner build actually serves the cron endpoint, then verify against live data that a fresh candidate records `minRr: 1.2` and that `DUPLICATE` stops firing while `signals` is empty. This alone should unblock B and C alerts.
+2. **Relax the late-entry gate** in rulebook `v1.6.0-live` from `0.5` to a value that matches M5 reality (proposed `1.5` ATR), keeping every other hard gate untouched. Scoring already penalises late entries, so late setups will land in B/C rather than A.
+3. **Reduce MetaApi load**: fetch D1/H4 less often than every minute (cache them), and raise the candle fetch timeout with one retry. Optionally raise resource slots to 2 on the MetaApi side.
+4. **Backfill `max_data_age_seconds` per instrument** to `entry timeframe duration + feed budget`, so no symbol is judged on a 180s budget.
+5. **Write the rulebook checksum** on every run and backfill it on the active rulebook row.
+6. Add a **daily "why nothing alerted" summary** on Scanner Health: top blocking gate per instrument, so this is visible without querying the database.
 
 ## Technical notes
-- Migration: extend `signal_grade` enum with `C`; add `alert_tiers_email`, `alert_tiers_push`, `alert_tiers_terminal` (text arrays) to `profiles`; add `tier` to `daily_alert_counters` with a composite key so caps are per-tier; insert rulebook `v1.5.0-live` and retire `v1.4.0-live`; backfill stuck `scanner_runs`.
-- `claim_actionable_slot` becomes tier-aware (`_tier`, `_max`), still atomic and fail-closed.
-- Touched code: `scoring.server.ts`, `gates.server.ts`, `run.server.ts`, `persist.server.ts`, `notify.server.ts`, `alert-email.server.ts`, `types.ts`, `format.ts`, `profile.repo.ts`, `settings.tsx`, `dashboard.tsx`, `watchlist.tsx`, `signals.$signalId.tsx`, `contracts/*.json`, Python reference models.
-- Tests: new cases for tier bands, per-tier RR, duplicate scoping, rulebook-driven stop cap, tier-filtered notification fan-out; existing 304 Vitest + 19 pytest suites must stay green.
-- After deploy I'll re-query `signals`, `signal_candidates` and `scanner_runs` to confirm alerts actually fire and that stuck runs stop accumulating.
+
+- Steps 2, 4 and 5 are database migrations (a new rulebook version row plus instrument updates); the scanner reads the rulebook from the database, so no code change is needed for the gate values themselves.
+- Step 1 requires no code change at all — it is a deployment step, and it is the single largest cause of the symptom you reported.
+- Nothing in this plan adds, or moves toward, any trade-execution path. All MetaApi access stays on the read-only allowlist.
