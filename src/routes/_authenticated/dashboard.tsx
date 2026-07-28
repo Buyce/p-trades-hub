@@ -93,7 +93,14 @@ function Dashboard() {
   // stored row: a stale "OK" is an offline scanner, not a healthy one.
   const contextBeat = components?.CONTEXT_SCANNER ?? null;
   const precisionBeat = components?.PRECISION_SCANNER ?? null;
-  const contextHealth = heartbeatHealth(contextBeat?.received_at);
+  // A fresh SKIPPED heartbeat is not a healthy context scanner: liveness also
+  // requires a recently COMPLETED scan.
+  const contextRuntime = contextRuntimeHealth({
+    latestAt: contextBeat?.received_at,
+    recentStatuses: contextSnapshot?.recentStatuses,
+    lastSuccessAt: contextSnapshot?.lastSuccessAt,
+  });
+  const contextHealth = contextRuntime.health;
   const precisionHealth = heartbeatHealth(precisionBeat?.received_at);
   const newest = [contextBeat?.received_at, precisionBeat?.received_at, heartbeat?.received_at]
     .filter((v): v is string => Boolean(v))
@@ -130,6 +137,19 @@ function Dashboard() {
               : "Not reporting"
           }
         />
+        <DataRow
+          label="Last completed scan"
+          value={
+            contextSnapshot?.lastSuccessAt
+              ? `${relativeFromNow(contextSnapshot.lastSuccessAt)} · ${contextSnapshot.lastSuccessSymbolsCompleted ?? "?"}/${contextSnapshot.lastSuccessSymbolsStarted ?? "?"} symbols · ${
+                  contextSnapshot.lastSuccessDurationMs
+                    ? `${Math.round(contextSnapshot.lastSuccessDurationMs / 1000)}s`
+                    : "duration n/a"
+                }`
+              : "No context scan has completed"
+          }
+        />
+
         <DataRow
           label="Precision pass"
           value={
