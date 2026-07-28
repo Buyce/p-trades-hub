@@ -10,7 +10,7 @@ import { sendLovableEmail } from "@lovable.dev/email-js";
 import { SignalAlertEmail } from "@/lib/email-templates/signal-alert";
 
 const SITE_NAME = "P-Trades";
-const FROM_DOMAIN = "notify.beinvestlabs.com";
+const FROM_DOMAIN = "notify.getptrades.com";
 const SITE_URL = "https://p-trade-spotlight.lovable.app";
 
 export type AlertEmailInput = {
