@@ -82,6 +82,14 @@ export type Rulebook = {
   atr_method: "WILDER" | "SMA";
   swing_lookback: number;
   displacement_min_atr: number;
+  /**
+   * Displacement required to ARM a watch (open a precision watch). Lower than
+   * `displacement_min_atr`, which remains the final-quality threshold used by
+   * scoring and the alert gates.
+   */
+  arming_displacement_min_atr?: number;
+  /** Per-instrument override of `arming_displacement_min_atr`. */
+  instrument_arming_displacement_min_atr?: Record<string, number>;
   allowed_sessions: string[];
   signal_expiry_minutes: number;
   max_candle_gap_multiple: number;
@@ -241,6 +249,36 @@ export function candleGapMultipleFor(rulebook: Rulebook, symbol: string): number
   return Number.isFinite(override) && (override as number) > 0
     ? (override as number)
     : rulebook.max_candle_gap_multiple;
+}
+
+/**
+ * ARMING displacement thresholds — deliberately lower than the final quality
+ * threshold `displacement_min_atr`. Opening a watch is cheap and reversible; an
+ * alert is not. The measured displacement is preserved verbatim for scoring, so
+ * a weak impulse simply scores lower, it is never rounded up.
+ */
+export const DEFAULT_ARMING_DISPLACEMENT_MIN_ATR = 0.6;
+
+export const DEFAULT_INSTRUMENT_ARMING_DISPLACEMENT: Record<string, number> = {
+  EURUSD: 0.6,
+  GBPUSD: 0.6,
+  USDJPY: 0.6,
+  GBPAUD: 0.65,
+  XAUUSD: 0.7,
+};
+
+/** Arming displacement threshold for one instrument (rulebook override wins). */
+export function armingDisplacementFor(rulebook: Rulebook, symbol?: string | null): number {
+  const perSymbol = symbol
+    ? (rulebook.instrument_arming_displacement_min_atr?.[symbol] ??
+      DEFAULT_INSTRUMENT_ARMING_DISPLACEMENT[symbol])
+    : undefined;
+  const base =
+    rulebook.arming_displacement_min_atr ?? DEFAULT_ARMING_DISPLACEMENT_MIN_ATR;
+  const chosen = Number.isFinite(perSymbol) && (perSymbol as number) > 0 ? (perSymbol as number) : base;
+  // Arming can never be stricter than final quality; that would make the
+  // stricter gate unreachable.
+  return Math.min(chosen, rulebook.displacement_min_atr);
 }
 
 
