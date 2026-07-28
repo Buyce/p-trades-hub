@@ -103,6 +103,7 @@ export async function notifyQualifiedSignal(
   // Email
   const emailInput: AlertEmailInput = {
     signalId: alert.signalId,
+    tier,
     instrument: alert.instrument,
     direction: alert.direction,
     grade: label,
