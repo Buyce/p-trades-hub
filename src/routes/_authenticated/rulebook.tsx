@@ -18,7 +18,7 @@ export const Route = createFileRoute("/_authenticated/rulebook")({
       {
         name: "description",
         content:
-          "The non-negotiable rules the scanner enforces: alert caps, grade bands, minimum R and rejection conditions.",
+          "The non-negotiable rules the scanner enforces: alertable tiers, grade bands, reward floors and rejection conditions.",
       },
       { property: "og:title", content: "Rulebook — P-Trades" },
       { property: "og:description", content: "Active and historical P-Trades rulebook versions." },

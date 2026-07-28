@@ -147,6 +147,32 @@ function ScannerHealth() {
       </SectionCard>
 
 
+      <SectionCard title="Component liveness">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Detection and execution run on separate schedules. Liveness is measured from heartbeat
+          age, so a stale “OK” reads as not reporting.
+        </p>
+        <ul className="divide-y divide-border/60">
+          {HEARTBEAT_SOURCES.map((source) => {
+            const beat = componentBeats?.[source] ?? null;
+            const health = heartbeatHealth(beat?.received_at);
+            return (
+              <li key={source} className="flex items-center justify-between gap-3 py-2.5">
+                <div>
+                  <p className="text-sm">{HEARTBEAT_SOURCE_LABEL[source]}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {beat
+                      ? `${field(beat.status)} · ${formatTime(beat.received_at, tz)} · ${relativeFromNow(beat.received_at)}`
+                      : "No heartbeat recorded"}
+                  </p>
+                </div>
+                <StatusPill state={heartbeatPillState(health)}>{heartbeatLabel(health)}</StatusPill>
+              </li>
+            );
+          })}
+        </ul>
+      </SectionCard>
+
       <SectionCard title="Heartbeats">
         {heartbeats.length === 0 ? (
           <EmptyState title="No heartbeats received" />
@@ -155,12 +181,12 @@ function ScannerHealth() {
             {heartbeats.map((h) => (
               <li key={h.id} className="flex items-center justify-between gap-3 py-2.5">
                 <div>
-                  <p className="num text-sm">{field(h.source)}</p>
+                  <p className="num text-sm">{HEARTBEAT_SOURCE_LABEL[h.source] ?? field(h.source)}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatTime(h.received_at, tz)} · {relativeFromNow(h.received_at)}
                   </p>
                 </div>
-                <StatusPill state={h.status === "OK" ? "ok" : "warn"}>
+                <StatusPill state={h.status === "OK" ? "ok" : h.status === "ERROR" ? "down" : "warn"}>
                   {field(h.status)}
                 </StatusPill>
               </li>
