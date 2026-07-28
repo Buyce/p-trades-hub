@@ -6,6 +6,7 @@ import {
   activeRulebookQuery,
   latestHeartbeatQuery,
   componentHeartbeatsQuery,
+  contextRuntimeQuery,
   myTradesQuery,
   signalsTodayQuery,
   expectancy,
@@ -17,6 +18,7 @@ import { updateAlertPreferences } from "@/lib/ptrades/queries";
 import { TierToggle } from "@/components/ptrades/tier-toggle";
 import { DEFAULT_TERMINAL_TIERS, parseTiers, isTier, type Tier } from "@/lib/ptrades/tiers";
 import {
+  contextRuntimeHealth,
   heartbeatHealth,
   heartbeatLabel,
   heartbeatPillState,
@@ -57,6 +59,7 @@ function Dashboard() {
   const { data: signals = [] } = useQuery(signalsTodayQuery());
   const { data: heartbeat } = useQuery(latestHeartbeatQuery());
   const { data: components } = useQuery(componentHeartbeatsQuery());
+  const { data: contextSnapshot } = useQuery(contextRuntimeQuery());
   const { data: rulebook } = useQuery(activeRulebookQuery());
   const { data: trades = [] } = useQuery(myTradesQuery());
 
