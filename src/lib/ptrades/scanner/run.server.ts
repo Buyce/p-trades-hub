@@ -477,8 +477,8 @@ async function evaluateInstrument(
   // candle, which by definition ages a full timeframe interval before the next
   // one closes. Without that allowance a 300s budget on M15 rejects two thirds
   // of all minute-by-minute scans as STALE_DATA even on a perfectly live feed.
-  const feedBudget = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
   const maxAge = feedBudget + TIMEFRAME_SECONDS[ENTRY_TF];
+
   gates.push(staleData(dataAgeSeconds(entryCandles, ENTRY_TF), maxAge));
 
   // Macro lockout scoped to the currencies this instrument actually trades.
