@@ -1,5 +1,12 @@
 import type { Bias, Candidate, Candle, GateResult, Rulebook, Timeframe } from "./types";
-import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL, TIMEFRAME_SECONDS } from "./types";
+import {
+  DEFAULT_RULEBOOK,
+  TIMEFRAME_LABEL,
+  TIMEFRAME_SECONDS,
+  candleGapMultipleFor,
+  isUnlimitedCap,
+} from "./types";
+
 import { marketData } from "./market-data.server";
 
 import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
