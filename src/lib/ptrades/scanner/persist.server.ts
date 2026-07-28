@@ -231,16 +231,6 @@ export async function promoteToSignal(
   return data?.id ?? null;
 }
 
-export async function actionableCountToday(admin: Admin, bucket?: string): Promise<number> {
-  let query = admin
-    .from("daily_alert_counters")
-    .select("actionable_count")
-    .eq("trading_day_utc", tradingDayUtc());
-  if (bucket) query = query.eq("tier", bucket);
-  const { data } = await query;
-  return (data ?? []).reduce((sum, row) => sum + (row.actionable_count ?? 0), 0);
-}
-
 /**
  * Closes runs a previous worker abandoned. A worker that is killed mid-scan
  * never writes `finished_at`, so without this the run list fills with rows
@@ -264,18 +254,6 @@ export async function closeStaleRuns(admin: Admin, olderThanSeconds = 600): Prom
     return 0;
   }
   return data?.length ?? 0;
-}
-
-export async function incrementActionableCount(admin: Admin, max: number, bucket = "A") {
-  const day = tradingDayUtc();
-  const current = await actionableCountToday(admin, bucket);
-  const { error } = await admin
-    .from("daily_alert_counters")
-    .upsert(
-      { trading_day_utc: day, tier: bucket, actionable_count: current + 1, max_allowed: max },
-      { onConflict: "trading_day_utc,tier" },
-    );
-  if (error) console.error("daily counter update failed", error.message);
 }
 
 export async function cacheCandle(
@@ -320,27 +298,6 @@ export async function fingerprintExistsToday(
     .eq("trading_day_utc", tradingDayUtc())
     .limit(1);
   return Boolean(data && data.length > 0);
-}
-
-/**
- * Atomically claims one of the day's limited actionable slots. Returns false
- * when the cap is already used, so two concurrent runs can never both alert.
- */
-export async function claimActionableSlot(
-  admin: Admin,
-  max: number,
-  bucket = "A",
-): Promise<boolean> {
-  const { data, error } = await admin.rpc("claim_actionable_slot", {
-    _day: tradingDayUtc(),
-    _max: max,
-    _tier: bucket,
-  });
-  if (error) {
-    console.error("claim_actionable_slot failed", error.message);
-    return false; // Fail closed.
-  }
-  return data === true;
 }
 
 /* ------------------------------------------------------------------ *
@@ -440,6 +397,13 @@ export async function markSignalEntryReady(
     spread: number | null;
     reasons: string[];
     expiresAtUtc: string | null;
+    /** The tier earned at arming time, kept for calibration. */
+    provisionalScore: number | null;
+    provisionalGrade: string | null;
+    /** The tier actually earned at execution prices — the one users see. */
+    finalScore: number | null;
+    finalGrade: string | null;
+    finalScoreComponents: Record<string, number>;
   },
 ): Promise<boolean> {
   const now = new Date().toISOString();
@@ -464,6 +428,16 @@ export async function markSignalEntryReady(
       spread: patch.spread,
       reasons: patch.reasons as never,
       expires_at_utc: patch.expiresAtUtc,
+      provisional_score: patch.provisionalScore,
+      provisional_grade: (patch.provisionalGrade ?? null) as never,
+      final_score: patch.finalScore,
+      final_grade: (patch.finalGrade ?? null) as never,
+      final_score_components: patch.finalScoreComponents as never,
+      score_calculated_at: now,
+      // The displayed tier is the recalculated one, so a stored signal can
+      // never show a tier the alert did not actually earn.
+      score: patch.finalScore,
+      grade: (patch.finalGrade ?? null) as never,
     })
     .eq("id", signalId)
     // Idempotency: a signal already made actionable is never alerted twice.
