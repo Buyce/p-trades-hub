@@ -198,7 +198,35 @@ function ScannerHealth() {
           </ul>
         )}
       </SectionCard>
+
+      <SectionCard title="Data retention">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Diagnostic tables are purged automatically by the database. Signals, decisions, trades and
+          notifications are never deleted.
+        </p>
+        <ul className="divide-y divide-border/60">
+          {RETENTION_WINDOWS.map((w) => {
+            const deleted = lastPurge?.counts.find((c) => c.table === w.table)?.deleted;
+            return (
+              <li key={w.table} className="flex items-center justify-between gap-3 py-2.5">
+                <p className="num text-sm">{w.table}</p>
+                <div className="text-right">
+                  <p className="num text-sm font-medium">keeps {w.keeps}</p>
+                  {deleted !== undefined && (
+                    <p className="num text-xs text-muted-foreground">{deleted} removed last run</p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        <p className="num mt-3 text-xs text-muted-foreground">
+          Last cleanup:{" "}
+          {lastPurge ? `${formatTime(lastPurge.at, timezone)} (${relativeFromNow(lastPurge.at)})` : "—"}
+        </p>
+      </SectionCard>
     </div>
+
 
   );
 }
