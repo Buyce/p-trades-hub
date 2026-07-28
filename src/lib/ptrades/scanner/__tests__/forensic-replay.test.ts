@@ -33,9 +33,20 @@ describe("forensic replay: chronology", () => {
       validateSequence({
         sweepIndex: 1,
         displacementIndex: 5,
-        structureIndex: 8,
+        breakIndex: 8,
         retestIndex: 6,
-      } as never),
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a retest on the same candle as the break", () => {
+    expect(
+      validateSequence({
+        sweepIndex: 1,
+        displacementIndex: 5,
+        breakIndex: 8,
+        retestIndex: 8,
+      }),
     ).toBe(false);
   });
 
@@ -44,9 +55,9 @@ describe("forensic replay: chronology", () => {
       validateSequence({
         sweepIndex: 1,
         displacementIndex: 5,
-        structureIndex: 8,
+        breakIndex: 8,
         retestIndex: 11,
-      } as never),
+      }),
     ).toBe(true);
   });
 });
