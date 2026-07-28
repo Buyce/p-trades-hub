@@ -82,7 +82,7 @@ describe("rulebook contract", () => {
     closed_candles_only: true,
     min_rr_tp1: 2,
     max_daily_actionable: 2,
-    grades: { A_PLUS: 95, A: 90, B: 80 },
+    grades: { A_PLUS: 95, A: 90, B: 80, C: 70 },
   };
 
   it("accepts the active rulebook shape", () => {
