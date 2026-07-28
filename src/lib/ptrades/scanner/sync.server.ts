@@ -1,0 +1,223 @@
+import type { Candle, Timeframe } from "./types";
+import { TIMEFRAME_LABEL, TIMEFRAME_SECONDS } from "./types";
+import { marketData } from "./market-data.server";
+import { normaliseCandles } from "./candles.server";
+import { recordScannerError } from "./errors.server";
+import { AppError } from "../errors";
+import { resolveSymbol, type InstrumentRow } from "./symbols.server";
+import { readCandles, storeCandles } from "./market-candles.server";
+import { createDeadline, renewScanLock, SYNC_LOCK_KEY } from "./lock.server";
+import { safeHeartbeat } from "./heartbeat.server";
+
+/**
+ * Market-data sync pass — the ONLY component that talks to the broker for
+ * history.
+ *
+ * Separating the data plane from the decision plane is the whole point. The
+ * context scan previously spent its entire lock budget downloading five
+ * timeframes per instrument through a single broker resource slot, so it
+ * routinely never reached the part where it decides anything. Now this pass
+ * owns the downloads and writes them to `market_candles`; the context scan
+ * reads that table and finishes in a fraction of the time.
+ *
+ * A timeframe is only re-fetched when its bar has actually closed since the
+ * last stored bar. Nothing new can exist before then, so re-reading it is pure
+ * waste of the one resource slot.
+ *
+ * SAFETY: read-only against the broker. It cannot place, modify or close a
+ * trade.
+ */
+
+type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
+
+export const SYNC_TIMEFRAMES: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
+
+const FETCH_TIMEOUT_MS = 5_000;
+/** One scheduled tick is a minute; stop well before the next one fires. */
+export const SYNC_BUDGET_MS = 40_000;
+export const SYNC_LOCK_TTL_SECONDS = 90;
+
+export function barsFor(tf: Timeframe): number {
+  return tf === "1d" ? 120 : 200;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([
+    promise.finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }),
+    timeout,
+  ]);
+}
+
+/**
+ * True when a new bar of this timeframe has closed since `lastStored`. Compares
+ * CLOSE BUCKETS, not wall-clock TTLs: a timeframe cannot produce information
+ * between two closes, so there is nothing to fetch.
+ */
+export function needsRefresh(
+  lastStoredOpenTime: string | null,
+  tf: Timeframe,
+  nowMs = Date.now(),
+): boolean {
+  if (!lastStoredOpenTime) return true;
+  const seconds = TIMEFRAME_SECONDS[tf];
+  const storedBucket = Math.floor(Date.parse(lastStoredOpenTime) / 1000 / seconds);
+  // The bar currently forming is `nowBucket`; the newest CLOSED bar is one
+  // before it.
+  const lastClosedBucket = Math.floor(nowMs / 1000 / seconds) - 1;
+  return storedBucket < lastClosedBucket;
+}
+
+export type SyncSummary = {
+  ok: boolean;
+  instruments: number;
+  fetched: number;
+  skipped: number;
+  stored: number;
+  failures: Array<{ instrument: string; timeframe: string; error: string }>;
+  durationMs: number;
+  deadlineHit: boolean;
+};
+
+/** Syncs one instrument's timeframes into the durable store. */
+async function syncInstrument(
+  admin: Admin,
+  instrument: InstrumentRow,
+  summary: SyncSummary,
+  deadline: ReturnType<typeof createDeadline>,
+): Promise<void> {
+  const resolved = await resolveSymbol(instrument);
+  const brokerSymbol = resolved.broker;
+
+  for (const tf of SYNC_TIMEFRAMES) {
+    if (deadline.expired()) {
+      summary.deadlineHit = true;
+      return;
+    }
+    const existing = await readCandles(admin, { brokerSymbol, timeframe: tf, limit: 1 });
+    const lastOpen = existing.candles.at(-1)?.time ?? null;
+    if (!needsRefresh(lastOpen, tf)) {
+      summary.skipped += 1;
+      continue;
+    }
+
+    try {
+      const raw = await withTimeout(
+        marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
+        FETCH_TIMEOUT_MS,
+        `getCandles(${brokerSymbol}/${tf})`,
+      );
+      summary.fetched += 1;
+      const normalised = normaliseCandles(raw, tf);
+      const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
+      if (malformed.length) {
+        await recordScannerError(admin, {
+          runId: null,
+          instrument: instrument.symbol,
+          stage: "NORMALISATION",
+          error: new AppError(
+            "VALIDATION",
+            `${malformed.length} malformed candle(s) dropped on ${TIMEFRAME_LABEL[tf]}`,
+          ),
+          detail: { broker_symbol: brokerSymbol, rejects: malformed.slice(0, 20) },
+        });
+      }
+      summary.stored += await storeCandles(admin, {
+        instrument: instrument.symbol,
+        brokerSymbol,
+        timeframe: tf,
+        candles: normalised.candles as Candle[],
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "fetch failed";
+      summary.failures.push({
+        instrument: instrument.symbol,
+        timeframe: TIMEFRAME_LABEL[tf],
+        error: message,
+      });
+      await recordScannerError(admin, {
+        runId: null,
+        instrument: instrument.symbol,
+        stage: "MARKET_DATA",
+        error,
+        detail: { broker_symbol: brokerSymbol, timeframe: TIMEFRAME_LABEL[tf] },
+      });
+    }
+  }
+}
+
+/** One full sync pass across every enabled instrument. */
+export async function runMarketDataSync(admin: Admin, holder: string): Promise<SyncSummary> {
+  const deadline = createDeadline(SYNC_BUDGET_MS);
+  const summary: SyncSummary = {
+    ok: true,
+    instruments: 0,
+    fetched: 0,
+    skipped: 0,
+    stored: 0,
+    failures: [],
+    durationMs: 0,
+    deadlineHit: false,
+  };
+
+  if (!marketData().isConfigured()) {
+    summary.ok = false;
+    summary.durationMs = deadline.elapsedMs();
+    await safeHeartbeat(admin, {
+      source: "MARKET_DATA_SYNC",
+      status: "ERROR",
+      metaapiConnected: false,
+      rulebookVersion: null,
+      detail: { reason: "MetaApi is not configured." },
+    });
+    return summary;
+  }
+
+  const { data: instruments } = await admin
+    .from("instruments")
+    .select(
+      "symbol, broker_symbol, aliases, digits, point_size, contract_size, base_currency, quote_currency, sessions, min_rr, max_spread, max_data_age_seconds",
+    )
+    .eq("enabled", true)
+    .order("sort_order");
+
+  const rows = (instruments ?? []) as InstrumentRow[];
+  for (const instrument of rows) {
+    if (deadline.expired()) {
+      summary.deadlineHit = true;
+      break;
+    }
+    summary.instruments += 1;
+    await syncInstrument(admin, instrument, summary, deadline);
+    // Prove liveness so a healthy but slow pass is never evicted mid-flight.
+    await renewScanLock(admin, SYNC_LOCK_KEY, holder, SYNC_LOCK_TTL_SECONDS);
+  }
+
+  summary.durationMs = deadline.elapsedMs();
+  summary.ok = summary.failures.length < Math.max(1, summary.instruments);
+
+  await safeHeartbeat(admin, {
+    source: "MARKET_DATA_SYNC",
+    status: summary.failures.length === 0 ? "OK" : summary.ok ? "DEGRADED" : "ERROR",
+    metaapiConnected: summary.failures.length === 0,
+    rulebookVersion: null,
+    detail: {
+      instruments: summary.instruments,
+      timeframes_fetched: summary.fetched,
+      timeframes_up_to_date: summary.skipped,
+      candles_stored: summary.stored,
+      failures: summary.failures.slice(0, 20),
+      deadline_hit: summary.deadlineHit,
+      duration_ms: summary.durationMs,
+      completed_at: new Date().toISOString(),
+      lock_holder: holder,
+    },
+  });
+
+  return summary;
+}

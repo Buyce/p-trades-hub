@@ -8,15 +8,21 @@
  * is how a dead runtime stayed invisible.
  */
 
-export const HEARTBEAT_SOURCES = ["CONTEXT_SCANNER", "PRECISION_SCANNER"] as const;
+export const HEARTBEAT_SOURCES = [
+  "MARKET_DATA_SYNC",
+  "CONTEXT_SCANNER",
+  "PRECISION_SCANNER",
+] as const;
 
 export type HeartbeatSource = (typeof HEARTBEAT_SOURCES)[number];
 
 export const HEARTBEAT_SOURCE_LABEL: Record<string, string> = {
+  MARKET_DATA_SYNC: "Market data sync (candle store)",
   CONTEXT_SCANNER: "Context scan (M15 detection)",
   PRECISION_SCANNER: "Precision pass (M1 execution)",
   "cloud-scanner": "Legacy combined scanner",
 };
+
 
 /** Both components are scheduled once a minute. */
 export const HEARTBEAT_HEALTHY_MS = 2 * 60_000;
