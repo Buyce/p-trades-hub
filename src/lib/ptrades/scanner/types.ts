@@ -124,6 +124,20 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   tier_daily_max: { A: 30, B: 20, C: 20 },
 };
 
+/** A non-positive or non-finite cap means "no daily limit". */
+export function isUnlimitedCap(max: number | null | undefined): boolean {
+  return !Number.isFinite(max ?? NaN) || (max as number) <= 0;
+}
+
+/** Candle-gap tolerance for one instrument, honouring any rulebook override. */
+export function candleGapMultipleFor(rulebook: Rulebook, symbol: string): number {
+  const override = rulebook.instrument_max_candle_gap_multiple?.[symbol];
+  return Number.isFinite(override) && (override as number) > 0
+    ? (override as number)
+    : rulebook.max_candle_gap_multiple;
+}
+
+
 
 export type Candidate = {
   instrument: string;
