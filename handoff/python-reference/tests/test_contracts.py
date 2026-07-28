@@ -84,7 +84,7 @@ def test_market_snapshot_roundtrip():
     assert MarketSnapshot.model_validate(payload).instrument == "XAUUSD"
 
 
-def test_rulebook_cap_bounds():
+def test_rulebook_rejects_removed_cap_fields():
     payload = {
         "version": "v1.2.0-shadow",
         "closed_candles_only": True,
@@ -94,6 +94,8 @@ def test_rulebook_cap_bounds():
     validator_for("rulebook").validate(payload)
     assert Rulebook.model_validate(payload).min_rr_tp1 == payload["min_rr_tp1"]
 
+    # The daily cap was removed from the product: the field is no longer part
+    # of the contract and must be rejected outright.
     bad = {**payload, "max_daily_actionable": 25}
     assert not validator_for("rulebook").is_valid(bad)
     with pytest.raises(ValidationError):
