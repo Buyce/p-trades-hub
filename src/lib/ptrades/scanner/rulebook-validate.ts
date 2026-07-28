@@ -112,6 +112,11 @@ export function validateRulebook(
 
   requirePositive(merged.precision.min_entry_ready_rr, "precision.min_entry_ready_rr", issues);
   requirePositive(merged.precision.trigger_expiry_bars, "precision.trigger_expiry_bars", issues);
+  requirePositive(
+    merged.precision.displacement_m1_min_atr,
+    "precision.displacement_m1_min_atr",
+    issues,
+  );
 
   try {
     assertScorecards();

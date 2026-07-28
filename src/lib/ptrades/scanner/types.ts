@@ -168,6 +168,16 @@ export type PrecisionRules = {
   enabled: boolean;
   /** Closed M1 candles allowed between the micro trigger and its retest. */
   trigger_expiry_bars: number;
+  /**
+   * Displacement required of an M1 micro-trigger candle, in M1 ATR.
+   *
+   * This is an INDEPENDENT threshold. It used to be derived as
+   * `Math.min(1, displacement_min_atr)`, which silently coupled execution
+   * timing to the M15 structural threshold: lowering the M15 arming bar also
+   * lowered the M1 trigger bar, and no rulebook could tune one without the
+   * other.
+   */
+  displacement_m1_min_atr: number;
   /** Reward-to-risk that must still be available at the preferred entry. */
   min_entry_ready_rr: number;
   default: PrecisionInstrumentRules;
@@ -188,6 +198,7 @@ export const DEFAULT_PRECISION_INSTRUMENT: PrecisionInstrumentRules = {
 export const DEFAULT_PRECISION: PrecisionRules = {
   enabled: true,
   trigger_expiry_bars: 3,
+  displacement_m1_min_atr: 0.8,
   min_entry_ready_rr: 2.0,
   default: DEFAULT_PRECISION_INSTRUMENT,
   instruments: {

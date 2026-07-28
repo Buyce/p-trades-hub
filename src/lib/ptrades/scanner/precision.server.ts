@@ -323,7 +323,9 @@ async function evaluateWatch(
         zoneLow: watch.entry_zone_low ?? watch.preferred_entry ?? 0,
         zoneHigh: watch.entry_zone_high ?? watch.preferred_entry ?? 0,
         atrM1,
-        displacementMinAtr: Math.min(1, rulebook.displacement_min_atr),
+        displacementMinAtr:
+          rulebook.precision?.displacement_m1_min_atr ??
+          Math.min(1, rulebook.displacement_min_atr),
         retestWithinBars: triggerBars,
       });
   gates.push(microTrigger(trigger.triggered, trigger.failures));
