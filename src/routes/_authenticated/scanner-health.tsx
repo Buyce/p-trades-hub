@@ -9,6 +9,9 @@ import {
   blockingGatesTodayQuery,
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
+import { tierReachability } from "@/lib/ptrades/scanner/reachability";
+import { DEFAULT_RULEBOOK, type Rulebook } from "@/lib/ptrades/scanner/types";
+import { tierLabel } from "@/lib/ptrades/tiers";
 import { field, formatTime, relativeFromNow } from "@/lib/ptrades/format";
 import {
   DataRow,
@@ -49,6 +52,14 @@ function ScannerHealth() {
   const { data: runs = [] } = useQuery({ ...scannerRunsQuery(20), enabled: isStaff });
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
+
+  // Governance diagnostic only: reads the active rulebook's own bands and
+  // weights to show whether each tier can ever be produced. It does not score,
+  // re-score or re-grade anything.
+  const reachability = tierReachability({
+    ...DEFAULT_RULEBOOK,
+    ...((rulebook?.rules ?? {}) as Partial<Rulebook>),
+  } as Rulebook);
 
   if (!isStaff) {
     return (
@@ -133,6 +144,30 @@ function ScannerHealth() {
             ))}
           </ul>
         )}
+      </SectionCard>
+
+      <SectionCard title="Tier reachability">
+        <p className="mb-3 text-xs text-muted-foreground">
+          A candidate that passes every hard gate already carries a floor score, and the target
+          ladder caps the top. Any tier band outside{" "}
+          <span className="num">
+            {reachability.min}–{reachability.max}
+          </span>{" "}
+          can never fire.
+        </p>
+        <ul className="divide-y divide-border/60">
+          {reachability.tiers.map((t) => (
+            <li key={t.tier} className="py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="num text-sm font-medium">Tier {tierLabel(t.tier)}</p>
+                <StatusPill state={t.reachable ? "ok" : "down"}>
+                  {t.reachable ? "Reachable" : "Dead band"}
+                </StatusPill>
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground">{t.note}</p>
+            </li>
+          ))}
+        </ul>
       </SectionCard>
 
       <SectionCard title="Why nothing alerted today">
