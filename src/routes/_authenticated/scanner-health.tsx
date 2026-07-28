@@ -7,8 +7,10 @@ import {
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
+  instrumentCoverageQuery,
   lastPurgeQuery,
   RETENTION_WINDOWS,
+
 
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
