@@ -575,15 +575,20 @@ async function evaluateInstrument(
         : `${setup.setupType} does not require a liquidity sweep.`,
     detail: { level: setup.level, ...setup.detail },
   });
+  // Arming uses the arming threshold; the measured value is stored untouched
+  // and re-judged by scoring and the execution gates at ENTRY_READY.
   gates.push({
     code: "NO_DISPLACEMENT",
-    passed:
-      setup.displacementAtr !== null && setup.displacementAtr >= rulebook.displacement_min_atr,
+    passed: setup.displacementAtr !== null && setup.displacementAtr >= armingThreshold,
     reason:
       setup.displacementAtr !== null
         ? `Displacement candle of ${setup.displacementAtr.toFixed(2)} ATR in the ${direction} direction.`
         : "No displacement candle of sufficient size.",
-    detail: { bodyAtr: setup.displacementAtr, minAtr: rulebook.displacement_min_atr },
+    detail: {
+      bodyAtr: setup.displacementAtr,
+      armingMinAtr: armingThreshold,
+      finalMinAtr: rulebook.displacement_min_atr,
+    },
   });
   let spread: number | null = null;
   try {
