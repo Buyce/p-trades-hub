@@ -56,7 +56,7 @@ import {
   startRun,
   tradingDayUtc,
 } from "./persist.server";
-import { writeHeartbeat } from "./heartbeat.server";
+import { safeHeartbeat } from "./heartbeat.server";
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
 
