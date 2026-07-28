@@ -175,7 +175,7 @@ export function createMetaApiMarketData(
     },
 
     async getAccount(force = false) {
-      return withTimeout(
+      return withRetry(
         "getAccount",
         async () => {
           try {
@@ -202,7 +202,7 @@ export function createMetaApiMarketData(
     },
 
     async getCandles(symbol, timeframe, limit = 200) {
-      return withTimeout(
+      return withRetry(
         "getCandles",
         async () => {
           try {
@@ -217,7 +217,7 @@ export function createMetaApiMarketData(
     },
 
     async getSpread(symbol) {
-      return withTimeout(
+      return withRetry(
         "getSpread",
         async () => {
           try {
@@ -231,7 +231,7 @@ export function createMetaApiMarketData(
     },
 
     async getSymbolSpec(symbol) {
-      return withTimeout(
+      return withRetry(
         "getSymbolSpec",
         async () => {
           try {
@@ -251,7 +251,7 @@ export function createMetaApiMarketData(
     },
 
     async listSymbols() {
-      return withTimeout(
+      return withRetry(
         "listSymbols",
         async () => {
           try {
