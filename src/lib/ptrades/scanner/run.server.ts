@@ -150,11 +150,29 @@ export async function loadActiveRulebook(admin: Admin): Promise<Rulebook> {
   return parseRulebook(data);
 }
 
-function parseRulebook(row: { version: string; rules: unknown } | null): Rulebook {
+/**
+ * Deep-merges and VALIDATES the stored rulebook. A shallow spread used to let a
+ * partial override delete every sibling key it did not mention, and nothing
+ * checked that the resulting grade bands were reachable. An invalid rulebook is
+ * now rejected outright in favour of the known-good defaults.
+ */
+export function parseRulebook(row: { version: string; rules: unknown } | null): Rulebook {
   if (!row) return DEFAULT_RULEBOOK;
-  const rules = (row.rules ?? {}) as Partial<Rulebook>;
-  return { ...DEFAULT_RULEBOOK, ...rules, version: row.version };
+  const result = validateRulebook(row.rules ?? {}, row.version);
+  if (!result.valid) {
+    console.error(
+      `rulebook ${row.version} rejected, falling back to defaults:`,
+      result.issues.map((i) => `${i.path}: ${i.message}`).join("; "),
+    );
+  }
+  return result.rulebook;
 }
+
+/** The validation report, for governance telemetry. */
+export function inspectRulebook(row: { version: string; rules: unknown } | null) {
+  return validateRulebook(row?.rules ?? {}, row?.version ?? DEFAULT_RULEBOOK.version);
+}
+
 
 async function loadMacroEvents(admin: Admin): Promise<MacroEvent[]> {
   const now = Date.now();
