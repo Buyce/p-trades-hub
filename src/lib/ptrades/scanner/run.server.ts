@@ -886,7 +886,12 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   }
 }
 
-async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSummary> {
+async function runScanLocked(
+  admin: Admin,
+  shadowMode: boolean,
+  holder: string,
+): Promise<ScanSummary> {
+  const startedAtMs = Date.now();
   const { data: rulebookRow } = await admin
     .from("rulebook_versions")
     .select("version, rules")
@@ -920,6 +925,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   let actionable = 0;
   let armed = 0;
   let rejectionCount = 0;
+  const completedSymbols: string[] = [];
   const runRejections: Array<{ instrument: string; gate: string; reason: string }> = [];
   let metaapiConnected = true;
   let errorMessage: string | null = null;
@@ -927,6 +933,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   for (const instrument of rows) {
     try {
       const result = await evaluateInstrument(admin, instrument, rulebook, macroEvents, runId);
+      completedSymbols.push(instrument.symbol);
       const failed = armingFailedGates(result.gates);
       rejectionCount += failed.length;
       for (const f of failed) {
