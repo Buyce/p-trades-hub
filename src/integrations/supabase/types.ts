@@ -295,6 +295,7 @@ export type Database = {
           display_name: string | null
           email_alerts_enabled: boolean
           id: string
+          push_alerts_enabled: boolean
           timezone: string
           updated_at: string
         }
@@ -303,6 +304,7 @@ export type Database = {
           display_name?: string | null
           email_alerts_enabled?: boolean
           id: string
+          push_alerts_enabled?: boolean
           timezone?: string
           updated_at?: string
         }
@@ -311,6 +313,7 @@ export type Database = {
           display_name?: string | null
           email_alerts_enabled?: boolean
           id?: string
+          push_alerts_enabled?: boolean
           timezone?: string
           updated_at?: string
         }
