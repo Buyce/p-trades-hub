@@ -562,6 +562,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
       const candidateId = await saveCandidate(admin, result.candidate, {
         runId,
         rulebookVersion: rulebook.version,
+        rulebookChecksum: checksum,
         shadowMode,
       });
       await saveRejections(admin, failed, {
