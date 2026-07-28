@@ -49,7 +49,11 @@ export async function updateAlertPreferences(input: {
   pushAlertsEnabled?: boolean;
 }): Promise<void> {
   const userId = requireUserId(input.userId);
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  const patch: {
+    updated_at: string;
+    email_alerts_enabled?: boolean;
+    push_alerts_enabled?: boolean;
+  } = { updated_at: new Date().toISOString() };
   if (input.emailAlertsEnabled !== undefined)
     patch.email_alerts_enabled = input.emailAlertsEnabled;
   if (input.pushAlertsEnabled !== undefined) patch.push_alerts_enabled = input.pushAlertsEnabled;
