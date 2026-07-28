@@ -48,6 +48,7 @@ function ScannerHealth() {
   const { data: heartbeats = [] } = useQuery({ ...heartbeatHistoryQuery(20), enabled: isStaff });
   const { data: runs = [] } = useQuery({ ...scannerRunsQuery(20), enabled: isStaff });
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
+  const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
 
   if (!isStaff) {
     return (
