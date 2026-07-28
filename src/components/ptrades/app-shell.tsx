@@ -63,19 +63,39 @@ export function AppShell({ children }: { children: ReactNode }) {
               {item.label}
             </Link>
           ))}
+          <Link
+            to="/notifications"
+            className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground data-[status=active]:bg-accent data-[status=active]:text-foreground"
+          >
+            <span className="relative flex h-4 w-4 items-center justify-center">
+              <Bell className="h-4 w-4" aria-hidden />
+              <UnreadDot count={unread} />
+            </span>
+            Alerts
+          </Link>
         </nav>
       </aside>
 
       <div className="flex min-h-screen flex-1 flex-col">
         <header className="sticky top-0 z-20 flex items-center justify-between border-b border-border bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
           <p className="num text-sm font-semibold tracking-tight">P-TRADES</p>
-          <Link
-            to="/settings"
-            aria-label="Settings"
-            className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground data-[status=active]:text-foreground"
-          >
-            <SettingsIcon className="h-5 w-5" aria-hidden />
-          </Link>
+          <div className="flex items-center gap-1">
+            <Link
+              to="/notifications"
+              aria-label={unread > 0 ? `Alerts, ${unread} unread` : "Alerts"}
+              className="relative flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground data-[status=active]:text-foreground"
+            >
+              <Bell className="h-5 w-5" aria-hidden />
+              <UnreadDot count={unread} />
+            </Link>
+            <Link
+              to="/settings"
+              aria-label="Settings"
+              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground data-[status=active]:text-foreground"
+            >
+              <SettingsIcon className="h-5 w-5" aria-hidden />
+            </Link>
+          </div>
         </header>
 
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 pt-4 pb-28 lg:max-w-4xl lg:px-8 lg:pt-8 lg:pb-12">
