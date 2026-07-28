@@ -224,3 +224,92 @@ export function detectMicroTrigger(input: MicroTriggerInput): MicroTriggerResult
     failures,
   };
 }
+
+/**
+ * Step 1-3 search: used only while a watch is still ARMED. This is the
+ * expensive half of the engine, so it must not run again once a trigger has
+ * been persisted.
+ */
+export const detectNewMicroTrigger = detectMicroTrigger;
+
+export type PersistedTrigger = {
+  /** The micro level that was broken, persisted at trigger time. */
+  brokenLevel: number;
+  /** Close time of the BOS candle, persisted at trigger time. */
+  bosCandleTime: string | null;
+  direction: MicroDirection;
+};
+
+/**
+ * Retest-only evaluation for a watch that is already MICRO_TRIGGERED.
+ *
+ * The rejection, displacement and break of structure already happened and are
+ * stored on the watch. Re-running the whole search every pass could pick a
+ * different, later sequence and silently move the level a trade is planned
+ * from — so here we only ask the one remaining question: has a closed candle
+ * after the BOS returned to the persisted level and held it?
+ *
+ * The original retest deadline is owned by the caller and is never restarted.
+ */
+export function detectPersistedTriggerRetest(input: {
+  /** Closed M1 candles, oldest first. */
+  candles: Candle[];
+  trigger: PersistedTrigger;
+  atrM1: number | null;
+  /** Closed candles allowed between the micro BOS and its retest. */
+  retestWithinBars?: number;
+}): MicroTriggerResult {
+  const { candles, trigger, atrM1, retestWithinBars = 3 } = input;
+  const { direction, brokenLevel, bosCandleTime } = trigger;
+
+  const base: MicroTriggerResult = {
+    confirmed: false,
+    direction,
+    rejectionCandleTime: null,
+    displacementCandleTime: null,
+    bosCandleTime,
+    brokenLevel,
+    retestCandleTime: null,
+    triggered: true,
+    summary: `M1 ${direction === "LONG" ? "bullish" : "bearish"} BOS awaiting retest`,
+    reasons: [`Persisted M1 BOS through ${brokenLevel}.`],
+    failures: [],
+  };
+
+  if (!atrM1 || atrM1 <= 0) {
+    return {
+      ...base,
+      failures: ["M1 ATR unavailable, so the retest tolerance cannot be measured."],
+    };
+  }
+
+  const bosIndex = bosCandleTime ? candles.findIndex((c) => c.time === bosCandleTime) : -1;
+  // If the BOS candle has aged out of the fetched window, every candle we hold
+  // is after it, so the whole window is a valid search range.
+  const from = bosIndex >= 0 ? bosIndex + 1 : 0;
+  const limit =
+    bosIndex >= 0 ? Math.min(candles.length - 1, bosIndex + retestWithinBars) : candles.length - 1;
+
+  const tolerance = atrM1 * 0.5;
+  for (let i = from; i <= limit; i += 1) {
+    const c = candles[i];
+    if (!c) continue;
+    const touched =
+      direction === "LONG" ? c.low <= brokenLevel + tolerance : c.high >= brokenLevel - tolerance;
+    const held = direction === "LONG" ? c.close > brokenLevel : c.close < brokenLevel;
+    if (touched && held) {
+      return {
+        ...base,
+        confirmed: true,
+        retestCandleTime: c.time,
+        summary: `M1 ${direction === "LONG" ? "bullish" : "bearish"} BOS retest confirmed`,
+        reasons: [...base.reasons, `M1 retest of ${brokenLevel} held at ${c.time}.`],
+      };
+    }
+  }
+
+  return {
+    ...base,
+    failures: ["The broken M1 level has not been retested and held on a closed candle."],
+  };
+}
