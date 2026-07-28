@@ -449,8 +449,12 @@ async function evaluateInstrument(
   // Tier requires both the score band and that tier's reward-to-risk floor.
   const tier = tierFor(score, rr, tierRulebook);
   const bucket = tier ? tierBucket(tier) : "A";
+  // A non-positive tier allowance means unlimited: the cap gate always passes.
   const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
-  gates.push(dailyCap(await actionableCountToday(admin, bucket), bucketMax));
+  if (!isUnlimitedCap(bucketMax)) {
+    gates.push(dailyCap(await actionableCountToday(admin, bucket), bucketMax));
+  }
+
 
   const failed = failedGates(gates);
   const qualified = failed.length === 0 && tier !== null;
