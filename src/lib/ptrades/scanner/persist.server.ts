@@ -94,6 +94,7 @@ export async function saveCandidate(
       fingerprint: candidate.fingerprint,
       shadow_mode: meta.shadowMode,
       rulebook_version: meta.rulebookVersion,
+      rulebook_checksum: meta.rulebookChecksum ?? null,
       candle_time_utc: candidate.candle_time_utc,
       trading_day_utc: tradingDayUtc(),
     })
