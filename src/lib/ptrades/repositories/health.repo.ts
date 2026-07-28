@@ -231,3 +231,87 @@ export const lastPurgeQuery = () =>
     },
   });
 
+export type FunnelStage = {
+  stage: string;
+  count: number;
+  note: string;
+};
+
+export type ExecutionFunnel = {
+  stages: FunnelStage[];
+  topBlocking: { code: string; reason: string; count: number }[];
+};
+
+/**
+ * The execution funnel for the current UTC trading day: detected -> armed ->
+ * micro-triggered -> entry ready -> alerted, plus the reasons armed setups are
+ * currently stuck. Reporting only: every number is read from stored rows.
+ */
+export const executionFunnelQuery = () =>
+  queryOptions({
+    queryKey: ["scanner", "funnel"],
+    refetchInterval: 60_000,
+    queryFn: async (): Promise<ExecutionFunnel> => {
+      const day = new Date().toISOString().slice(0, 10);
+      const dayStart = `${day}T00:00:00.000Z`;
+
+      const [signals, watches, alerts] = await Promise.all([
+        unwrapList(
+          db
+            .from("signals")
+            .select("id, lifecycle_state, armed_at, entry_ready_at")
+            .eq("trading_day_utc", day)
+            .limit(1000),
+          { repo: "health.funnel.signals" },
+        ),
+        unwrapList(
+          db
+            .from("precision_watches")
+            .select("id, state, entry_ready_at, metadata")
+            .gte("armed_at", dayStart)
+            .limit(1000),
+          { repo: "health.funnel.watches" },
+        ),
+        unwrapList(
+          db.from("notifications").select("id").gte("created_at", dayStart).limit(1000),
+          { repo: "health.funnel.alerts" },
+        ),
+      ]);
+
+      const armed = watches.length;
+      const triggered = watches.filter(
+        (w) => w.state === "MICRO_TRIGGERED" || w.entry_ready_at !== null,
+      ).length;
+      const entryReady = watches.filter((w) => w.entry_ready_at !== null).length;
+      const open = watches.filter((w) => w.state === "ARMED" || w.state === "MICRO_TRIGGERED");
+
+      const reasons = new Map<string, { reason: string; count: number }>();
+      for (const w of open) {
+        const meta = (w.metadata ?? {}) as { blocking?: { code: string; reason: string }[] };
+        for (const b of meta.blocking ?? []) {
+          const entry = reasons.get(b.code) ?? { reason: b.reason, count: 0 };
+          entry.count += 1;
+          reasons.set(b.code, entry);
+        }
+      }
+
+      return {
+        stages: [
+          {
+            stage: "Setups detected",
+            count: signals.length,
+            note: "Qualified setups stored today",
+          },
+          { stage: "Armed", count: armed, note: "Handed to the precision loop" },
+          { stage: "Micro-triggered", count: triggered, note: "M1 sequence started" },
+          { stage: "Entry ready", count: entryReady, note: "All execution gates passed" },
+          { stage: "Alerted", count: alerts.length, note: "Notifications delivered" },
+        ],
+        topBlocking: [...reasons.entries()]
+          .map(([code, v]) => ({ code, reason: v.reason, count: v.count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 6),
+      };
+    },
+  });
+

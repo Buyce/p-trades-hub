@@ -316,7 +316,27 @@ async function evaluateWatch(
       metadata: {
         ...(watch.metadata as Record<string, unknown>),
         blocking: failed.map((g) => ({ code: g.code, reason: g.reason })),
+        // Numeric snapshot of the pass. Without these an armed setup can die
+        // with no record of how close it actually came.
+        last_check: {
+          at: checkedAt,
+          price,
+          preferred_entry: preferredEntry,
+          distance_points: distancePoints,
+          proximity_points: rules.proximityPoints,
+          extension_r:
+            price !== null && preferredEntry !== null && watch.stop_loss !== null
+              ? calculateExtensionR(direction, preferredEntry, price, watch.stop_loss)
+              : null,
+          max_extension_r: rules.maxExtensionR,
+          rr_tp1: rr,
+          min_rr: minRr,
+          micro_triggered: trigger.triggered,
+          micro_confirmed: trigger.confirmed,
+          trigger_failures: trigger.failures,
+        },
       } as never,
+
     });
     return "WAITING";
   }
