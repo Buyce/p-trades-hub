@@ -19,7 +19,7 @@ export const Route = createFileRoute("/_authenticated/notifications")({
       {
         name: "description",
         content:
-          "Every actionable A/A+ alert the P-Trades scanner has issued, with read state and links to the signal detail.",
+          "Every alert the P-Trades scanner has issued across all tiers (A+, A, B and C), with read state and links to the signal detail.",
       },
       { property: "og:title", content: "Alerts — P-Trades" },
       {
@@ -77,7 +77,7 @@ function Notifications() {
         {notifications.length === 0 ? (
           <EmptyState
             title="No alerts yet"
-            description="An alert is issued only when an A or A+ setup passes every rulebook gate, up to the daily cap."
+            description="Every tier appears here — A+, A, B and C. An alert is issued when a setup passes every rulebook gate at its tier's reward-to-risk floor, up to that tier's daily cap."
           />
         ) : (
           <ul className="divide-y divide-border/60">
