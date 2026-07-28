@@ -89,13 +89,14 @@ export class MarketDataNotConfiguredError extends MarketDataError {
 }
 
 // A whole scan (five instruments x five timeframes) must finish well inside a
-// single worker invocation, so a single read gets a bounded budget and retries.
-// The budget is deliberately generous: the broker feed regularly needs more
-// than ten seconds for a first candle read after an idle period, and a timed
-// out read costs a whole instrument for that minute.
-const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_ATTEMPTS = 3;
-const RETRY_BASE_MS = 400;
+// single worker invocation. Callers (the context scan) apply their own, much
+// tighter per-read budget and their own single retry, so a long inner retry
+// ladder here only kept a dead read alive past the scan lock TTL and made
+// context runs overrun. One bounded attempt, retried by the caller.
+const DEFAULT_TIMEOUT_MS = 8_000;
+const DEFAULT_ATTEMPTS = 2;
+const RETRY_BASE_MS = 250;
+
 
 
 function fail(operation: string, error: unknown): never {
