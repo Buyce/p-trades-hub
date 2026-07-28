@@ -478,6 +478,7 @@ async function evaluateWatch(
     // next pass may find a better price. Never alert an unresolved tier.
     await updateWatch(admin, watch.id, {
       last_checked_at: checkedAt,
+      last_m1_candle_time: lastClosedCandle?.time ?? watch.last_m1_candle_time,
       check_count: watch.check_count + 1,
       metadata: {
         ...meta,
@@ -526,6 +527,7 @@ async function evaluateWatch(
     entry_ready_at: checkedAt,
     resolved_at: checkedAt,
     last_checked_at: checkedAt,
+    last_m1_candle_time: lastClosedCandle?.time ?? watch.last_m1_candle_time,
     check_count: watch.check_count + 1,
     preferred_entry: preferredEntry,
     entry_zone_low: zone ? roundToDigits(zone.entryLow, resolved.digits) : null,
