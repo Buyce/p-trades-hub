@@ -101,7 +101,7 @@ function SignalDetail() {
           <PageHeader title={signal.instrument} />
           <DirectionTag direction={signal.direction} />
         </div>
-        <GradeBadge grade={signal.grade} />
+        <GradeBadge grade={signal.grade} signalId={signal.id} surface="signal-detail" />
       </div>
 
       {signal.grade === "B" && (
@@ -134,7 +134,7 @@ function SignalDetail() {
 
       <SectionCard title="Qualification">
         <DataRow label="Score" value={score(signal.score)} />
-        <DataRow label="Grade" value={<GradeBadge grade={signal.grade} />} mono={false} />
+        <DataRow label="Grade" value={<GradeBadge grade={signal.grade} signalId={signal.id} surface="signal-detail" />} mono={false} />
         <DataRow label="Rulebook version" value={field(signal.rulebook_version)} />
         {components.length > 0 ? (
           components.map(([key, value]) => (

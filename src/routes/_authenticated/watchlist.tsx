@@ -108,7 +108,7 @@ function Watchlist() {
                       className="flex items-center gap-2"
                     >
                       <span className="num text-xs text-muted-foreground">{score(best.score)}</span>
-                      <GradeBadge grade={best.grade} />
+                      <GradeBadge grade={best.grade} signalId={best.id} surface="watchlist" />
                     </Link>
                   ) : (
                     <StatusPill state={enabled ? "idle" : "warn"}>

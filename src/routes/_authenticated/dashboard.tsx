@@ -180,7 +180,7 @@ function Dashboard() {
                 <span className="num text-base font-semibold">{latestQualified.instrument}</span>
                 <DirectionTag direction={latestQualified.direction} />
               </div>
-              <GradeBadge grade={latestQualified.grade} />
+              <GradeBadge grade={latestQualified.grade} signalId={latestQualified.id} surface="dashboard-latest" />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
               <div>
@@ -249,7 +249,7 @@ function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="num text-xs text-muted-foreground">{score(s.score)}</span>
-                    <GradeBadge grade={s.grade} />
+                    <GradeBadge grade={s.grade} signalId={s.id} surface="dashboard-terminal" />
                   </div>
                 </Link>
               </li>

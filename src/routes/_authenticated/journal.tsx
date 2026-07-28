@@ -93,7 +93,7 @@ function Journal() {
                           <span className="text-xs text-muted-foreground">
                             {formatTime(d.decided_at, tz)}
                           </span>
-                          {signal && <GradeBadge grade={signal.grade} />}
+                          {signal && <GradeBadge grade={signal.grade} signalId={signal.id} surface="journal" />}
                         </div>
                         {d.note && <p className="mt-2 text-sm text-muted-foreground">{d.note}</p>}
                       </Link>
