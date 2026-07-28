@@ -57,8 +57,12 @@ export async function sendAlertEmail(
         subject: tierSubject(input.tier, input),
         html,
         text,
-        purpose: input.tier ? `signal-alert-${input.tier.toLowerCase()}` : "signal-alert",
-        idempotency_key: `signal-${input.signalId}-${recipient}`,
+        // App (transactional) sends must use purpose=transactional together
+        // with an idempotency_key; anything else is rejected as an auth send.
+        purpose: "transactional",
+        idempotency_key: input.tier
+          ? `signal-${input.tier.toLowerCase()}-${input.signalId}-${recipient}`
+          : `signal-${input.signalId}-${recipient}`,
       },
       { apiKey, sendUrl: process.env.LOVABLE_SEND_URL },
     );
