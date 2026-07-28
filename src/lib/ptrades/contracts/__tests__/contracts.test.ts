@@ -81,7 +81,6 @@ describe("rulebook contract", () => {
     version: "v1.2.0-shadow",
     closed_candles_only: true,
     min_rr_tp1: 2,
-    max_daily_actionable: 2,
     grades: { A_PLUS: 95, A: 90, B: 80, C: 70 },
   };
 
@@ -89,12 +88,15 @@ describe("rulebook contract", () => {
     expect(checkContract("rulebook", rulebook).valid).toBe(true);
   });
 
-  it("accepts the raised daily cap and rejects anything above it", () => {
-    expect(checkContract("rulebook", { ...rulebook, max_daily_actionable: 30 }).valid).toBe(true);
-    expect(checkContract("rulebook", { ...rulebook, max_daily_actionable: 31 }).valid).toBe(
+  it("rejects the removed daily-cap fields outright", () => {
+    expect(checkContract("rulebook", { ...rulebook, max_daily_actionable: 30 }).valid).toBe(
       false,
     );
+    expect(
+      checkContract("rulebook", { ...rulebook, tier_daily_max: { A: 1, B: 1, C: 1 } }).valid,
+    ).toBe(false);
   });
+
 
   it("rejects an unknown ATR method", () => {
     expect(checkContract("rulebook", { ...rulebook, atr_method: "EMA" }).valid).toBe(false);
