@@ -9,14 +9,12 @@
     "version",
     "closed_candles_only",
     "min_rr_tp1",
-    "max_daily_actionable",
     "grades"
   ],
   "properties": {
     "version": { "type": "string", "minLength": 1 },
     "closed_candles_only": { "type": "boolean" },
     "min_rr_tp1": { "type": "number", "minimum": 0 },
-    "max_daily_actionable": { "type": "integer", "minimum": 0, "maximum": 30 },
     "max_data_age_seconds": { "type": "number", "minimum": 0 },
     "max_spread_atr_ratio": { "type": "number", "minimum": 0 },
     "late_entry_max_atr_from_entry": { "type": "number", "minimum": 0 },
@@ -52,16 +50,6 @@
         "A": { "type": "number", "minimum": 0 },
         "B": { "type": "number", "minimum": 0 },
         "C": { "type": "number", "minimum": 0 }
-      }
-    },
-    "tier_daily_max": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["A", "B", "C"],
-      "properties": {
-        "A": { "type": "integer", "minimum": 0, "maximum": 30 },
-        "B": { "type": "integer", "minimum": 0, "maximum": 30 },
-        "C": { "type": "integer", "minimum": 0, "maximum": 30 }
       }
     }
   }

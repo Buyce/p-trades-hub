@@ -56,7 +56,7 @@
             "RR_BELOW_MIN",
             "LATE_ENTRY",
             "DUPLICATE",
-            "DAILY_CAP",
+            "TIER_NOT_MET",
             "SESSION",
             "CANDLE_SANITY",
             "EXPIRED",

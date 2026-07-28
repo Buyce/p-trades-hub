@@ -89,11 +89,10 @@ def test_rulebook_cap_bounds():
         "version": "v1.2.0-shadow",
         "closed_candles_only": True,
         "min_rr_tp1": 2.0,
-        "max_daily_actionable": 2,
         "grades": {"A_PLUS": 95, "A": 90, "B": 80, "C": 70},
     }
     validator_for("rulebook").validate(payload)
-    assert Rulebook.model_validate(payload).max_daily_actionable == 2
+    assert Rulebook.model_validate(payload).min_rr_tp1 == payload["min_rr_tp1"]
 
     bad = {**payload, "max_daily_actionable": 25}
     assert not validator_for("rulebook").is_valid(bad)
