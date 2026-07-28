@@ -7,8 +7,10 @@ import {
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
+  instrumentCoverageQuery,
   lastPurgeQuery,
   RETENTION_WINDOWS,
+
 
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
@@ -56,6 +58,8 @@ function ScannerHealth() {
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
   const { data: lastPurge } = useQuery({ ...lastPurgeQuery(), enabled: isStaff });
+  const { data: coverage = [] } = useQuery({ ...instrumentCoverageQuery(), enabled: isStaff });
+
 
 
   // Governance diagnostic only: reads the active rulebook's own bands and
@@ -174,6 +178,43 @@ function ScannerHealth() {
           ))}
         </ul>
       </SectionCard>
+
+      <SectionCard title="Instrument coverage">
+        <p className="mb-3 text-xs text-muted-foreground">
+          Whether each enabled instrument was included in the most recent run, and its top blocking
+          gate today.
+        </p>
+        <ul className="divide-y divide-border/60">
+          {coverage.map((c) => {
+            const top = blocking.find((b) => b.instrument === c.instrument);
+            return (
+              <li key={c.instrument} className="py-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="num text-sm font-medium">{c.instrument}</p>
+                  <span
+                    className={`num text-xs ${c.scannedLastRun ? "text-muted-foreground" : "text-destructive"}`}
+                  >
+                    {c.scannedLastRun ? "in last run" : "not in last run"}
+                  </span>
+                </div>
+                <p className="num mt-0.5 text-xs text-muted-foreground">
+                  {c.evaluationsToday} evaluations today
+                  {c.lastEvaluatedAt ? ` · last ${relativeFromNow(c.lastEvaluatedAt)}` : ""}
+                </p>
+                {top && (
+                  <p className="num mt-0.5 text-xs">
+                    <span className="font-semibold text-primary">{top.gate}</span>{" "}
+                    <span className="text-muted-foreground">
+                      blocked {top.count}/{top.total}
+                    </span>
+                  </p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </SectionCard>
+
 
       <SectionCard title="Why nothing alerted today">
         {blocking.length === 0 ? (

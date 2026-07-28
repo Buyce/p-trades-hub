@@ -79,6 +79,13 @@ export type Rulebook = {
   allowed_sessions: string[];
   signal_expiry_minutes: number;
   max_candle_gap_multiple: number;
+  /**
+   * Per-instrument override of `max_candle_gap_multiple`. Instruments with a
+   * daily trading break (gold, indices) legitimately show a multi-candle gap
+   * that is not corrupt data.
+   */
+  instrument_max_candle_gap_multiple?: Record<string, number>;
+
   macro_lookahead_minutes: number;
   /** Widest stop the scanner accepts, as a multiple of ATR. */
   max_stop_atr_multiple: number;
@@ -86,7 +93,13 @@ export type Rulebook = {
   /** Minimum reward-to-risk at TP1 per tier. Only C relaxes the RR floor. */
   tier_min_rr: { A_PLUS: number; A: number; B: number; C: number };
   /** Daily actionable allowance per tier bucket (A+ and A share the A bucket). */
+  /**
+   * Daily actionable allowance per tier bucket (A+ and A share the A bucket).
+   * A value of 0 (or any non-positive number) means unlimited: no cap is
+   * claimed and DAILY_CAP can never block a signal.
+   */
   tier_daily_max: { A: number; B: number; C: number };
+
 };
 
 export const DEFAULT_RULEBOOK: Rulebook = {
@@ -110,6 +123,20 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   tier_min_rr: { A_PLUS: 2.0, A: 2.0, B: 1.5, C: 1.2 },
   tier_daily_max: { A: 30, B: 20, C: 20 },
 };
+
+/** A non-positive or non-finite cap means "no daily limit". */
+export function isUnlimitedCap(max: number | null | undefined): boolean {
+  return !Number.isFinite(max ?? NaN) || (max as number) <= 0;
+}
+
+/** Candle-gap tolerance for one instrument, honouring any rulebook override. */
+export function candleGapMultipleFor(rulebook: Rulebook, symbol: string): number {
+  const override = rulebook.instrument_max_candle_gap_multiple?.[symbol];
+  return Number.isFinite(override) && (override as number) > 0
+    ? (override as number)
+    : rulebook.max_candle_gap_multiple;
+}
+
 
 
 export type Candidate = {

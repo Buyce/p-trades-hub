@@ -1,5 +1,12 @@
 import type { Bias, Candidate, Candle, GateResult, Rulebook, Timeframe } from "./types";
-import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL, TIMEFRAME_SECONDS } from "./types";
+import {
+  DEFAULT_RULEBOOK,
+  TIMEFRAME_LABEL,
+  TIMEFRAME_SECONDS,
+  candleGapMultipleFor,
+  isUnlimitedCap,
+} from "./types";
+
 import { marketData } from "./market-data.server";
 
 import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
@@ -42,6 +49,8 @@ import {
   closeStaleRuns,
   cacheCandle,
   claimActionableSlot,
+  incrementActionableCount,
+
   fingerprintExistsToday,
   finishRun,
   promoteToSignal,
@@ -268,8 +277,9 @@ async function evaluateInstrument(
     entryCandles,
     ENTRY_TF,
     60,
-    rulebook.max_candle_gap_multiple,
+    candleGapMultipleFor(rulebook, instrument.symbol),
   );
+
   gates.push(candleSanity(sanity.ok, sanity.problems));
 
   // The freshness budget is measured from the close of the last closed entry
@@ -441,8 +451,12 @@ async function evaluateInstrument(
   // Tier requires both the score band and that tier's reward-to-risk floor.
   const tier = tierFor(score, rr, tierRulebook);
   const bucket = tier ? tierBucket(tier) : "A";
+  // A non-positive tier allowance means unlimited: the cap gate always passes.
   const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
-  gates.push(dailyCap(await actionableCountToday(admin, bucket), bucketMax));
+  if (!isUnlimitedCap(bucketMax)) {
+    gates.push(dailyCap(await actionableCountToday(admin, bucket), bucketMax));
+  }
+
 
   const failed = failedGates(gates);
   const qualified = failed.length === 0 && tier !== null;
@@ -628,24 +642,29 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
         continue;
       }
 
-      // Live mode: claim a slot atomically BEFORE promoting, so concurrent work
-      // can never exceed that tier's daily cap.
+      // Live mode: when a tier is capped, claim a slot atomically BEFORE
+      // promoting so concurrent work can never exceed that cap. When the tier
+      // is unlimited, no slot is claimed — the counter is still kept up to
+      // date, but purely as a statistic.
       const tier = (result.candidate.grade ?? "C") as Tier;
       const bucket = tierBucket(tier);
-      const claimed = await claimActionableSlot(
-        admin,
-        rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable,
-        bucket,
-      );
+      const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
+      const unlimited = isUnlimitedCap(bucketMax);
 
-      if (!claimed) {
-        runRejections.push({
-          instrument: instrument.symbol,
-          gate: "DAILY_CAP",
-          reason: "Daily actionable cap already claimed.",
-        });
-        continue;
+      if (unlimited) {
+        await incrementActionableCount(admin, 0, bucket);
+      } else {
+        const claimed = await claimActionableSlot(admin, bucketMax, bucket);
+        if (!claimed) {
+          runRejections.push({
+            instrument: instrument.symbol,
+            gate: "DAILY_CAP",
+            reason: "Daily actionable cap already claimed.",
+          });
+          continue;
+        }
       }
+
 
       const signalId = await promoteToSignal(admin, result.candidate, {
         candidateId,
