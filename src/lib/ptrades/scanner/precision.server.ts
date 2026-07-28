@@ -80,6 +80,8 @@ export type PrecisionLoopOptions = {
   intervalMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Overrides the stored scanner setting. Shadow mode never notifies. */
+  shadowMode?: boolean;
 };
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -102,6 +104,17 @@ export async function runPrecisionLoop(
   const summary: PrecisionSummary = { passes: 0, watched: 0, entryReady: 0, resolved: 0 };
   if (rulebook.precision?.enabled === false) return summary;
 
+  // Delivery mode is read from the stored setting, never hardcoded.
+  let shadowMode = options.shadowMode;
+  if (shadowMode === undefined) {
+    const { data: settings } = await admin
+      .from("scanner_settings")
+      .select("shadow_mode")
+      .eq("id", true)
+      .maybeSingle();
+    shadowMode = settings?.shadow_mode ?? true;
+  }
+
   const instruments = await loadInstruments(admin);
   const macroEvents = await loadMacroEvents(admin);
 
@@ -114,7 +127,14 @@ export async function runPrecisionLoop(
 
     for (const watch of watches) {
       try {
-        const outcome = await evaluateWatch(admin, watch, rulebook, instruments, macroEvents);
+        const outcome = await evaluateWatch(
+          admin,
+          watch,
+          rulebook,
+          instruments,
+          macroEvents,
+          shadowMode,
+        );
         if (outcome === "ENTRY_READY") summary.entryReady += 1;
         if (outcome === "RESOLVED") summary.resolved += 1;
       } catch (error) {
@@ -143,6 +163,7 @@ async function evaluateWatch(
   rulebook: Rulebook,
   instruments: Map<string, InstrumentRow>,
   macroEvents: MacroEvent[],
+  shadowMode: boolean,
 ): Promise<WatchOutcome> {
   const nowMs = Date.now();
   const direction = watch.direction === "SHORT" ? "SHORT" : "LONG";
@@ -324,6 +345,15 @@ async function evaluateWatch(
       trigger_timeframe: TIMEFRAME_LABEL[MICRO_TF],
       trigger_candle_time: trigger.bosCandleTime,
       trigger_level: trigger.brokenLevel,
+      // A trigger that has fired but not yet retested keeps its clock, so the
+      // next pass resumes the same sequence instead of restarting it.
+      triggered_at: trigger.triggered ? (watch.triggered_at ?? checkedAt) : null,
+      retest_deadline: trigger.triggered
+        ? (watch.retest_deadline ??
+          new Date(
+            nowMs + (rulebook.precision?.trigger_expiry_bars ?? 3) * 60_000,
+          ).toISOString())
+        : null,
       metadata: {
         ...(watch.metadata as Record<string, unknown>),
         blocking: failed.map((g) => ({ code: g.code, reason: g.reason })),
