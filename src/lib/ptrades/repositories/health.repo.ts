@@ -123,3 +123,47 @@ export const blockingGatesTodayQuery = () =>
         .sort((a, b) => b.count - a.count);
     },
   });
+
+export type RetentionWindow = { table: string; keeps: string };
+
+/** Retention windows enforced by the scheduled database cleanup. Display only. */
+export const RETENTION_WINDOWS: RetentionWindow[] = [
+  { table: "signal_rejections", keeps: "5 hours" },
+  { table: "signal_candidates", keeps: "24 hours" },
+  { table: "scanner_runs", keeps: "3 days" },
+  { table: "scanner_errors", keeps: "7 days" },
+];
+
+export type PurgeRecord = {
+  at: string;
+  counts: { table: string; deleted: number }[];
+};
+
+/** Last automatic diagnostics purge, read from the audit log. */
+export const lastPurgeQuery = () =>
+  queryOptions({
+    queryKey: ["audit_log", "purge", "latest"],
+    refetchInterval: 300_000,
+    queryFn: async (): Promise<PurgeRecord | null> => {
+      const row = await unwrap(
+        db
+          .from("audit_log")
+          .select("created_at, detail")
+          .eq("action", "SCANNER_DIAGNOSTICS_PURGE")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        { repo: "health.lastPurge" },
+      );
+      if (!row) return null;
+      const detail = (row.detail ?? {}) as Record<string, unknown>;
+      return {
+        at: row.created_at,
+        counts: RETENTION_WINDOWS.map((w) => ({
+          table: w.table,
+          deleted: typeof detail[w.table] === "number" ? (detail[w.table] as number) : 0,
+        })),
+      };
+    },
+  });
+
