@@ -5,18 +5,22 @@ import { ArrowRight } from "lucide-react";
 import {
   activeRulebookQuery,
   latestHeartbeatQuery,
+  componentHeartbeatsQuery,
   myTradesQuery,
   signalsTodayQuery,
   expectancy,
   tradesSince,
-
-  
 } from "@/lib/ptrades/queries";
 import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import { useProfile, useSessionUser, useTimezone } from "@/lib/ptrades/session";
 import { updateAlertPreferences } from "@/lib/ptrades/queries";
 import { TierToggle } from "@/components/ptrades/tier-toggle";
 import { DEFAULT_TERMINAL_TIERS, parseTiers, isTier, type Tier } from "@/lib/ptrades/tiers";
+import {
+  heartbeatHealth,
+  heartbeatLabel,
+  heartbeatPillState,
+} from "@/lib/ptrades/heartbeat-health";
 import { field, formatTime, relativeFromNow, rr, score } from "@/lib/ptrades/format";
 import {
   DataRow,
