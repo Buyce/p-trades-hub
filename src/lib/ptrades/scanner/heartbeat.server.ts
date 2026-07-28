@@ -8,33 +8,20 @@
  * and the dashboard cannot tell them apart from silence.
  */
 
+import {
+  HEARTBEAT_SOURCES,
+  heartbeatHealth,
+  type HeartbeatSource,
+} from "@/lib/ptrades/heartbeat-health";
+
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
 
-/** The scheduled components that report liveness independently. */
-export const HEARTBEAT_SOURCES = ["CONTEXT_SCANNER", "PRECISION_SCANNER"] as const;
-
-export type HeartbeatSource = (typeof HEARTBEAT_SOURCES)[number];
+// Freshness rules live in one client-safe module so the dashboard and the
+// scanner can never disagree about what "alive" means.
+export { HEARTBEAT_SOURCES, heartbeatHealth };
+export type { HeartbeatSource };
 
 export type HeartbeatStatus = "OK" | "DEGRADED" | "ERROR" | "IDLE" | "SKIPPED";
-
-/** Freshness bands. A component is only healthy inside one scheduler tick. */
-export const HEARTBEAT_HEALTHY_MS = 2 * 60_000;
-export const HEARTBEAT_DEGRADED_MS = 5 * 60_000;
-
-export type HeartbeatHealth = "HEALTHY" | "DEGRADED" | "OFFLINE" | "UNKNOWN";
-
-/**
- * Liveness is derived from heartbeat AGE, never from the status word stored in
- * the last row. A thirteen-minute-old "OK" is an offline scanner.
- */
-export function heartbeatHealth(receivedAt: string | null | undefined, nowMs = Date.now()): HeartbeatHealth {
-  if (!receivedAt) return "UNKNOWN";
-  const age = nowMs - new Date(receivedAt).getTime();
-  if (!Number.isFinite(age)) return "UNKNOWN";
-  if (age < HEARTBEAT_HEALTHY_MS) return "HEALTHY";
-  if (age < HEARTBEAT_DEGRADED_MS) return "DEGRADED";
-  return "OFFLINE";
-}
 
 export async function writeHeartbeat(
   admin: Admin,
