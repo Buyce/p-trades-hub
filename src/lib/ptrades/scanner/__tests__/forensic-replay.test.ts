@@ -53,7 +53,7 @@ describe("forensic replay: chronology", () => {
 
 describe("forensic replay: bias eligibility", () => {
   const setup = {
-    setupType: "SWEEP_DISPLACEMENT_RETEST",
+    setupType: "SWEEP_DISPLACEMENT_RETEST" as const,
     sweepFound: true,
     structureType: "BOS" as const,
     direction: LONG,
@@ -74,7 +74,7 @@ describe("forensic replay: bias eligibility", () => {
 
   it("still blocks a counter-bias continuation", () => {
     const decision = evaluateBiasPolicy({
-      setup: { ...setup, setupType: "PULLBACK_CONTINUATION", sweepFound: false },
+      setup: { ...setup, setupType: "PULLBACK_CONTINUATION" as const, sweepFound: false },
       direction: LONG,
       bias: "SHORT",
       d1: "SHORT",
@@ -172,7 +172,7 @@ describe("forensic replay: durable data plane freshness", () => {
   it("allows one full interval on top of the feed budget", () => {
     // A 15m series is necessarily up to one interval old before the next bar
     // closes; treating that as stale is what blocked every scan.
-    expect(isStoreFresh(15 * 60, "15m", 120)).toBe(true);
-    expect(isStoreFresh(15 * 60 + 121, "15m", 120)).toBe(false);
+    expect(isStoreFresh(15 * 60, "M15", 120)).toBe(true);
+    expect(isStoreFresh(15 * 60 + 121, "M15", 120)).toBe(false);
   });
 });
