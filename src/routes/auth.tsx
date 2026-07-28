@@ -7,6 +7,15 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+const PUBLISHED_APP_ORIGIN = "https://p-trade-spotlight.lovable.app";
+
+function getAuthRedirectOrigin() {
+  if (window.location.hostname.endsWith("lovable.app") || window.location.hostname === "localhost") {
+    return PUBLISHED_APP_ORIGIN;
+  }
+  return window.location.origin;
+}
+
 export const Route = createFileRoute("/auth")({
   head: () => ({
     meta: [
@@ -20,6 +29,8 @@ export const Route = createFileRoute("/auth")({
         property: "og:description",
         content: "Sign in or create an account for the P-Trades cockpit.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: AuthPage,
@@ -86,10 +97,11 @@ function AuthPage() {
       return;
     }
     setResending(true);
+    const redirectOrigin = getAuthRedirectOrigin();
     const { error } = await supabase.auth.resend({
       type: "signup",
       email,
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: redirectOrigin },
     });
     setResending(false);
     if (error) {
@@ -111,8 +123,9 @@ function AuthPage() {
     setPending(true);
 
     if (mode === "forgot") {
+      const redirectOrigin = getAuthRedirectOrigin();
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+        redirectTo: `${redirectOrigin}/reset-password`,
       });
       setPending(false);
       if (error) {
@@ -125,10 +138,11 @@ function AuthPage() {
     }
 
     if (mode === "signup") {
+      const redirectOrigin = getAuthRedirectOrigin();
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: window.location.origin },
+        options: { emailRedirectTo: redirectOrigin },
       });
       setPending(false);
       if (error) {

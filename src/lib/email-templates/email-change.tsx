@@ -1,5 +1,16 @@
 import * as React from 'react'
-import { main, container, h1, text, link, button, footer } from './styles'
+import {
+  main,
+  container,
+  h1,
+  text,
+  link,
+  button,
+  footer,
+  fallbackText,
+  urlBlock,
+  rawUrlLink,
+} from './styles'
 
 import {
   Body,
@@ -54,6 +65,15 @@ export const EmailChangeEmail = ({
         <Button style={button} href={confirmationUrl}>
           Confirm Email Change
         </Button>
+        <Text style={fallbackText}>
+          If the button does not open, copy and paste this confirmation link
+          into your browser:
+        </Text>
+        <Text style={urlBlock}>
+          <Link href={confirmationUrl} style={rawUrlLink}>
+            {confirmationUrl}
+          </Link>
+        </Text>
         <Text style={footer}>
           If you didn't request this change, please secure your account
           immediately.

@@ -1,5 +1,15 @@
 import * as React from 'react'
-import { main, container, h1, text, button, footer } from './styles'
+import {
+  main,
+  container,
+  h1,
+  text,
+  button,
+  footer,
+  fallbackText,
+  urlBlock,
+  rawUrlLink,
+} from './styles'
 
 import {
   Body,
@@ -8,6 +18,7 @@ import {
   Head,
   Heading,
   Html,
+  Link,
   Preview,
   Text,
 } from '@react-email/components'
@@ -34,6 +45,15 @@ export const RecoveryEmail = ({
         <Button style={button} href={confirmationUrl}>
           Reset Password
         </Button>
+        <Text style={fallbackText}>
+          If the button does not open, copy and paste this reset link into your
+          browser:
+        </Text>
+        <Text style={urlBlock}>
+          <Link href={confirmationUrl} style={rawUrlLink}>
+            {confirmationUrl}
+          </Link>
+        </Text>
         <Text style={footer}>
           If you didn't request a password reset, you can safely ignore this
           email. Your password will not be changed.
