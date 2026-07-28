@@ -41,3 +41,19 @@ export async function updateProfile(input: {
   });
   if (error) throw fromPostgrest(error, { repo: "profile.update" });
 }
+
+/** Updates alert channel opt-ins without touching other profile fields. */
+export async function updateAlertPreferences(input: {
+  userId: string | undefined;
+  emailAlertsEnabled?: boolean;
+  pushAlertsEnabled?: boolean;
+}): Promise<void> {
+  const userId = requireUserId(input.userId);
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (input.emailAlertsEnabled !== undefined)
+    patch.email_alerts_enabled = input.emailAlertsEnabled;
+  if (input.pushAlertsEnabled !== undefined) patch.push_alerts_enabled = input.pushAlertsEnabled;
+
+  const { error } = await db.from("profiles").update(patch).eq("id", userId);
+  if (error) throw fromPostgrest(error, { repo: "profile.updateAlerts" });
+}
