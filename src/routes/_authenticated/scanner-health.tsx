@@ -222,7 +222,7 @@ function ScannerHealth() {
         </ul>
         <p className="num mt-3 text-xs text-muted-foreground">
           Last cleanup:{" "}
-          {lastPurge ? `${formatTime(lastPurge.at, timezone)} (${relativeFromNow(lastPurge.at)})` : "—"}
+          {lastPurge ? `${formatTime(lastPurge.at, tz)} (${relativeFromNow(lastPurge.at)})` : "—"}
         </p>
       </SectionCard>
     </div>
