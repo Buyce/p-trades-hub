@@ -1,5 +1,16 @@
 import * as React from 'react'
-import { main, container, h1, text, link, button, footer } from './styles'
+import {
+  main,
+  container,
+  h1,
+  text,
+  link,
+  button,
+  footer,
+  fallbackText,
+  urlBlock,
+  rawUrlLink,
+} from './styles'
 
 import {
   Body,
@@ -37,18 +48,27 @@ export const SignupEmail = ({
           <Link href={siteUrl} style={link}>
             <strong>{siteName}</strong>
           </Link>
-          !
+          .
         </Text>
         <Text style={text}>
-          Please confirm your email address (
+          Confirm this email address for your P-Trades account:{' '}
           <Link href={`mailto:${recipient}`} style={link}>
             {recipient}
           </Link>
-          ) by clicking the button below:
+          . This link opens the secure account confirmation page.
         </Text>
         <Button style={button} href={confirmationUrl}>
-          Verify Email
+          Confirm Email
         </Button>
+        <Text style={fallbackText}>
+          If the button does not open, copy and paste this confirmation link
+          into your browser:
+        </Text>
+        <Text style={urlBlock}>
+          <Link href={confirmationUrl} style={rawUrlLink}>
+            {confirmationUrl}
+          </Link>
+        </Text>
         <Text style={footer}>
           If you didn't create an account, you can safely ignore this email.
         </Text>

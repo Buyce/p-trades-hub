@@ -1,5 +1,16 @@
 import * as React from 'react'
-import { main, container, h1, text, link, button, footer } from './styles'
+import {
+  main,
+  container,
+  h1,
+  text,
+  link,
+  button,
+  footer,
+  fallbackText,
+  urlBlock,
+  rawUrlLink,
+} from './styles'
 
 import {
   Body,
@@ -35,12 +46,21 @@ export const InviteEmail = ({
           <Link href={siteUrl} style={link}>
             <strong>{siteName}</strong>
           </Link>
-          . Click the button below to accept the invitation and create your
-          account.
+          . Use the button below to accept the invitation and create your
+          password.
         </Text>
         <Button style={button} href={confirmationUrl}>
           Accept Invitation
         </Button>
+        <Text style={fallbackText}>
+          If the button does not open, copy and paste this invite link into
+          your browser:
+        </Text>
+        <Text style={urlBlock}>
+          <Link href={confirmationUrl} style={rawUrlLink}>
+            {confirmationUrl}
+          </Link>
+        </Text>
         <Text style={footer}>
           If you weren't expecting this invitation, you can safely ignore this
           email.

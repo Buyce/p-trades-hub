@@ -28,6 +28,29 @@ export const text = {
   margin: "0 0 22px",
 };
 export const link = { color: "#155e75", textDecoration: "underline" };
+export const fallbackText = {
+  fontSize: "12px",
+  color: "#647384",
+  lineHeight: "1.6",
+  margin: "18px 0 8px",
+};
+export const urlBlock = {
+  fontFamily: FONT_MONO,
+  fontSize: "11px",
+  color: "#0f1720",
+  lineHeight: "1.5",
+  wordBreak: "break-all" as const,
+  backgroundColor: "#f4f6f9",
+  border: "1px solid #e3e8ee",
+  borderRadius: "8px",
+  padding: "10px 12px",
+  margin: "0 0 26px",
+};
+export const rawUrlLink = {
+  color: "#155e75",
+  textDecoration: "underline",
+  wordBreak: "break-all" as const,
+};
 export const button = {
   backgroundColor: "#0f1720",
   color: "#ffffff",
