@@ -1,8 +1,22 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { updateProfile } from "@/lib/ptrades/queries";
+import {
+  updateProfile,
+  updateAlertPreferences,
+  savePushSubscription,
+  removePushSubscription,
+} from "@/lib/ptrades/queries";
+import { getPushPublicKey } from "@/lib/ptrades/push.functions";
+import {
+  pushPermission,
+  pushSupported,
+  subscribeToPush,
+  unsubscribeFromPush,
+  currentPushSubscription,
+} from "@/lib/ptrades/push";
 import { userMessageOf } from "@/lib/ptrades/errors";
 import { useIsStaff, useProfile, useSessionUser } from "@/lib/ptrades/session";
 import { TIMEZONES } from "@/lib/ptrades/format";
@@ -10,6 +24,7 @@ import { DataRow, PageHeader, SectionCard } from "@/components/ptrades/primitive
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
