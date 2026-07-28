@@ -1,69 +1,104 @@
-## What the audit found (verified against code and the live database)
+# P-Trades Forensic Repair — Revised Plan (v2)
 
-| Area | Current state | Verdict |
+Corrections accepted. Findings 1 and 3 are rewritten from verified code and production rows; the `detectSetupDetailed` hierarchy is extended rather than replaced.
+
+## A. Corrected evidence base
+
+Arming blockers actually recorded in production (`signal_rejections`, last 2h — `saveRejections` only stores arming-failed gates):
+
+| Gate | Count | With candidate |
 |---|---|---|
-| `precision_watches` | **0 rows, ever** | Broken handoff |
-| Watch creation (`run.server.ts:850`) | `if (!result.candidate.qualified) continue;` — a watch only opens when *every* arming gate passes **and** a score band is reached | Wrong condition; contradicts "armable ≠ qualified" |
-| `qualified` (`run.server.ts:671`) | `failed.length === 0 && scoreGrade !== null` | Score gate blocks arming |
-| Signals last 24h | 12 rows, **all `lifecycle_state = DETECTED`, `is_actionable = true`** (A+ 1, A 5, B 7, C 2) | Legacy immediate-alert path still writing |
-| Lifecycle beyond DETECTED | **0 ARMED / 0 MICRO_TRIGGERED / 0 ENTRY_READY** | Engine never receives work |
-| Scanner runs | 80 `TIMEOUT`, last `SUCCESS` 15:09, one stuck `RUNNING` | Minute cron overlaps the in-request precision sleep loop |
-| Daily cap | Rulebook `v2.0.0-live` already has cap `0`, but `claimActionableSlot` / `isUnlimitedCap` / `DAILY_CAP` gate code still exists (`precision.server.ts:348-357`, `persist.server.ts:329`, `gates.server.ts:168`, `types.ts:60`) | Cap logic must be removed, not zeroed |
-| Live price | `precision.server.ts:203` uses `lastClosedM1.close` as current price | No bid/ask quote |
-| Shadow mode | `precision.server.ts:408` hard-codes `shadowMode: false` | Must read scanner settings |
-| Rulebook drift | `scanner_settings.rulebook_version = v1.6.0-live` while active row is `v2.0.0-live` | Inconsistent reporting |
-| Micro-trigger state | Full sequence re-searched every pass; `MICRO_TRIGGERED` never persisted as a resumable state | Loses partial progress |
+| NO_SETUP | 66 | 0 |
+| MISSING_DATA | 36 | 0 |
+| STALE_DATA | 4 | 0 |
+| BIAS_CONFLICT | 4 | 4 |
 
-Top rejection gates (5h): NO_SETUP 801, NO_DISPLACEMENT 770, INVALID_STOP 714, RR_BELOW_MIN 704, NO_RETEST 704, NO_SWEEP 704, MISSING_INVALIDATION 294.
+No score-band rejection exists. Over 6h: 267 MARKET_DATA errors, 61 SKIPPED vs 5 OK context heartbeats per 90m, **0 rows in `precision_watches`**.
 
-## Plan
+Confirmed in code: `run.server.ts:719-724` passes `macroAligned: macro.aligned` and `sweepFound: setup.sweepFound || setup.structureType !== null`; `run.server.ts:734-735` derives `qualified` from `armingFailedGates`, not the grade.
 
-**1. Authoritative tier policy (one module, no duplicates)**
-- Add `src/lib/ptrades/tiers-policy.ts` with `ACTIONABLE_TIERS = [A_PLUS, A, B, C]`, `isActionableTier`, and a single `isActionable({grade, lifecycleState, hardGateFailures, systemMode, notificationAlreadySent})`.
-- Keep the existing `tiers.ts` labels and `scoring.ts` `tierFor` as the single resolver; delete no second copy exists — re-export rather than duplicate.
-- Default alert preferences (email, push, terminal) become all four tiers.
+## 1. Finding 1 (rewritten) — setup-family scoring audit
 
-**2. Remove daily-cap enforcement**
-- Delete `claimActionableSlot`, `isUnlimitedCap`, the `DAILY_CAP` gate code and its call site; drop `max_daily_actionable` / `tier_daily_max` from rulebook reads and UI text. Historical `daily_alert_counters` rows and columns stay intact (deprecated, no longer read or written).
-- Regression tests: the 1st, 3rd, 10th and 50th unique `ENTRY_READY` of the same UTC day all become actionable; `DAILY_CAP` can never appear as a blocking gate.
+Five scoring defects to repair, none of them "macro is hard-coded":
 
-**3. Fix the arming handoff (the actual outage)**
-- Replace `candidate.qualified` with `isArmableCandidate(setup, armingGates)`: structural setup (direction, level, sweep-or-structure, displacement) plus arming-only gates — session, data present, candle sanity, freshness, news, invalidation, valid stop, bias sanity, non-duplicate.
-- Arming must not require score band, execution R:R, M1 trigger/retest, spread, proximity, late-entry.
-- Every armable setup writes an `ARMED` signal (`is_actionable = false`, no notification) plus a `precision_watches` row. All four tiers use the same flow.
+| Defect | Where | Repair |
+|---|---|---|
+| Liquidity points awarded for generic structure | `run.server.ts:723` — `sweepFound: setup.sweepFound \|\| setup.structureType !== null` grants the 20-point liquidity weight to any BOS/CHOCH | Pass `setup.sweepFound` only; score structure separately from liquidity |
+| R:R used as structure confirmation | `scoring.ts:80-81` — `structure_confirmation` is a pure function of `rr` | Score real structure evidence (event type, level quality, swing displacement context); move R:R out of this component |
+| R:R counted twice | Score already embeds R:R, then `tierFor` re-applies the tier R:R floor | Keep the R:R floor as a tier gate only; remove R:R from the score |
+| Macro clearance mislabelled as alignment | `macro.aligned` means "no active lockout", scored as directional `macro_alignment` | Rename to `macro_clear` and score it as a clearance component; directional macro alignment stays unscored until the calendar is wired |
+| One budget shared by continuation and reversal | Single weight table for all families | Per-family 100-point scorecards |
 
-**4. Recalculate score and tier at ENTRY_READY**
-- The M15 score becomes provisional/diagnostic. At ENTRY_READY, re-score with the confirmed retest, live spread, final R:R and entry timing, then resolve the final tier with `tierFor` (floors A+/A 2.0, B 1.5, C 1.2). Persist provisional score/grade, final score/grade, components and a scored-at timestamp. Only the final grade drives notification.
+Per-family 100-point scorecards (weights allocated only to evidence that family can actually produce):
 
-**5. Live quote handling (read-only)**
-- Add `MarketQuote {symbol, bid, ask, time}` and `getQuote()` to the read-only market-data interface; use ask for LONG, bid for SHORT for proximity and execution price. M1 candles remain trigger-confirmation only.
-- Add a test asserting the market-data interface exposes no order/modify/close/cancel method.
+- **SWEEP_DISPLACEMENT_RETEST**: liquidity sweep 25, displacement 20, retest 20, HTF alignment 15, structure confirmation 10, execution 5, macro clearance 5.
+- **PULLBACK_CONTINUATION**: HTF alignment 25, BOS structure 20, displacement 20, pullback/retest 20, execution 10, macro clearance 5.
+- **BREAK_RETEST (BOS)**: structure 25, displacement 25, retest 25, HTF alignment 15, execution 5, macro clearance 5.
+- **BREAK_RETEST (CHOCH reversal)**: CHOCH structure 25, displacement 25, retest 20, exhaustion/sweep evidence 15, execution 10, macro clearance 5 — HTF conflict scored as expected, not penalised to zero.
 
-**6. Persist micro-trigger progress**
-- On trigger, persist `state = MICRO_TRIGGERED`, trigger level, BOS candle time, retest deadline. Later passes with that state search only for the retest of the persisted level and resolve to ENTRY_READY / MISSED / EXPIRED / INVALIDATED. When searching fresh, pick the latest *complete* valid sequence.
+Each scorecard sums to exactly 100 and is reachable by a real gate-passing candidate. `reachability.ts` is extended to run per family and assert A+, A, B and C are each attainable; the test fails the build if any tier is dead in any family.
 
-**7. Split the cron into two jobs (fixes the timeouts)**
-- `scan-context` (1/min): HTF/M15/M5 fetch, detect armable setups, open watches, exit — no sleep loop.
-- `scan-precision` (frequent): load open watches, one evaluation pass each, fetch quote, fetch M1 only when a new M1 close exists, persist, exit.
-- Separate locks per job; skipped overlapping ticks recorded as `SKIPPED`, not silent.
+## 2. Finding 3 (rewritten) — rename `qualified` to `armable`
 
-**8. Live mode, not shadow**
-- Remove the hard-coded `shadowMode: false`; thread the mode from `scanner_settings` everywhere. Sync `scanner_settings.rulebook_version` to the active rulebook and publish a `v2.1.0-live` rulebook carrying the per-instrument precision parameters from the brief (proximity points, displacement M1 ATR, max extension R, armed expiry) with no cap fields.
-- Notification eligibility uses the single `isActionable` plus an idempotency key `signal_id|type|user_id|channel`. User tier preferences filter delivery only.
+`candidate.qualified` already means "every arming gate passed". The concept is renamed `armable` end to end (`Candidate`, `signal_candidates.qualified` retained as a column alias for history, repositories, UI), so nothing reads it as "earned a tier". Zero watches are caused by the production gates above — MISSING_DATA and NO_SETUP dominate, BIAS_CONFLICT kills the only candidates that reach a setup. No claim is made that the score blocks arming.
 
-**9. UI**
-- Dashboard: remove all cap language, default tier filters to all four, show live-mode status.
-- Signal card: final tier, lifecycle state, preferred entry, zone, current price, distance to entry, trigger summary, stop, targets, R:R plus the tier minimum, invalidation, expiry, timestamp.
-- Scanner Health funnel: Detected → Armed → Micro triggered → Entry ready → Notified, broken down by A+/A/B/C with the top blocker per stage.
+## 3. Extend `detectSetupDetailed`, do not duplicate it
 
-**10. Fixtures, parity and tests**
-- Shared JSON fixtures for all 12 required IDs, run by both Vitest and the Python reference (`tiers.py`, `scoring.py`, `lifecycle.py`, `actionable.py`, `notification_policy.py`, `rulebook.py`, `fixtures.py`) with identical results.
-- The 24 required assertions from the brief, added to the existing suites.
+The existing complete → armable → diagnostic hierarchy stays. Added before selection:
 
-**11. Deploy and verify with production data**
-- Ship only if build, typecheck, all suites, migrations and the no-execution scan pass; otherwise fail closed and report the exact failure.
-- After publish, query production and report scanner mode, context runs, ARMED, MICRO_TRIGGERED, ENTRY_READY and notifications **split by A+, A, B and C**, plus top blockers and proof no cap function was evaluated. No success claim before those counts show real movement.
+- Every detector event returns `{index, time, ...}`; `detectDisplacement` / `detectRetest` / `detectSweep` / `detectStructureEvent` accept `afterIndex` / `beforeIndex`.
+- Sequence validation: sweep < displacement < confirmation < retest; break ≤ displacement < retest (the retest can never be the break candle); BOS ≤ displacement < pullback. Non-monotonic sequences are rejected.
+- Setup-specific bias eligibility (`evaluateBiasPolicy({setupType, structureType, direction, h4Bias, d1Bias})`): BOS continuation requires H4 alignment; CHOCH reversal expects opposition but demands sweep/exhaustion + displacement + retest + M1 trigger; neutral reduces score instead of rejecting. Replaces the global `biasConflict` (`gates.server.ts:81`). Persists `bias_policy`, `prior_h4_bias`, `prior_d1_bias`, `bias_policy_passed`, `bias_policy_reason`.
+- A complete result may only win if chronology **and** bias policy pass; otherwise an eligible armable result outranks it.
 
-## Technical notes
+## 4. Three separated routes
 
-Files to change: `run.server.ts`, `precision.server.ts`, `persist.server.ts`, `gates.server.ts`, `notify.server.ts`, `market-data.server.ts`, `micro-trigger.server.ts`, `types.ts`, `scoring.ts`, new `tiers-policy.ts`, new `src/routes/api/public/hooks/scan-context.ts` and `scan-precision.ts` (retiring `scan-markets.ts`), health repo + Scanner Health and dashboard routes, the Python reference package, and the fixture/test suites. Database work: a new active rulebook row, a cron repoint to the two jobs, a profile default-tier update, and a deprecation note on the cap columns — no historical data deleted. The system stays strictly read-only throughout.
+- **`sync-market-data`** — the only MetaApi reader. Writes `public.market_candles` (PK `broker_symbol, timeframe, open_time`), fetching only bars newer than the stored last close per timeframe bucket. Emits `provider_requests`, `provider_timeouts`, `db_cache_hits`, `db_cache_misses`, `last_closed_candle_by_symbol_timeframe`.
+- **`scan-context`** — reads validated history from `market_candles`, does no full-history provider fetch during analysis. Marks a symbol data-degraded when its stored history is stale or short; counts only usable symbols as completed (fixes the false 5/5 at `run.server.ts:936`).
+- **`scan-precision`** — single short pass over open watches.
+
+The module-level `candleCache` / `lastGood` Maps (`run.server.ts:224,234`) are removed.
+
+## 5. Strict rulebook validation
+
+Replace the shallow merge in `parseRulebook` with a validated deep merge against an extended `contracts/rulebook.schema.json`. Rejects: missing nested `precision.instruments[*]` fields, invalid or non-monotonic grades, unreachable tiers (via the per-family reachability check), non-finite numbers, invalid expiry/proximity values, unsupported ATR methods. A rulebook failing validation cannot be marked active — enforced in code and by a DB check on activation.
+
+## 6. Target-before-entry uses only post-arm M1
+
+`precision.server.ts` evaluates TP1 touch strictly on M1 candles with `open_time >= watch.armed_at`, never the full downloaded window. Explicit `precision.instruments[symbol].displacementM1Atr` (FX 0.70, XAUUSD 0.80) replaces `Math.min(1, rulebook.displacement_min_atr)` at `precision.server.ts:326`; trigger retest window 5 M1 bars; FX armed expiry 45m, XAUUSD 30m.
+
+## 7. Lock design
+
+Unique holder token (already present), plus: atomic expired-lease takeover in the acquire RPC, holder-scoped release, a hard runtime deadline set below the lease TTL that ends the run and reports partial/degraded completion, and optional mid-run lease renewal for long passes. Correctness no longer depends on `finally` running.
+
+## 8. Canonical structural idea
+
+`structural_idea_id` = hash of instrument + timeframe + direction + structure type + source level rounded to tick + source event time. Replaces the ATR/entry/stop geometry fingerprint (`fingerprint.server.ts`). One active watch and one alert per structural idea, even when several families label it differently; precision updates preferred entry in place.
+
+## 9. Deterministic replay acceptance
+
+Historical candle fixtures under `fixtures/` drive a replay harness that proves DETECTED → ARMED → MICRO_TRIGGERED → ENTRY_READY → notification record, per tier. No live-market window requirement, no synthetic alerts inserted. Forensic fixtures included: retest-before-break rejected, break-candle-cannot-be-retest (GBPUSD, USDJPY), CHOCH not rejected by generic bias, BOS opposite-bias rejected, neutral-bias valid B, armable-not-masked, durable-cache-survives-cold-start, 3-of-5-missing-is-degraded, v1.8 EURUSD dedup, all-tiers-entry-ready, no-daily-cap, no-execution-method.
+
+## 10. Migration and rollback
+
+New rulebook version (v2.2.0-live) inserted alongside the existing rows; `market_candles` and new columns are additive only. Rollback SQL reactivates v2.1.0-live and drops the new artefacts; no historical data is deleted or rewritten.
+
+## 11. Notification channel verification
+
+Terminal (`notifications` row), push (`push_subscriptions` delivery), and email (transactional send) each verified separately for creation, idempotency key uniqueness per signal+tier, delivery status, and per-user tier preference filtering.
+
+## 12. Invariants preserved
+
+LIVE_ALERTS stays on; MetaApi remains GET-only read-only; A+, A, B, C all actionable and all require ENTRY_READY; tier R:R floors 2.0 / 2.0 / 1.5 / 1.2 unchanged; no daily cap; arming thresholds (0.60 / 0.60 / 0.60 / 0.65 / 0.70 ATR) not lowered; no order-execution path.
+
+## Build order
+
+1. Lock hardening + honest completion accounting.
+2. `sync-market-data` + `market_candles` + `scan-context` reading from Postgres.
+3. Indexed events, chronology enforcement, bias policy, hierarchy extension.
+4. `armable` rename, structural idea ID, watch creation.
+5. Per-family scorecards + reachability tests.
+6. Precision fixes (post-arm M1, explicit thresholds).
+7. Rulebook schema validation gate.
+8. Replay harness + forensic fixtures + channel verification.
+9. Observability panels.

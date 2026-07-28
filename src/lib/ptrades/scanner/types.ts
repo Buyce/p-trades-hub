@@ -106,9 +106,23 @@ export type Rulebook = {
   grades: { A_PLUS: number; A: number; B: number; C: number };
   /** Minimum reward-to-risk at TP1 per tier. Only C relaxes the RR floor. */
   tier_min_rr: { A_PLUS: number; A: number; B: number; C: number };
+  /**
+   * Bias eligibility policy. Reversal families (liquidity sweeps, changes of
+   * character) trade against the higher-timeframe bias by definition, so a hard
+   * equality check silently deleted half the rulebook.
+   */
+  bias_policy?: { allow_reversals: boolean; allow_neutral: boolean };
+  /** Durable market-data plane settings. */
+  market_data?: {
+    /** How many closed candles to retain per timeframe in `market_candles`. */
+    history_bars: number;
+    /** How stale a stored series may be before the scan refuses to use it. */
+    max_store_age_multiple: number;
+  };
   /** Precision entry engine settings. See `PrecisionRules`. */
   precision: PrecisionRules;
 };
+
 
 /**
  * Lifecycle of a setup, from detection through to a tradable execution moment.

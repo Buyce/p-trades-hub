@@ -254,6 +254,45 @@ export type Database = {
         }
         Relationships: []
       }
+      market_candles: {
+        Row: {
+          broker_symbol: string
+          close: number
+          fetched_at: string
+          high: number
+          instrument: string
+          low: number
+          open: number
+          open_time: string
+          timeframe: string
+          volume: number | null
+        }
+        Insert: {
+          broker_symbol: string
+          close: number
+          fetched_at?: string
+          high: number
+          instrument: string
+          low: number
+          open: number
+          open_time: string
+          timeframe: string
+          volume?: number | null
+        }
+        Update: {
+          broker_symbol?: string
+          close?: number
+          fetched_at?: string
+          high?: number
+          instrument?: string
+          low?: number
+          open?: number
+          open_time?: string
+          timeframe?: string
+          volume?: number | null
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           body: string | null
@@ -320,6 +359,7 @@ export type Database = {
           signal_id: string
           state: string
           stop_loss: number | null
+          structural_idea_id: string | null
           structural_level: number | null
           symbol: string
           targets: Json
@@ -358,6 +398,7 @@ export type Database = {
           signal_id: string
           state?: string
           stop_loss?: number | null
+          structural_idea_id?: string | null
           structural_level?: number | null
           symbol: string
           targets?: Json
@@ -396,6 +437,7 @@ export type Database = {
           signal_id?: string
           state?: string
           stop_loss?: number | null
+          structural_idea_id?: string | null
           structural_level?: number | null
           symbol?: string
           targets?: Json
@@ -673,6 +715,9 @@ export type Database = {
         Row: {
           atr: number | null
           bias: string | null
+          bias_policy: string | null
+          bias_policy_passed: boolean | null
+          bias_policy_reason: string | null
           broker_symbol: string | null
           candle_time_utc: string | null
           created_at: string
@@ -685,6 +730,8 @@ export type Database = {
           grade: Database["public"]["Enums"]["signal_grade"] | null
           id: string
           instrument: string
+          prior_d1_bias: string | null
+          prior_h4_bias: string | null
           promoted_signal_id: string | null
           qualified: boolean
           reasons: Json
@@ -694,10 +741,12 @@ export type Database = {
           scanner_run_id: string | null
           score: number | null
           score_components: Json
+          sequence_valid: boolean | null
           setup_type: string | null
           shadow_mode: boolean
           spread: number | null
           stop_loss: number | null
+          structural_idea_id: string | null
           targets: Json
           timeframe: string | null
           trading_day_utc: string
@@ -705,6 +754,9 @@ export type Database = {
         Insert: {
           atr?: number | null
           bias?: string | null
+          bias_policy?: string | null
+          bias_policy_passed?: boolean | null
+          bias_policy_reason?: string | null
           broker_symbol?: string | null
           candle_time_utc?: string | null
           created_at?: string
@@ -717,6 +769,8 @@ export type Database = {
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument: string
+          prior_d1_bias?: string | null
+          prior_h4_bias?: string | null
           promoted_signal_id?: string | null
           qualified?: boolean
           reasons?: Json
@@ -726,10 +780,12 @@ export type Database = {
           scanner_run_id?: string | null
           score?: number | null
           score_components?: Json
+          sequence_valid?: boolean | null
           setup_type?: string | null
           shadow_mode?: boolean
           spread?: number | null
           stop_loss?: number | null
+          structural_idea_id?: string | null
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
@@ -737,6 +793,9 @@ export type Database = {
         Update: {
           atr?: number | null
           bias?: string | null
+          bias_policy?: string | null
+          bias_policy_passed?: boolean | null
+          bias_policy_reason?: string | null
           broker_symbol?: string | null
           candle_time_utc?: string | null
           created_at?: string
@@ -749,6 +808,8 @@ export type Database = {
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument?: string
+          prior_d1_bias?: string | null
+          prior_h4_bias?: string | null
           promoted_signal_id?: string | null
           qualified?: boolean
           reasons?: Json
@@ -758,10 +819,12 @@ export type Database = {
           scanner_run_id?: string | null
           score?: number | null
           score_components?: Json
+          sequence_valid?: boolean | null
           setup_type?: string | null
           shadow_mode?: boolean
           spread?: number | null
           stop_loss?: number | null
+          structural_idea_id?: string | null
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
@@ -859,6 +922,8 @@ export type Database = {
       signals: {
         Row: {
           armed_at: string | null
+          bias_policy: string | null
+          bias_policy_reason: string | null
           broker_symbol: string | null
           candidate_id: string | null
           created_at: string
@@ -901,6 +966,7 @@ export type Database = {
           spread: number | null
           status: string
           stop_loss: number | null
+          structural_idea_id: string | null
           targets: Json
           timeframe: string | null
           trading_day_utc: string
@@ -912,6 +978,8 @@ export type Database = {
         }
         Insert: {
           armed_at?: string | null
+          bias_policy?: string | null
+          bias_policy_reason?: string | null
           broker_symbol?: string | null
           candidate_id?: string | null
           created_at?: string
@@ -954,6 +1022,7 @@ export type Database = {
           spread?: number | null
           status?: string
           stop_loss?: number | null
+          structural_idea_id?: string | null
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
@@ -965,6 +1034,8 @@ export type Database = {
         }
         Update: {
           armed_at?: string | null
+          bias_policy?: string | null
+          bias_policy_reason?: string | null
           broker_symbol?: string | null
           candidate_id?: string | null
           created_at?: string
@@ -1007,6 +1078,7 @@ export type Database = {
           spread?: number | null
           status?: string
           stop_loss?: number | null
+          structural_idea_id?: string | null
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
@@ -1244,6 +1316,7 @@ export type Database = {
       }
       is_admin: { Args: never; Returns: boolean }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
+      purge_market_candles: { Args: { retain?: string }; Returns: number }
       purge_scanner_diagnostics: {
         Args: {
           retain_candidates?: string
@@ -1256,6 +1329,10 @@ export type Database = {
       release_scanner_lock:
         | { Args: { _key: string }; Returns: undefined }
         | { Args: { _holder?: string; _key: string }; Returns: boolean }
+      renew_scanner_lock: {
+        Args: { _holder: string; _key: string; _ttl_seconds?: number }
+        Returns: boolean
+      }
     }
     Enums: {
       app_role: "owner" | "admin" | "trader"
