@@ -162,18 +162,6 @@ export function duplicate(isDuplicate: boolean, fingerprint: string | null): Gat
   );
 }
 
-export function dailyCap(count: number, max: number): GateResult {
-  const ok = count < max;
-  return gate(
-    "DAILY_CAP",
-    ok,
-    ok
-      ? `${count}/${max} actionable alerts used today.`
-      : `Daily cap reached: ${count}/${max} actionable alerts already issued.`,
-    { count, max },
-  );
-}
-
 export function allPassed(gates: GateResult[]): boolean {
   return gates.every((g) => g.passed);
 }

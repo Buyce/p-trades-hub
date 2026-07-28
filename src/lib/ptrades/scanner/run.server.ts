@@ -71,11 +71,11 @@ const EXECUTION_ONLY_GATES = new Set<GateCode>([
   "RR_BELOW_MIN",
   "LATE_ENTRY",
   "EXPIRED",
-  "DAILY_CAP",
   "NO_MICRO_TRIGGER",
   "NO_MICRO_RETEST",
   "NOT_NEAR_ENTRY",
   "TARGET_TOUCHED",
+  "TIER_NOT_MET",
 ]);
 
 export function armingFailedGates(gates: GateResult[]): GateResult[] {
@@ -325,6 +325,15 @@ type Evaluation = {
     structuralLevel: number | null;
     invalidation: { price: number | null; condition: string | null; timeframe: string | null };
     armedExpiryMinutes: number;
+    /** Structural score inputs, fixed at arming and re-used at ENTRY_READY. */
+    scoreInput: {
+      bias_aligned: boolean;
+      d1_aligned: boolean;
+      displacement_atr: number | null;
+      sweep_found: boolean;
+      macro_aligned: boolean;
+    };
+
   };
 };
 
@@ -667,10 +676,14 @@ async function evaluateInstrument(
     rulebook,
   );
 
+  // Arming boundary: a setup is armable when every ARMING gate passes. The
+  // score band is NOT an arming requirement — the tier a setup earns is
+  // resolved by the precision loop at execution prices, so requiring a final
+  // grade here made the lower tiers unreachable.
   const failed = armingFailedGates(gates);
-  const qualified = failed.length === 0 && scoreGrade !== null;
-  // Stored tier is the setup-quality band. Execution R:R is re-proved before alerting.
-  const grade = qualified ? scoreGrade : null;
+  const qualified = failed.length === 0;
+  // Provisional tier only. The displayed tier is recalculated at ENTRY_READY.
+  const grade = scoreGrade;
 
   const candidate: Candidate = {
     instrument: instrument.symbol,
@@ -707,6 +720,13 @@ async function evaluateInstrument(
       structuralLevel: setup.level,
       invalidation,
       armedExpiryMinutes: precisionRules.armedExpiryMinutes,
+      scoreInput: {
+        bias_aligned: bias === direction,
+        d1_aligned: d1 === direction,
+        displacement_atr: setup.displacementAtr,
+        sweep_found: setup.sweepFound || setup.structureType !== null,
+        macro_aligned: macro.aligned,
+      },
     },
     macroContext: {
       session,
@@ -909,12 +929,17 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
           invalidation_price: precision.invalidation.price,
           invalidation_condition: precision.invalidation.condition,
           invalidation_timeframe: precision.invalidation.timeframe,
+          provisional_score: result.candidate.score,
+          provisional_grade: result.candidate.grade,
           metadata: {
             grade: result.candidate.grade,
             setup_type: result.candidate.setup_type,
             score: result.candidate.score,
             rr_tp1: result.candidate.rr_tp1,
             reasons: result.candidate.reasons,
+            // Structural score inputs are fixed at arming; the precision loop
+            // re-scores with these plus live execution readings.
+            score_input: precision.scoreInput,
           } as never,
         });
       }

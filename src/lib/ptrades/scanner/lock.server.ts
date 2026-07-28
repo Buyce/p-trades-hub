@@ -1,8 +1,8 @@
 /**
  * Distributed run lock. The scanner is scheduled once per minute; a slow run
- * must never overlap the next one, because overlapping runs can double-count
- * the daily actionable cap. The lock lives in Postgres so it survives across
- * stateless worker invocations.
+ * must never overlap the next one, because overlapping runs duplicate broker
+ * reads and corrupt run telemetry. The lock lives in Postgres so it survives
+ * across stateless worker invocations.
  */
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];

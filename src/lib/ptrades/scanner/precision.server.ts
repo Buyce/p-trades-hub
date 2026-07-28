@@ -49,9 +49,7 @@ import {
   targetTouched,
 } from "./gates.server";
 import {
-  claimActionableSlot,
   closeSignalLifecycle,
-  incrementActionableCount,
   listOpenWatches,
   markSignalEntryReady,
   resolveWatch,
@@ -60,8 +58,9 @@ import {
 } from "./persist.server";
 import { notifyQualifiedSignal } from "./notify.server";
 import { recordScannerError } from "./errors.server";
-import { tierBucket, type Tier } from "../tiers";
-import { isUnlimitedCap } from "./types";
+import { executionPrice } from "./market-data.server";
+import { minTierRr, scoreCandidate, tierFor } from "./scoring";
+import { isActionable, systemModeFor } from "../tiers-policy";
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
 
@@ -81,6 +80,8 @@ export type PrecisionLoopOptions = {
   intervalMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
+  /** Overrides the stored scanner setting. Shadow mode never notifies. */
+  shadowMode?: boolean;
 };
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -103,6 +104,17 @@ export async function runPrecisionLoop(
   const summary: PrecisionSummary = { passes: 0, watched: 0, entryReady: 0, resolved: 0 };
   if (rulebook.precision?.enabled === false) return summary;
 
+  // Delivery mode is read from the stored setting, never hardcoded.
+  let shadowMode = options.shadowMode;
+  if (shadowMode === undefined) {
+    const { data: settings } = await admin
+      .from("scanner_settings")
+      .select("shadow_mode")
+      .eq("id", true)
+      .maybeSingle();
+    shadowMode = settings?.shadow_mode ?? true;
+  }
+
   const instruments = await loadInstruments(admin);
   const macroEvents = await loadMacroEvents(admin);
 
@@ -115,7 +127,14 @@ export async function runPrecisionLoop(
 
     for (const watch of watches) {
       try {
-        const outcome = await evaluateWatch(admin, watch, rulebook, instruments, macroEvents);
+        const outcome = await evaluateWatch(
+          admin,
+          watch,
+          rulebook,
+          instruments,
+          macroEvents,
+          shadowMode,
+        );
         if (outcome === "ENTRY_READY") summary.entryReady += 1;
         if (outcome === "RESOLVED") summary.resolved += 1;
       } catch (error) {
@@ -144,6 +163,7 @@ async function evaluateWatch(
   rulebook: Rulebook,
   instruments: Map<string, InstrumentRow>,
   macroEvents: MacroEvent[],
+  shadowMode: boolean,
 ): Promise<WatchOutcome> {
   const nowMs = Date.now();
   const direction = watch.direction === "SHORT" ? "SHORT" : "LONG";
@@ -199,8 +219,15 @@ async function evaluateWatch(
     return "RESOLVED";
   }
 
-  const quote = await marketData().getSpread(brokerSymbol).catch(() => null);
-  const price = lastClosedCandle?.close ?? null;
+  // Live two-sided price: the reward is proved at the price a manual trade
+  // would actually pay, not at the mid or the last close.
+  const liveQuote = await marketData().getQuote(brokerSymbol).catch(() => null);
+  const quote =
+    liveQuote !== null
+      ? liveQuote.ask - liveQuote.bid
+      : await marketData().getSpread(brokerSymbol).catch(() => null);
+  const price =
+    liveQuote !== null ? executionPrice(liveQuote, direction) : (lastClosedCandle?.close ?? null);
   const atrM1 = atr(m1, rulebook.atr_period, rulebook.atr_method);
   const atrM5 = 0; // the M5 reading is fixed at arming time; M1 governs here.
 
@@ -289,7 +316,12 @@ async function evaluateWatch(
     preferredEntry !== null && watch.stop_loss !== null && tp1 !== null
       ? rewardToRisk(preferredEntry, watch.stop_loss, tp1)
       : null;
-  const minRr = rulebook.precision?.min_entry_ready_rr ?? rulebook.min_rr_tp1;
+  // The hard floor is the lowest tier's reward-to-risk. The tier that is
+  // actually earned is resolved below, and each tier keeps its own floor.
+  const minRr = Math.min(
+    rulebook.precision?.min_entry_ready_rr ?? rulebook.min_rr_tp1,
+    minTierRr(rulebook),
+  );
   gates.push(rrGate(rr, minRr));
 
   const failed = failedGates(gates);
@@ -313,6 +345,15 @@ async function evaluateWatch(
       trigger_timeframe: TIMEFRAME_LABEL[MICRO_TF],
       trigger_candle_time: trigger.bosCandleTime,
       trigger_level: trigger.brokenLevel,
+      // A trigger that has fired but not yet retested keeps its clock, so the
+      // next pass resumes the same sequence instead of restarting it.
+      triggered_at: trigger.triggered ? (watch.triggered_at ?? checkedAt) : null,
+      retest_deadline: trigger.triggered
+        ? (watch.retest_deadline ??
+          new Date(
+            nowMs + (rulebook.precision?.trigger_expiry_bars ?? 3) * 60_000,
+          ).toISOString())
+        : null,
       metadata: {
         ...(watch.metadata as Record<string, unknown>),
         blocking: failed.map((g) => ({ code: g.code, reason: g.reason })),
@@ -341,20 +382,45 @@ async function evaluateWatch(
     return "WAITING";
   }
 
-  // 8. Every gate passed. Claim the daily allowance before alerting so a cap
-  //    can never be exceeded by two passes racing.
-  const grade = ((watch.metadata as Record<string, unknown>)?.grade ?? "C") as Tier;
-  const bucket = tierBucket(grade);
-  const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
-  if (isUnlimitedCap(bucketMax)) {
-    await incrementActionableCount(admin, 0, bucket);
-  } else if (!(await claimActionableSlot(admin, bucketMax, bucket))) {
+  // 8. Every gate passed. Re-score the setup on execution reality and resolve
+  //    the tier it actually earns. There is no daily cap: nothing is counted,
+  //    claimed or rationed here. A+, A, B and C are all allowed to alert.
+  const meta = (watch.metadata ?? {}) as Record<string, unknown>;
+  const scoreInput = (meta.score_input ?? {}) as Record<string, unknown>;
+  const finalScore = scoreCandidate(
+    {
+      rr,
+      biasAligned: scoreInput.bias_aligned === true,
+      d1Aligned: scoreInput.d1_aligned === true,
+      displacementAtr:
+        typeof scoreInput.displacement_atr === "number" ? scoreInput.displacement_atr : null,
+      sweepFound: scoreInput.sweep_found === true,
+      retestFound: trigger.confirmed,
+      spreadRatio: quote !== null && atrM1 ? quote / atrM1 : null,
+      lateDistanceAtr:
+        price !== null && preferredEntry !== null && atrM1
+          ? Math.abs(price - preferredEntry) / atrM1
+          : null,
+      macroAligned: scoreInput.macro_aligned === true,
+    },
+    rulebook,
+  );
+  const finalTier = tierFor(finalScore.score, rr, rulebook);
+
+  if (finalTier === null) {
+    // The setup no longer earns any tier at execution prices. Stay armed; the
+    // next pass may find a better price. Never alert an unresolved tier.
     await updateWatch(admin, watch.id, {
       last_checked_at: checkedAt,
       check_count: watch.check_count + 1,
       metadata: {
-        ...(watch.metadata as Record<string, unknown>),
-        blocking: [{ code: "DAILY_CAP", reason: "Daily actionable cap already claimed." }],
+        ...meta,
+        blocking: [
+          {
+            code: "TIER_NOT_MET",
+            reason: `Score ${finalScore.score} with ${rr === null ? "unknown" : rr.toFixed(2)}R meets no tier's requirements.`,
+          },
+        ],
       } as never,
     });
     return "WAITING";
@@ -382,6 +448,11 @@ async function evaluateWatch(
     spread: quote,
     reasons,
     expiresAtUtc,
+    provisionalScore: typeof meta.score === "number" ? meta.score : null,
+    provisionalGrade: typeof meta.grade === "string" ? meta.grade : null,
+    finalScore: finalScore.score,
+    finalGrade: finalTier,
+    finalScoreComponents: finalScore.components,
   });
 
   await updateWatch(admin, watch.id, {
@@ -398,18 +469,33 @@ async function evaluateWatch(
     trigger_timeframe: TIMEFRAME_LABEL[MICRO_TF],
     trigger_candle_time: trigger.retestCandleTime,
     trigger_level: trigger.brokenLevel,
-    metadata: { ...(watch.metadata as Record<string, unknown>), blocking: [] } as never,
+    metadata: {
+      ...meta,
+      blocking: [],
+      final_grade: finalTier,
+      final_score: finalScore.score,
+    } as never,
   });
 
   if (!promoted) return "WAITING";
 
-  const meta = (watch.metadata ?? {}) as Record<string, unknown>;
+  // The one actionable test in the system. Fails closed on shadow mode, a
+  // pre-ENTRY_READY state, an unknown tier or any outstanding gate.
+  const actionable = isActionable({
+    grade: finalTier,
+    lifecycleState: "ENTRY_READY",
+    hardGateFailures: [],
+    systemMode: systemModeFor(shadowMode),
+    notificationAlreadySent: false,
+  });
+  if (!actionable) return "ENTRY_READY";
+
   await notifyQualifiedSignal(admin, {
-    shadowMode: false,
+    shadowMode,
     signalId: watch.signal_id,
     instrument: watch.symbol,
     direction,
-    grade: (meta.grade as never) ?? null,
+    grade: finalTier,
     setupType: (meta.setup_type as string) ?? null,
     timeframe: TIMEFRAME_LABEL[MICRO_TF],
     entryZoneLow: zone ? roundToDigits(zone.entryLow, resolved.digits) : null,
@@ -417,7 +503,7 @@ async function evaluateWatch(
     stopLoss: watch.stop_loss,
     targets,
     rr: rr === null ? null : Number(rr.toFixed(3)),
-    score: (meta.score as number) ?? null,
+    score: finalScore.score,
     reasons,
   });
 

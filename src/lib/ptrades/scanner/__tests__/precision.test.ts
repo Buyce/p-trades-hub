@@ -7,6 +7,7 @@ import { buildInvalidation, hasInvalidation, isInvalidated } from "../invalidati
 import { canTransition, isAlertable, transition } from "../lifecycle.server";
 import { detectMicroTrigger } from "../micro-trigger.server";
 import { armingFailedGates, isArmableSetup } from "../run.server";
+import { minTierRr, tierFor } from "../scoring";
 import type { Candle } from "../types";
 import { DEFAULT_RULEBOOK } from "../types";
 
@@ -150,12 +151,24 @@ describe("precision arming boundary", () => {
     expect(isArmableSetup({ ...armableBreak, level: null }, DEFAULT_RULEBOOK)).toBe(false);
   });
 
+  it("keeps every tier reachable at ENTRY_READY, including B and C", () => {
+    expect(tierFor(96, 2.5, DEFAULT_RULEBOOK)).toBe("A_PLUS");
+    expect(tierFor(91, 2.1, DEFAULT_RULEBOOK)).toBe("A");
+    expect(tierFor(82, 1.6, DEFAULT_RULEBOOK)).toBe("B");
+    expect(tierFor(72, 1.3, DEFAULT_RULEBOOK)).toBe("C");
+    // A top-band score with only C-grade reward still earns C, never nothing.
+    expect(tierFor(96, 1.3, DEFAULT_RULEBOOK)).toBe("C");
+    expect(tierFor(72, 1.1, DEFAULT_RULEBOOK)).toBeNull();
+    expect(minTierRr(DEFAULT_RULEBOOK)).toBe(1.2);
+  });
+
   it("does not let execution-only gates block watch creation", () => {
     const failed = armingFailedGates([
       { code: "SPREAD", passed: false, reason: "wide" },
       { code: "RR_BELOW_MIN", passed: false, reason: "not enough" },
       { code: "LATE_ENTRY", passed: false, reason: "extended" },
       { code: "EXPIRED", passed: false, reason: "old" },
+      { code: "TIER_NOT_MET", passed: false, reason: "no tier yet" },
       { code: "DUPLICATE", passed: false, reason: "already armed" },
     ]);
     expect(failed.map((g) => g.code)).toEqual(["DUPLICATE"]);

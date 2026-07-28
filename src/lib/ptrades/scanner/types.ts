@@ -57,7 +57,7 @@ export type GateCode =
   | "RR_BELOW_MIN"
   | "LATE_ENTRY"
   | "DUPLICATE"
-  | "DAILY_CAP"
+  | "TIER_NOT_MET"
   | "SESSION"
   | "CANDLE_SANITY"
   | "EXPIRED"
@@ -74,7 +74,6 @@ export type Rulebook = {
   version: string;
   closed_candles_only: boolean;
   min_rr_tp1: number;
-  max_daily_actionable: number;
   max_data_age_seconds: number;
   max_spread_atr_ratio: number;
   late_entry_max_atr_from_entry: number;
@@ -99,14 +98,6 @@ export type Rulebook = {
   grades: { A_PLUS: number; A: number; B: number; C: number };
   /** Minimum reward-to-risk at TP1 per tier. Only C relaxes the RR floor. */
   tier_min_rr: { A_PLUS: number; A: number; B: number; C: number };
-  /** Daily actionable allowance per tier bucket (A+ and A share the A bucket). */
-  /**
-   * Daily actionable allowance per tier bucket (A+ and A share the A bucket).
-   * A value of 0 (or any non-positive number) means unlimited: no cap is
-   * claimed and DAILY_CAP can never block a signal.
-   */
-  tier_daily_max: { A: number; B: number; C: number };
-
   /** Precision entry engine settings. See `PrecisionRules`. */
   precision: PrecisionRules;
 };
@@ -224,10 +215,9 @@ export function precisionRulesFor(
 }
 
 export const DEFAULT_RULEBOOK: Rulebook = {
-  version: "v1.5.0-live",
+  version: "v2.1.0-live",
   closed_candles_only: true,
   min_rr_tp1: 2.0,
-  max_daily_actionable: 30,
   max_data_age_seconds: 300,
   max_spread_atr_ratio: 0.15,
   late_entry_max_atr_from_entry: 1.5,
@@ -242,14 +232,8 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   max_stop_atr_multiple: 4,
   grades: { A_PLUS: 95, A: 90, B: 80, C: 70 },
   tier_min_rr: { A_PLUS: 2.0, A: 2.0, B: 1.5, C: 1.2 },
-  tier_daily_max: { A: 30, B: 20, C: 20 },
   precision: DEFAULT_PRECISION,
 };
-
-/** A non-positive or non-finite cap means "no daily limit". */
-export function isUnlimitedCap(max: number | null | undefined): boolean {
-  return !Number.isFinite(max ?? NaN) || (max as number) <= 0;
-}
 
 /** Candle-gap tolerance for one instrument, honouring any rulebook override. */
 export function candleGapMultipleFor(rulebook: Rulebook, symbol: string): number {

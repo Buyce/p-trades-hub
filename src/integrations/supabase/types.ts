@@ -312,7 +312,10 @@ export type Database = {
           last_checked_at: string | null
           metadata: Json
           preferred_entry: number | null
+          provisional_grade: Database["public"]["Enums"]["signal_grade"] | null
+          provisional_score: number | null
           resolved_at: string | null
+          retest_deadline: string | null
           signal_id: string
           state: string
           stop_loss: number | null
@@ -323,6 +326,7 @@ export type Database = {
           trigger_level: number | null
           trigger_summary: string | null
           trigger_timeframe: string | null
+          triggered_at: string | null
           updated_at: string
           zone_width_points: number | null
         }
@@ -345,7 +349,10 @@ export type Database = {
           last_checked_at?: string | null
           metadata?: Json
           preferred_entry?: number | null
+          provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
+          provisional_score?: number | null
           resolved_at?: string | null
+          retest_deadline?: string | null
           signal_id: string
           state?: string
           stop_loss?: number | null
@@ -356,6 +363,7 @@ export type Database = {
           trigger_level?: number | null
           trigger_summary?: string | null
           trigger_timeframe?: string | null
+          triggered_at?: string | null
           updated_at?: string
           zone_width_points?: number | null
         }
@@ -378,7 +386,10 @@ export type Database = {
           last_checked_at?: string | null
           metadata?: Json
           preferred_entry?: number | null
+          provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
+          provisional_score?: number | null
           resolved_at?: string | null
+          retest_deadline?: string | null
           signal_id?: string
           state?: string
           stop_loss?: number | null
@@ -389,6 +400,7 @@ export type Database = {
           trigger_level?: number | null
           trigger_summary?: string | null
           trigger_timeframe?: string | null
+          triggered_at?: string | null
           updated_at?: string
           zone_width_points?: number | null
         }
@@ -854,6 +866,9 @@ export type Database = {
           entry_zone_low: number | null
           expires_at_utc: string | null
           external_id: string | null
+          final_grade: Database["public"]["Enums"]["signal_grade"] | null
+          final_score: number | null
+          final_score_components: Json
           fingerprint: string | null
           grade: Database["public"]["Enums"]["signal_grade"] | null
           id: string
@@ -866,6 +881,8 @@ export type Database = {
           macro_context: Json
           preferred_entry: number | null
           price_at_alert: number | null
+          provisional_grade: Database["public"]["Enums"]["signal_grade"] | null
+          provisional_score: number | null
           reasons: Json
           rejection_reasons: Json
           rr_tp1: number | null
@@ -873,6 +890,7 @@ export type Database = {
           rulebook_version: string | null
           scanner_run_id: string | null
           score: number | null
+          score_calculated_at: string | null
           score_components: Json
           setup_type: string | null
           shadow_mode: boolean
@@ -901,6 +919,9 @@ export type Database = {
           entry_zone_low?: number | null
           expires_at_utc?: string | null
           external_id?: string | null
+          final_grade?: Database["public"]["Enums"]["signal_grade"] | null
+          final_score?: number | null
+          final_score_components?: Json
           fingerprint?: string | null
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
@@ -913,6 +934,8 @@ export type Database = {
           macro_context?: Json
           preferred_entry?: number | null
           price_at_alert?: number | null
+          provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
+          provisional_score?: number | null
           reasons?: Json
           rejection_reasons?: Json
           rr_tp1?: number | null
@@ -920,6 +943,7 @@ export type Database = {
           rulebook_version?: string | null
           scanner_run_id?: string | null
           score?: number | null
+          score_calculated_at?: string | null
           score_components?: Json
           setup_type?: string | null
           shadow_mode?: boolean
@@ -948,6 +972,9 @@ export type Database = {
           entry_zone_low?: number | null
           expires_at_utc?: string | null
           external_id?: string | null
+          final_grade?: Database["public"]["Enums"]["signal_grade"] | null
+          final_score?: number | null
+          final_score_components?: Json
           fingerprint?: string | null
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
@@ -960,6 +987,8 @@ export type Database = {
           macro_context?: Json
           preferred_entry?: number | null
           price_at_alert?: number | null
+          provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
+          provisional_score?: number | null
           reasons?: Json
           rejection_reasons?: Json
           rr_tp1?: number | null
@@ -967,6 +996,7 @@ export type Database = {
           rulebook_version?: string | null
           scanner_run_id?: string | null
           score?: number | null
+          score_calculated_at?: string | null
           score_components?: Json
           setup_type?: string | null
           shadow_mode?: boolean
