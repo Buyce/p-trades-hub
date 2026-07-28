@@ -197,6 +197,71 @@ function Settings() {
         </div>
       </SectionCard>
 
+      <SectionCard title="Alerts">
+        <div className="space-y-5">
+          <p className="text-xs text-muted-foreground">
+            Alerts fire only for A / A+ setups that pass every rulebook gate, capped at the daily
+            limit. They always appear in the in-app alert list; these switches add delivery.
+          </p>
+
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <Label htmlFor="email-alerts">Email alerts</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Sent to {user?.email ?? "your account email"} with direction, entry, stop, targets
+                and R:R.
+              </p>
+            </div>
+            <Switch
+              id="email-alerts"
+              checked={Boolean(profile?.email_alerts_enabled)}
+              disabled={emailAlerts.isPending}
+              onCheckedChange={(checked) => emailAlerts.mutate(checked)}
+            />
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <Label htmlFor="push-alerts">Browser push</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {supported
+                  ? deviceSubscribed
+                    ? "This device is registered for push notifications."
+                    : "Register this device to receive alerts even when the app is closed."
+                  : "This browser does not support push notifications."}
+              </p>
+            </div>
+            <Switch
+              id="push-alerts"
+              checked={Boolean(profile?.push_alerts_enabled)}
+              disabled={pushAlerts.isPending}
+              onCheckedChange={(checked) => pushAlerts.mutate(checked)}
+            />
+          </div>
+
+          <Button
+            variant="outline"
+            className="h-12 w-full"
+            disabled={
+              !supported ||
+              !pushKey?.publicKey ||
+              enableDevice.isPending ||
+              disableDevice.isPending
+            }
+            onClick={() => (deviceSubscribed ? disableDevice.mutate() : enableDevice.mutate())}
+          >
+            {deviceSubscribed ? "Unregister this device" : "Enable push on this device"}
+          </Button>
+
+          <DataRow
+            label="Permission"
+            value={pushPermission()}
+            mono={false}
+          />
+        </div>
+      </SectionCard>
+
+
       <SectionCard title="Account">
         <DataRow label="Email" value={user?.email ?? undefined} />
         <DataRow label="Access" value={isStaff ? "Owner / admin" : "Trader"} />
