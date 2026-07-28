@@ -199,28 +199,89 @@ export function detectBreakRetest(input: SetupInput): SetupResult {
   };
 }
 
+/** Result of running every family, with the selection reasoning preserved. */
+export interface SetupDetectionResult {
+  selected: SetupResult | null;
+  completeResults: SetupResult[];
+  armableResults: SetupResult[];
+  diagnosticResults: SetupResult[];
+  /** Which branch of the hierarchy produced `selected`. */
+  selectedFrom: "COMPLETE" | "ARMABLE" | "DIAGNOSTIC" | "NONE";
+}
+
+/** How far a family progressed. Diagnostics only — never an arming decision. */
+export function setupProgress(r: SetupResult): number {
+  return (
+    (r.retestFound ? 4 : 0) +
+    (r.sweepFound ? 2 : 0) +
+    (r.structureType !== null ? 1 : 0) +
+    (r.displacementAtr !== null ? 1 : 0)
+  );
+}
+
+function bestBy(results: SetupResult[], rank: (r: SetupResult) => number): SetupResult | null {
+  if (results.length === 0) return null;
+  return results.reduce((best, r) => (rank(r) > rank(best) ? r : best), results[0]);
+}
+
 /**
- * Runs every family in priority order and returns the first complete setup.
- * When nothing completes, the best partial result is returned so the gates can
- * store a precise reason for the rejection.
+ * Runs every family and selects in a strict hierarchy:
+ *   A. the first COMPLETE setup;
+ *   B. otherwise the best ARMABLE partial (armability is evaluated per family,
+ *      never on a single pre-chosen "best partial");
+ *   C. otherwise the best diagnostic partial, purely so the rejection row can
+ *      explain what stopped.
+ *
+ * `isArmable` is injected so this module stays free of rulebook policy.
  */
-export function detectSetup(input: SetupInput): SetupResult {
+export function detectSetupDetailed(
+  input: SetupInput,
+  isArmable: (setup: SetupResult) => boolean = () => false,
+): SetupDetectionResult {
   const detectors = [
     detectSweepDisplacementRetest,
     detectPullbackContinuation,
     detectBreakRetest,
   ];
-  const results = detectors.map((d) => d(input));
-  const complete = results.find((r) => r.found);
-  if (complete) return complete;
-  // Best partial: whichever detector got furthest. Ranked, not ordered by
-  // family — a break/retest that reached its retest is a more informative
-  // rejection than a sweep that never displaced.
-  const progress = (r: SetupResult) =>
-    (r.retestFound ? 4 : 0) +
-    (r.sweepFound ? 2 : 0) +
-    (r.structureType !== null ? 1 : 0) +
-    (r.displacementAtr !== null ? 1 : 0);
-  return results.reduce((best, r) => (progress(r) > progress(best) ? r : best), results[0]);
+  const diagnosticResults = detectors.map((d) => d(input));
+  const completeResults = diagnosticResults.filter((r) => r.found);
+  const armableResults = diagnosticResults.filter((r) => !r.found && isArmable(r));
+
+  if (completeResults.length > 0) {
+    return {
+      selected: completeResults[0],
+      completeResults,
+      armableResults,
+      diagnosticResults,
+      selectedFrom: "COMPLETE",
+    };
+  }
+  const armable = bestBy(armableResults, setupProgress);
+  if (armable) {
+    return {
+      selected: armable,
+      completeResults,
+      armableResults,
+      diagnosticResults,
+      selectedFrom: "ARMABLE",
+    };
+  }
+  const diagnostic = bestBy(diagnosticResults, setupProgress);
+  return {
+    selected: diagnostic,
+    completeResults,
+    armableResults,
+    diagnosticResults,
+    selectedFrom: diagnostic ? "DIAGNOSTIC" : "NONE",
+  };
+}
+
+/** Backwards-compatible single-result form. */
+export function detectSetup(
+  input: SetupInput,
+  isArmable?: (setup: SetupResult) => boolean,
+): SetupResult {
+  const result = detectSetupDetailed(input, isArmable);
+  return result.selected ?? empty("SWEEP_DISPLACEMENT_RETEST");
 }
 
