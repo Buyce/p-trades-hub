@@ -116,8 +116,20 @@ export function StatusPill({
 /**
  * Renders the tier stored on the record. The badge never derives or upgrades a
  * tier — an unlabelled record shows as unavailable rather than guessing.
+ *
+ * When a `signalId` is supplied the badge also arms the tier mismatch detector,
+ * which compares what is on screen with the stored tier and reports any drift.
  */
-export function GradeBadge({ grade }: { grade: string | null | undefined }) {
+export function GradeBadge({
+  grade,
+  signalId,
+  surface = "grade-badge",
+}: {
+  grade: string | null | undefined;
+  signalId?: string | null;
+  surface?: string;
+}) {
+  useTierMismatchGuard(signalId, grade, surface);
   const label = gradeLabel(grade);
   const top = grade === "A_PLUS" || grade === "A";
   return (
