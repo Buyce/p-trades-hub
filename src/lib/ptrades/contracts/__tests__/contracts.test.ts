@@ -89,8 +89,9 @@ describe("rulebook contract", () => {
     expect(checkContract("rulebook", rulebook).valid).toBe(true);
   });
 
-  it("rejects a daily cap above the mandate", () => {
-    expect(checkContract("rulebook", { ...rulebook, max_daily_actionable: 25 }).valid).toBe(
+  it("accepts the raised daily cap and rejects anything above it", () => {
+    expect(checkContract("rulebook", { ...rulebook, max_daily_actionable: 30 }).valid).toBe(true);
+    expect(checkContract("rulebook", { ...rulebook, max_daily_actionable: 31 }).valid).toBe(
       false,
     );
   });

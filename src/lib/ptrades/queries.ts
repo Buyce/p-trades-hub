@@ -56,7 +56,7 @@ import { utcTradingDay } from "./time";
 
 export { utcTradingDay };
 
-export const MAX_DAILY_ALERTS = 2;
+export const MAX_DAILY_ALERTS = 30;
 
 /* ---- journal / performance analytics (reporting only, not trading logic) ---- */
 

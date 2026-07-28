@@ -16,7 +16,7 @@
     "version": { "type": "string", "minLength": 1 },
     "closed_candles_only": { "type": "boolean" },
     "min_rr_tp1": { "type": "number", "minimum": 0 },
-    "max_daily_actionable": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "max_daily_actionable": { "type": "integer", "minimum": 0, "maximum": 30 },
     "max_data_age_seconds": { "type": "number", "minimum": 0 },
     "max_spread_atr_ratio": { "type": "number", "minimum": 0 },
     "late_entry_max_atr_from_entry": { "type": "number", "minimum": 0 },

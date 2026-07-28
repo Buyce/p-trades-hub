@@ -84,10 +84,10 @@ export type Rulebook = {
 };
 
 export const DEFAULT_RULEBOOK: Rulebook = {
-  version: "v1.2.0-shadow",
+  version: "v1.4.0-live",
   closed_candles_only: true,
   min_rr_tp1: 2.0,
-  max_daily_actionable: 2,
+  max_daily_actionable: 30,
   max_data_age_seconds: 300,
   max_spread_atr_ratio: 0.15,
   late_entry_max_atr_from_entry: 0.5,

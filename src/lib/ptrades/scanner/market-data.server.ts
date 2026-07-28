@@ -73,8 +73,10 @@ export class MarketDataNotConfiguredError extends MarketDataError {
   }
 }
 
-const DEFAULT_TIMEOUT_MS = 25_000;
-const DEFAULT_ATTEMPTS = 3;
+// A whole scan (five instruments x five timeframes) must finish well inside a
+// single worker invocation, so a single read gets a short budget and one retry.
+const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_ATTEMPTS = 2;
 const RETRY_BASE_MS = 400;
 
 function fail(operation: string, error: unknown): never {
