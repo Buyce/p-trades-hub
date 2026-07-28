@@ -2,11 +2,12 @@
  * Shared scanner types. Pure data shapes — no trading logic, no secrets.
  */
 
-export type Timeframe = "M5" | "M15" | "1h" | "4h" | "1d";
+export type Timeframe = "M1" | "M5" | "M15" | "1h" | "4h" | "1d";
 
-export const TIMEFRAMES: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
+export const TIMEFRAMES: Timeframe[] = ["M1", "M5", "M15", "1h", "4h", "1d"];
 
 export const TIMEFRAME_LABEL: Record<Timeframe, string> = {
+  M1: "M1",
   M5: "M5",
   M15: "M15",
   "1h": "H1",
@@ -15,6 +16,7 @@ export const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 };
 
 export const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
+  M1: 60,
   M5: 300,
   M15: 900,
   "1h": 3600,
@@ -39,6 +41,11 @@ export type Swing = { index: number; price: number; time: string };
 
 export type GateCode =
   | "MISSING_DATA"
+  | "NO_MICRO_TRIGGER"
+  | "NO_MICRO_RETEST"
+  | "NOT_NEAR_ENTRY"
+  | "MISSING_INVALIDATION"
+  | "TARGET_TOUCHED"
   | "STALE_DATA"
   | "SPREAD"
   | "NEWS_LOCKOUT"
@@ -100,7 +107,121 @@ export type Rulebook = {
    */
   tier_daily_max: { A: number; B: number; C: number };
 
+  /** Precision entry engine settings. See `PrecisionRules`. */
+  precision: PrecisionRules;
 };
+
+/**
+ * Lifecycle of a setup, from detection through to a tradable execution moment.
+ * Only ENTRY_READY may ever produce an alert.
+ */
+export type SetupLifecycleState =
+  | "DETECTED"
+  | "ARMED"
+  | "MICRO_TRIGGERED"
+  | "ENTRY_READY"
+  | "MISSED"
+  | "EXPIRED"
+  | "INVALIDATED";
+
+export const LIFECYCLE_STATES: SetupLifecycleState[] = [
+  "DETECTED",
+  "ARMED",
+  "MICRO_TRIGGERED",
+  "ENTRY_READY",
+  "MISSED",
+  "EXPIRED",
+  "INVALIDATED",
+];
+
+/** Per-instrument execution parameters. All widths are in points. */
+export type PrecisionInstrumentRules = {
+  /** Narrowest acceptable execution zone, in points. */
+  min: number;
+  /** Widest acceptable execution zone, in points. */
+  max: number;
+  spreadMult: number;
+  atrM1: number;
+  atrM5: number;
+  /** How far price may extend past the planned entry, as a fraction of risk. */
+  maxExtensionR: number;
+  /** How close the live quote must sit to the preferred entry, in points. */
+  proximityPoints: number;
+  /** How long a setup stays ARMED before it expires. */
+  armedExpiryMinutes: number;
+};
+
+export type PrecisionRules = {
+  enabled: boolean;
+  /** Closed M1 candles allowed between the micro trigger and its retest. */
+  trigger_expiry_bars: number;
+  /** Reward-to-risk that must still be available at the preferred entry. */
+  min_entry_ready_rr: number;
+  default: PrecisionInstrumentRules;
+  instruments: Record<string, PrecisionInstrumentRules>;
+};
+
+export const DEFAULT_PRECISION_INSTRUMENT: PrecisionInstrumentRules = {
+  min: 4,
+  max: 10,
+  spreadMult: 2.0,
+  atrM1: 0.05,
+  atrM5: 0.02,
+  maxExtensionR: 0.15,
+  proximityPoints: 6,
+  armedExpiryMinutes: 30,
+};
+
+export const DEFAULT_PRECISION: PrecisionRules = {
+  enabled: true,
+  trigger_expiry_bars: 3,
+  min_entry_ready_rr: 2.0,
+  default: DEFAULT_PRECISION_INSTRUMENT,
+  instruments: {
+    EURUSD: { ...DEFAULT_PRECISION_INSTRUMENT, min: 3, max: 8, proximityPoints: 5 },
+    GBPUSD: { ...DEFAULT_PRECISION_INSTRUMENT },
+    GBPAUD: {
+      ...DEFAULT_PRECISION_INSTRUMENT,
+      min: 6,
+      max: 14,
+      atrM1: 0.06,
+      atrM5: 0.025,
+      maxExtensionR: 0.18,
+      proximityPoints: 8,
+    },
+    USDJPY: { ...DEFAULT_PRECISION_INSTRUMENT, min: 3, max: 8, proximityPoints: 5 },
+    XAUUSD: {
+      ...DEFAULT_PRECISION_INSTRUMENT,
+      min: 20,
+      max: 80,
+      atrM1: 0.04,
+      atrM5: 0.015,
+      maxExtensionR: 0.12,
+      proximityPoints: 30,
+      armedExpiryMinutes: 20,
+    },
+    NAS100: {
+      ...DEFAULT_PRECISION_INSTRUMENT,
+      min: 20,
+      max: 80,
+      atrM1: 0.04,
+      atrM5: 0.015,
+      maxExtensionR: 0.12,
+      proximityPoints: 30,
+      armedExpiryMinutes: 20,
+    },
+  },
+};
+
+/** Execution parameters for one instrument, falling back to the defaults. */
+export function precisionRulesFor(
+  rulebook: Rulebook,
+  symbol: string,
+): PrecisionInstrumentRules {
+  const precision = rulebook.precision ?? DEFAULT_PRECISION;
+  const base = { ...DEFAULT_PRECISION_INSTRUMENT, ...(precision.default ?? {}) };
+  return { ...base, ...(precision.instruments?.[symbol] ?? {}) };
+}
 
 export const DEFAULT_RULEBOOK: Rulebook = {
   version: "v1.5.0-live",
@@ -122,6 +243,7 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   grades: { A_PLUS: 95, A: 90, B: 80, C: 70 },
   tier_min_rr: { A_PLUS: 2.0, A: 2.0, B: 1.5, C: 1.2 },
   tier_daily_max: { A: 30, B: 20, C: 20 },
+  precision: DEFAULT_PRECISION,
 };
 
 /** A non-positive or non-finite cap means "no daily limit". */

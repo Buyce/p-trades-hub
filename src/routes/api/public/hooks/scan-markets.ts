@@ -33,11 +33,19 @@ export const Route = createFileRoute("/api/public/hooks/scan-markets")({
 
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { runScan } = await import("@/lib/ptrades/scanner/run.server");
+        const { runScan, loadActiveRulebook } = await import(
+          "@/lib/ptrades/scanner/run.server"
+        );
+        const { runPrecisionLoop } = await import("@/lib/ptrades/scanner/precision.server");
 
         try {
           const summary = await runScan(supabaseAdmin);
-          return Response.json(summary, { status: summary.ok ? 200 : 503 });
+          // Execution timing lives in the remainder of this invocation: armed
+          // setups are polled every few seconds until the minute is nearly up.
+          // Only this loop may turn a setup into an actionable alert.
+          const rulebook = await loadActiveRulebook(supabaseAdmin);
+          const precision = await runPrecisionLoop(supabaseAdmin, rulebook);
+          return Response.json({ ...summary, precision }, { status: summary.ok ? 200 : 503 });
         } catch (error) {
           const message = error instanceof Error ? error.message : "scan failed";
           console.error("scan-markets failed", message);

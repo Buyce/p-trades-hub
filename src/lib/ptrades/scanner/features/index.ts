@@ -31,3 +31,18 @@ export {
   type CandleReject,
   type NormalisedCandles,
 } from "../candles.server";
+
+/* Precision entry engine — execution timing, kept in the same barrel so a
+ * duplicate implementation has nowhere to hide. */
+export { getPipSize, priceDistanceToPips, priceDistanceToPoints, pointsToPrice, pointSizeFor } from "../pips.server";
+export {
+  isPriceNearEntry,
+  distanceToEntryPoints,
+  calculateExtensionR,
+  targetAlreadyTouched,
+} from "../proximity.server";
+export { entryAnchorForSetup, microEntryAnchor } from "../entry-anchor.server";
+export { calculateAdaptiveZoneWidthPoints, buildExecutionZone } from "../entry-zone.server";
+export { detectMicroTrigger, type MicroTriggerResult } from "../micro-trigger.server";
+export { buildInvalidation, hasInvalidation, isInvalidated } from "../invalidation.server";
+export { canTransition, transition, isAlertable, isTerminal, armedExpiry, triggerExpiry } from "../lifecycle.server";

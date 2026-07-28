@@ -5,6 +5,7 @@ import {
   TIMEFRAME_SECONDS,
   candleGapMultipleFor,
   isUnlimitedCap,
+  precisionRulesFor,
 } from "./types";
 
 import { marketData } from "./market-data.server";
@@ -25,7 +26,13 @@ import { checkCandleSanity } from "./sanity.server";
 import { sessionAt } from "./sessions.server";
 import { currenciesFor, macroContextFor, type MacroEvent } from "./macro.server";
 import { resolveSymbol, roundToDigits, type InstrumentRow } from "./symbols.server";
+import { entryAnchorForSetup } from "./entry-anchor.server";
+import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
+import { buildInvalidation, hasInvalidation } from "./invalidation.server";
+import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
 import { acquireScanLock, releaseScanLock } from "./lock.server";
+import { armedExpiry } from "./lifecycle.server";
+import { tierBucket } from "../tiers";
 import {
   biasConflict,
   candleSanity,
@@ -34,6 +41,7 @@ import {
   expiry,
   failedGates,
   invalidStop,
+  invalidationGate,
   lateEntry,
   missingData,
   newsLockout,
@@ -43,23 +51,20 @@ import {
   spreadGate,
   staleData,
 } from "./gates.server";
-import { tierBucket, type Tier } from "../tiers";
 import {
   actionableCountToday,
   closeStaleRuns,
   cacheCandle,
-  claimActionableSlot,
-  incrementActionableCount,
 
   fingerprintExistsToday,
   finishRun,
+  openPrecisionWatch,
   promoteToSignal,
   saveCandidate,
   saveRejections,
   startRun,
   tradingDayUtc,
 } from "./persist.server";
-import { notifyQualifiedSignal } from "./notify.server";
 import { writeHeartbeat } from "./heartbeat.server";
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
@@ -74,9 +79,23 @@ export type ScanSummary = {
   candidates: number;
   qualified: number;
   actionable: number;
+  /** Setups armed this run and handed to the precision loop. */
+  armed?: number;
   rejections: number;
   message?: string;
 };
+
+/** The active rulebook, for callers outside the scan (the precision loop). */
+export async function loadActiveRulebook(admin: Admin): Promise<Rulebook> {
+  const { data } = await admin
+    .from("rulebook_versions")
+    .select("version, rules")
+    .eq("is_active", true)
+    .order("effective_from", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return parseRulebook(data);
+}
 
 function parseRulebook(row: { version: string; rules: unknown } | null): Rulebook {
   if (!row) return DEFAULT_RULEBOOK;
@@ -259,6 +278,16 @@ type Evaluation = {
   candidate: Candidate | null;
   gates: GateResult[];
   macroContext: Record<string, unknown>;
+  /** Everything the precision loop needs to arm and watch this setup. */
+  precision?: {
+    brokerSymbol: string;
+    preferredEntry: number | null;
+    zoneWidthPoints: number;
+    anchorSource: string | null;
+    structuralLevel: number | null;
+    invalidation: { price: number | null; condition: string | null; timeframe: string | null };
+    armedExpiryMinutes: number;
+  };
 };
 
 /** Evaluates a single instrument and returns its candidate plus every gate result. */
@@ -438,21 +467,6 @@ async function evaluateInstrument(
     detail: { level: setup.level, ...setup.detail },
   });
 
-  const entryLow = roundToDigits(setup.entryLow, resolved.digits);
-  const entryHigh = roundToDigits(setup.entryHigh, resolved.digits);
-  const entry = entryLow !== null && entryHigh !== null ? (entryLow + entryHigh) / 2 : null;
-  const stop = roundToDigits(
-    setup.extreme !== null && atrValue
-      ? direction === "LONG"
-        ? setup.extreme - atrValue * 0.2
-        : setup.extreme + atrValue * 0.2
-      : null,
-    resolved.digits,
-  );
-
-  gates.push(biasConflict(bias as Bias, direction));
-  gates.push(invalidStop(entry, stop, direction, atrValue, rulebook.max_stop_atr_multiple));
-
   let spread: number | null = null;
   try {
     spread = await marketData().getSpread(symbol);
@@ -468,6 +482,64 @@ async function evaluateInstrument(
       detail: { broker_symbol: symbol, operation: "getSpread" },
     });
   }
+
+  // Precision execution zone. The setup's own retest band is only an
+  // approximation of where price traded; the tradable zone is built from the
+  // anchor outwards, narrow, asymmetric and always on the favourable side.
+  const precisionRules = precisionRulesFor(rulebook, instrument.symbol);
+  const point = pointSizeFor(instrument.point_size ?? null, resolved.digits) ?? 0;
+  const anchor = entryAnchorForSetup(setup, entryCandles);
+  const atrM5 = atr(candles["M5"], rulebook.atr_period, rulebook.atr_method) ?? 0;
+  const spreadPoints =
+    point > 0 && spread !== null ? priceDistanceToPoints(spread, point) : 0;
+  const zoneWidthPoints = calculateAdaptiveZoneWidthPoints({
+    spreadPoints,
+    atrM1: 0,
+    atrM5,
+    point,
+    minimumWidthPoints: precisionRules.min,
+    maximumWidthPoints: precisionRules.max,
+    spreadMultiplier: precisionRules.spreadMult,
+    atrM1Multiplier: precisionRules.atrM1,
+    atrM5Multiplier: precisionRules.atrM5,
+  });
+  const zone =
+    anchor.anchor !== null
+      ? buildExecutionZone({
+          preferredEntry: anchor.anchor,
+          direction,
+          zoneWidthPoints,
+          point,
+        })
+      : null;
+
+  const entryLow = roundToDigits(zone ? zone.entryLow : setup.entryLow, resolved.digits);
+  const entryHigh = roundToDigits(zone ? zone.entryHigh : setup.entryHigh, resolved.digits);
+  // The plan is priced at the preferred entry, never at the middle of a band.
+  const entry =
+    roundToDigits(zone ? zone.preferredEntry : null, resolved.digits) ??
+    (entryLow !== null && entryHigh !== null ? (entryLow + entryHigh) / 2 : null);
+
+  const invalidation = buildInvalidation({
+    direction,
+    extreme: setup.extreme,
+    level: setup.level,
+    timeframe: TIMEFRAME_LABEL[ENTRY_TF],
+    digits: resolved.digits,
+  });
+  gates.push(invalidationGate(hasInvalidation(invalidation), invalidation.condition));
+
+  const stop = roundToDigits(
+    setup.extreme !== null && atrValue
+      ? direction === "LONG"
+        ? setup.extreme - atrValue * 0.2
+        : setup.extreme + atrValue * 0.2
+      : null,
+    resolved.digits,
+  );
+
+  gates.push(biasConflict(bias as Bias, direction));
+  gates.push(invalidStop(entry, stop, direction, atrValue, rulebook.max_stop_atr_multiple));
 
   gates.push(
     spreadGate(spread, atrValue, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null),
@@ -589,6 +661,15 @@ async function evaluateInstrument(
   return {
     candidate,
     gates,
+    precision: {
+      brokerSymbol: symbol,
+      preferredEntry: entry,
+      zoneWidthPoints,
+      anchorSource: anchor.source,
+      structuralLevel: setup.level,
+      invalidation,
+      armedExpiryMinutes: precisionRules.armedExpiryMinutes,
+    },
     macroContext: {
       session,
       currencies,
@@ -615,6 +696,7 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     candidates: 0,
     qualified: 0,
     actionable: 0,
+    armed: 0,
     rejections: 0,
     message,
   });
@@ -688,6 +770,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   let candidates = 0;
   let qualifiedCount = 0;
   let actionable = 0;
+  let armed = 0;
   let rejectionCount = 0;
   const runRejections: Array<{ instrument: string; gate: string; reason: string }> = [];
   let metaapiConnected = true;
@@ -742,30 +825,12 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
         continue;
       }
 
-      // Live mode: when a tier is capped, claim a slot atomically BEFORE
-      // promoting so concurrent work can never exceed that cap. When the tier
-      // is unlimited, no slot is claimed — the counter is still kept up to
-      // date, but purely as a statistic.
-      const tier = (result.candidate.grade ?? "C") as Tier;
-      const bucket = tierBucket(tier);
-      const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
-      const unlimited = isUnlimitedCap(bucketMax);
-
-      if (unlimited) {
-        await incrementActionableCount(admin, 0, bucket);
-      } else {
-        const claimed = await claimActionableSlot(admin, bucketMax, bucket);
-        if (!claimed) {
-          runRejections.push({
-            instrument: instrument.symbol,
-            gate: "DAILY_CAP",
-            reason: "Daily actionable cap already claimed.",
-          });
-          continue;
-        }
-      }
-
-
+      // Live mode: the scan no longer alerts. It arms the setup and hands
+      // execution timing to the precision loop, which is the only place a
+      // signal may become actionable. Daily allowances are claimed there too,
+      // so an armed setup that never triggers cannot consume one.
+      const armedAt = new Date();
+      const precision = result.precision;
       const signalId = await promoteToSignal(admin, result.candidate, {
         candidateId,
         runId,
@@ -773,25 +838,46 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
         rulebookChecksum: checksum,
         shadowMode,
         macroContext: result.macroContext,
+        precision: {
+          preferredEntry: precision?.preferredEntry ?? null,
+          zoneWidthPoints: precision?.zoneWidthPoints ?? null,
+          invalidation: precision?.invalidation.condition ?? null,
+          invalidationPrice: precision?.invalidation.price ?? null,
+          invalidationTimeframe: precision?.invalidation.timeframe ?? null,
+          lifecycleState: "ARMED",
+          armedAt: armedAt.toISOString(),
+        },
       });
 
-      if (signalId) {
-        actionable += 1;
-        await notifyQualifiedSignal(admin, {
-          shadowMode,
-          signalId,
-          instrument: result.candidate.instrument,
+      if (signalId && precision) {
+        armed += 1;
+        await openPrecisionWatch(admin, {
+          signal_id: signalId,
+          symbol: result.candidate.instrument,
+          broker_symbol: precision.brokerSymbol,
           direction: result.candidate.direction,
-          grade: result.candidate.grade,
-          setupType: result.candidate.setup_type,
-          timeframe: result.candidate.timeframe,
-          entryZoneLow: result.candidate.entry_zone_low,
-          entryZoneHigh: result.candidate.entry_zone_high,
-          stopLoss: result.candidate.stop_loss,
-          targets: result.candidate.targets,
-          rr: result.candidate.rr_tp1,
-          score: result.candidate.score,
-          reasons: result.candidate.reasons,
+          state: "ARMED",
+          armed_at: armedAt.toISOString(),
+          expires_at: armedExpiry(armedAt, precision.armedExpiryMinutes),
+          entry_anchor: precision.preferredEntry,
+          anchor_source: precision.anchorSource,
+          preferred_entry: precision.preferredEntry,
+          entry_zone_low: result.candidate.entry_zone_low,
+          entry_zone_high: result.candidate.entry_zone_high,
+          zone_width_points: precision.zoneWidthPoints,
+          stop_loss: result.candidate.stop_loss,
+          targets: result.candidate.targets as never,
+          structural_level: precision.structuralLevel,
+          invalidation_price: precision.invalidation.price,
+          invalidation_condition: precision.invalidation.condition,
+          invalidation_timeframe: precision.invalidation.timeframe,
+          metadata: {
+            grade: result.candidate.grade,
+            setup_type: result.candidate.setup_type,
+            score: result.candidate.score,
+            rr_tp1: result.candidate.rr_tp1,
+            reasons: result.candidate.reasons,
+          } as never,
         });
       }
     } catch (error) {
@@ -829,6 +915,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
       instruments: symbols,
       candidates,
       qualified: qualifiedCount,
+      armed,
       rejections: rejectionCount,
       macro_events: macroEvents.length,
       account: accountInfo
@@ -852,6 +939,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
     candidates,
     qualified: qualifiedCount,
     actionable,
+    armed,
     rejections: rejectionCount,
     message: errorMessage ?? undefined,
   };
