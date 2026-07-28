@@ -1078,6 +1078,14 @@ async function runScanLocked(
       rulebook_checksum: checksum,
       session: sessionAt(new Date()),
       instruments: symbols,
+      // Completion telemetry: a SKIPPED heartbeat must never hide when the
+      // last full context scan actually finished, or how long it took.
+      completed_symbols: completedSymbols,
+      symbols_completed: completedSymbols.length,
+      symbols_started: symbols.length,
+      duration_ms: Date.now() - startedAtMs,
+      completed_at: new Date().toISOString(),
+      lock_holder: holder,
       candidates,
       qualified: qualifiedCount,
       armed,
