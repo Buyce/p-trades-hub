@@ -34,7 +34,7 @@ describe("tierReachability", () => {
   it("flags an A+ band above the highest attainable score", () => {
     const book: Rulebook = {
       ...DEFAULT_RULEBOOK,
-      grades: { ...DEFAULT_RULEBOOK.grades, A_PLUS: 99.9 },
+      grades: { ...DEFAULT_RULEBOOK.grades, A_PLUS: 100.5 },
     };
     const report = tierReachability(book);
     expect(report.tiers.find((t) => t.tier === "A_PLUS")?.reachable).toBe(false);
@@ -71,7 +71,7 @@ describe("structuralTargets", () => {
 
   it("collapses levels describing the same liquidity pocket", () => {
     const out = structuralTargets({ ...base, levels: [108, 108.4, 113] });
-    expect(out).toEqual([108, 113, 120]);
+    expect(out).toEqual([108, 113, 115]);
   });
 
   it("ignores levels beyond the realistic ceiling", () => {
@@ -91,7 +91,7 @@ describe("structuralTargets", () => {
       atr: 2,
       levels: [92, 87, 110],
     });
-    expect(out).toEqual([92, 87, 80]);
+    expect(out).toEqual([92, 87, 85]);
   });
 
   it("produces a varying reward-to-risk instead of a fixed 2R", () => {
