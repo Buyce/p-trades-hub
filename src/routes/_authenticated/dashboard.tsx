@@ -5,18 +5,24 @@ import { ArrowRight } from "lucide-react";
 import {
   activeRulebookQuery,
   latestHeartbeatQuery,
+  componentHeartbeatsQuery,
+  contextRuntimeQuery,
   myTradesQuery,
   signalsTodayQuery,
   expectancy,
   tradesSince,
-
-  
 } from "@/lib/ptrades/queries";
 import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import { useProfile, useSessionUser, useTimezone } from "@/lib/ptrades/session";
 import { updateAlertPreferences } from "@/lib/ptrades/queries";
 import { TierToggle } from "@/components/ptrades/tier-toggle";
 import { DEFAULT_TERMINAL_TIERS, parseTiers, isTier, type Tier } from "@/lib/ptrades/tiers";
+import {
+  contextRuntimeHealth,
+  heartbeatHealth,
+  heartbeatLabel,
+  heartbeatPillState,
+} from "@/lib/ptrades/heartbeat-health";
 import { field, formatTime, relativeFromNow, rr, score } from "@/lib/ptrades/format";
 import {
   DataRow,
@@ -36,7 +42,7 @@ export const Route = createFileRoute("/_authenticated/dashboard")({
       {
         name: "description",
         content:
-          "Live scanner status, today's actionable A/A+ alerts, open trades and weekly expectancy.",
+          "Live scanner status, today's actionable A+, A, B and C alerts, open trades and weekly expectancy.",
       },
       { property: "og:title", content: "Dashboard — P-Trades" },
       {
@@ -52,6 +58,8 @@ function Dashboard() {
   const tz = useTimezone();
   const { data: signals = [] } = useQuery(signalsTodayQuery());
   const { data: heartbeat } = useQuery(latestHeartbeatQuery());
+  const { data: components } = useQuery(componentHeartbeatsQuery());
+  const { data: contextSnapshot } = useQuery(contextRuntimeQuery());
   const { data: rulebook } = useQuery(activeRulebookQuery());
   const { data: trades = [] } = useQuery(myTradesQuery());
 
@@ -84,17 +92,30 @@ function Dashboard() {
   const openTrades = trades.filter((t) => t.status === "OPEN");
   const weekly = expectancy(tradesSince(trades, Date.now() - 7 * 86_400_000));
 
-  const heartbeatAgeMin = heartbeat
-    ? (Date.now() - new Date(heartbeat.received_at).getTime()) / 60_000
-    : null;
-  const linkState =
-    heartbeatAgeMin === null ? "idle" : heartbeatAgeMin < 10 ? "ok" : heartbeatAgeMin < 60 ? "warn" : "down";
+  // Liveness comes from heartbeat AGE, never from the status word on the last
+  // stored row: a stale "OK" is an offline scanner, not a healthy one.
+  const contextBeat = components?.CONTEXT_SCANNER ?? null;
+  const precisionBeat = components?.PRECISION_SCANNER ?? null;
+  // A fresh SKIPPED heartbeat is not a healthy context scanner: liveness also
+  // requires a recently COMPLETED scan.
+  const contextRuntime = contextRuntimeHealth({
+    latestAt: contextBeat?.received_at,
+    recentStatuses: contextSnapshot?.recentStatuses,
+    lastSuccessAt: contextSnapshot?.lastSuccessAt,
+  });
+  const contextHealth = contextRuntime.health;
+  const precisionHealth = heartbeatHealth(precisionBeat?.received_at);
+  const newest = [contextBeat?.received_at, precisionBeat?.received_at, heartbeat?.received_at]
+    .filter((v): v is string => Boolean(v))
+    .sort()
+    .at(-1);
+  const overallHealth = heartbeatHealth(newest);
 
   // The scanner records the broker server on every heartbeat, so the feed name
   // is available even when the direct MetaApi account lookup is unavailable.
   const heartbeatServer =
-    (heartbeat?.detail as { account?: { server?: string | null } } | null | undefined)?.account
-      ?.server ?? null;
+    ((contextBeat ?? heartbeat)?.detail as { account?: { server?: string | null } } | null | undefined)
+      ?.account?.server ?? null;
 
   return (
     <div className="space-y-4">
@@ -106,14 +127,39 @@ function Dashboard() {
       <SectionCard
         title="Market data link"
         action={
-          <StatusPill state={linkState}>
-            {heartbeat ? `Heartbeat ${relativeFromNow(heartbeat.received_at)}` : "No heartbeat"}
+          <StatusPill state={heartbeatPillState(overallHealth)}>
+            {newest ? `${heartbeatLabel(overallHealth)} · ${relativeFromNow(newest)}` : "No heartbeat"}
           </StatusPill>
         }
       >
         <DataRow
-          label="Scanner status"
-          value={heartbeat ? field(heartbeat.status) : undefined}
+          label="Context scan"
+          value={
+            contextBeat
+              ? `${heartbeatLabel(contextHealth)} · ${field(contextBeat.status)} · ${relativeFromNow(contextBeat.received_at)}`
+              : "Not reporting"
+          }
+        />
+        <DataRow
+          label="Last completed scan"
+          value={
+            contextSnapshot?.lastSuccessAt
+              ? `${relativeFromNow(contextSnapshot.lastSuccessAt)} · ${contextSnapshot.lastSuccessSymbolsCompleted ?? "?"}/${contextSnapshot.lastSuccessSymbolsStarted ?? "?"} symbols · ${
+                  contextSnapshot.lastSuccessDurationMs
+                    ? `${Math.round(contextSnapshot.lastSuccessDurationMs / 1000)}s`
+                    : "duration n/a"
+                }`
+              : "No context scan has completed"
+          }
+        />
+
+        <DataRow
+          label="Precision pass"
+          value={
+            precisionBeat
+              ? `${heartbeatLabel(precisionHealth)} · ${field(precisionBeat.status)} · ${relativeFromNow(precisionBeat.received_at)}`
+              : "Not reporting"
+          }
         />
         <DataRow
           label="MT5 connection"
@@ -132,7 +178,7 @@ function Dashboard() {
         <DataRow label="Broker feed" value={field(link?.server ?? heartbeatServer)} />
         <DataRow
           label="Last heartbeat"
-          value={heartbeat ? formatTime(heartbeat.received_at, tz) : undefined}
+          value={newest ? formatTime(newest, tz) : undefined}
         />
         <DataRow
           label="Active rulebook"

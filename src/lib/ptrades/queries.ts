@@ -18,9 +18,12 @@ export {
   closeTrade,
   latestHeartbeatQuery,
   heartbeatHistoryQuery,
+  componentHeartbeatsQuery,
+  contextRuntimeQuery,
   scannerRunsQuery,
   blockingGatesTodayQuery,
   instrumentCoverageQuery,
+  executionFunnelQuery,
 
   lastPurgeQuery,
   RETENTION_WINDOWS,

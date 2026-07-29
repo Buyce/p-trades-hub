@@ -4,6 +4,10 @@ import { swingHighs, swingLows } from "./swings.server";
 /**
  * Liquidity sweep: price trades through a prior swing level and closes back
  * inside it. Bullish sweep takes out a swing low; bearish takes out a swing high.
+ *
+ * The candle INDEX of the sweep is returned alongside its timestamp. Chronology
+ * downstream (displacement after the sweep, retest after the break) is ordered
+ * on that index, never on string timestamps.
  */
 
 export type SweepResult = {
@@ -12,6 +16,8 @@ export type SweepResult = {
   level: number | null;
   extreme: number | null;
   sweptAt: string | null;
+  /** Index of the sweeping candle in the input series, or null. */
+  sweptIndex: number | null;
 };
 
 const NONE: SweepResult = {
@@ -20,6 +26,7 @@ const NONE: SweepResult = {
   level: null,
   extreme: null,
   sweptAt: null,
+  sweptIndex: null,
 };
 
 function priorSwings(swings: Swing[], beforeIndex: number): Swing[] {
@@ -43,6 +50,7 @@ export function detectSweep(candles: Candle[], lookback = 5, window = 6): SweepR
         level: low.price,
         extreme: c.low,
         sweptAt: c.time,
+        sweptIndex: i,
       };
     }
 
@@ -54,6 +62,7 @@ export function detectSweep(candles: Candle[], lookback = 5, window = 6): SweepR
         level: high.price,
         extreme: c.high,
         sweptAt: c.time,
+        sweptIndex: i,
       };
     }
   }

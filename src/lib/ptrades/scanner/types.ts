@@ -2,11 +2,12 @@
  * Shared scanner types. Pure data shapes — no trading logic, no secrets.
  */
 
-export type Timeframe = "M5" | "M15" | "1h" | "4h" | "1d";
+export type Timeframe = "M1" | "M5" | "M15" | "1h" | "4h" | "1d";
 
-export const TIMEFRAMES: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
+export const TIMEFRAMES: Timeframe[] = ["M1", "M5", "M15", "1h", "4h", "1d"];
 
 export const TIMEFRAME_LABEL: Record<Timeframe, string> = {
+  M1: "M1",
   M5: "M5",
   M15: "M15",
   "1h": "H1",
@@ -15,6 +16,7 @@ export const TIMEFRAME_LABEL: Record<Timeframe, string> = {
 };
 
 export const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
+  M1: 60,
   M5: 300,
   M15: 900,
   "1h": 3600,
@@ -39,6 +41,11 @@ export type Swing = { index: number; price: number; time: string };
 
 export type GateCode =
   | "MISSING_DATA"
+  | "NO_MICRO_TRIGGER"
+  | "NO_MICRO_RETEST"
+  | "NOT_NEAR_ENTRY"
+  | "MISSING_INVALIDATION"
+  | "TARGET_TOUCHED"
   | "STALE_DATA"
   | "SPREAD"
   | "NEWS_LOCKOUT"
@@ -50,7 +57,7 @@ export type GateCode =
   | "RR_BELOW_MIN"
   | "LATE_ENTRY"
   | "DUPLICATE"
-  | "DAILY_CAP"
+  | "TIER_NOT_MET"
   | "SESSION"
   | "CANDLE_SANITY"
   | "EXPIRED"
@@ -67,7 +74,6 @@ export type Rulebook = {
   version: string;
   closed_candles_only: boolean;
   min_rr_tp1: number;
-  max_daily_actionable: number;
   max_data_age_seconds: number;
   max_spread_atr_ratio: number;
   late_entry_max_atr_from_entry: number;
@@ -76,6 +82,14 @@ export type Rulebook = {
   atr_method: "WILDER" | "SMA";
   swing_lookback: number;
   displacement_min_atr: number;
+  /**
+   * Displacement required to ARM a watch (open a precision watch). Lower than
+   * `displacement_min_atr`, which remains the final-quality threshold used by
+   * scoring and the alert gates.
+   */
+  arming_displacement_min_atr?: number;
+  /** Per-instrument override of `arming_displacement_min_atr`. */
+  instrument_arming_displacement_min_atr?: Record<string, number>;
   allowed_sessions: string[];
   signal_expiry_minutes: number;
   max_candle_gap_multiple: number;
@@ -92,21 +106,151 @@ export type Rulebook = {
   grades: { A_PLUS: number; A: number; B: number; C: number };
   /** Minimum reward-to-risk at TP1 per tier. Only C relaxes the RR floor. */
   tier_min_rr: { A_PLUS: number; A: number; B: number; C: number };
-  /** Daily actionable allowance per tier bucket (A+ and A share the A bucket). */
   /**
-   * Daily actionable allowance per tier bucket (A+ and A share the A bucket).
-   * A value of 0 (or any non-positive number) means unlimited: no cap is
-   * claimed and DAILY_CAP can never block a signal.
+   * Bias eligibility policy. Reversal families (liquidity sweeps, changes of
+   * character) trade against the higher-timeframe bias by definition, so a hard
+   * equality check silently deleted half the rulebook.
    */
-  tier_daily_max: { A: number; B: number; C: number };
-
+  bias_policy?: { allow_reversals: boolean; allow_neutral: boolean };
+  /** Durable market-data plane settings. */
+  market_data?: {
+    /** How many closed candles to retain per timeframe in `market_candles`. */
+    history_bars: number;
+    /** How stale a stored series may be before the scan refuses to use it. */
+    max_store_age_multiple: number;
+  };
+  /** Precision entry engine settings. See `PrecisionRules`. */
+  precision: PrecisionRules;
 };
 
+
+/**
+ * Lifecycle of a setup, from detection through to a tradable execution moment.
+ * Only ENTRY_READY may ever produce an alert.
+ */
+export type SetupLifecycleState =
+  | "DETECTED"
+  | "ARMED"
+  | "MICRO_TRIGGERED"
+  | "ENTRY_READY"
+  | "MISSED"
+  | "EXPIRED"
+  | "INVALIDATED";
+
+export const LIFECYCLE_STATES: SetupLifecycleState[] = [
+  "DETECTED",
+  "ARMED",
+  "MICRO_TRIGGERED",
+  "ENTRY_READY",
+  "MISSED",
+  "EXPIRED",
+  "INVALIDATED",
+];
+
+/** Per-instrument execution parameters. All widths are in points. */
+export type PrecisionInstrumentRules = {
+  /** Narrowest acceptable execution zone, in points. */
+  min: number;
+  /** Widest acceptable execution zone, in points. */
+  max: number;
+  spreadMult: number;
+  atrM1: number;
+  atrM5: number;
+  /** How far price may extend past the planned entry, as a fraction of risk. */
+  maxExtensionR: number;
+  /** How close the live quote must sit to the preferred entry, in points. */
+  proximityPoints: number;
+  /** How long a setup stays ARMED before it expires. */
+  armedExpiryMinutes: number;
+};
+
+export type PrecisionRules = {
+  enabled: boolean;
+  /** Closed M1 candles allowed between the micro trigger and its retest. */
+  trigger_expiry_bars: number;
+  /**
+   * Displacement required of an M1 micro-trigger candle, in M1 ATR.
+   *
+   * This is an INDEPENDENT threshold. It used to be derived as
+   * `Math.min(1, displacement_min_atr)`, which silently coupled execution
+   * timing to the M15 structural threshold: lowering the M15 arming bar also
+   * lowered the M1 trigger bar, and no rulebook could tune one without the
+   * other.
+   */
+  displacement_m1_min_atr: number;
+  /** Reward-to-risk that must still be available at the preferred entry. */
+  min_entry_ready_rr: number;
+  default: PrecisionInstrumentRules;
+  instruments: Record<string, PrecisionInstrumentRules>;
+};
+
+export const DEFAULT_PRECISION_INSTRUMENT: PrecisionInstrumentRules = {
+  min: 4,
+  max: 10,
+  spreadMult: 2.0,
+  atrM1: 0.05,
+  atrM5: 0.02,
+  maxExtensionR: 0.15,
+  proximityPoints: 6,
+  armedExpiryMinutes: 30,
+};
+
+export const DEFAULT_PRECISION: PrecisionRules = {
+  enabled: true,
+  trigger_expiry_bars: 3,
+  displacement_m1_min_atr: 0.8,
+  min_entry_ready_rr: 2.0,
+  default: DEFAULT_PRECISION_INSTRUMENT,
+  instruments: {
+    EURUSD: { ...DEFAULT_PRECISION_INSTRUMENT, min: 3, max: 8, proximityPoints: 5 },
+    GBPUSD: { ...DEFAULT_PRECISION_INSTRUMENT },
+    GBPAUD: {
+      ...DEFAULT_PRECISION_INSTRUMENT,
+      min: 6,
+      max: 14,
+      atrM1: 0.06,
+      atrM5: 0.025,
+      maxExtensionR: 0.18,
+      proximityPoints: 8,
+    },
+    USDJPY: { ...DEFAULT_PRECISION_INSTRUMENT, min: 3, max: 8, proximityPoints: 5 },
+    XAUUSD: {
+      ...DEFAULT_PRECISION_INSTRUMENT,
+      min: 20,
+      max: 80,
+      atrM1: 0.04,
+      atrM5: 0.015,
+      maxExtensionR: 0.12,
+      proximityPoints: 30,
+      armedExpiryMinutes: 20,
+    },
+    NAS100: {
+      ...DEFAULT_PRECISION_INSTRUMENT,
+      min: 20,
+      max: 80,
+      atrM1: 0.04,
+      atrM5: 0.015,
+      maxExtensionR: 0.12,
+      proximityPoints: 30,
+      armedExpiryMinutes: 20,
+    },
+  },
+};
+
+/** Execution parameters for one instrument, falling back to the defaults. */
+export function precisionRulesFor(
+  rulebook: Rulebook,
+  symbol: string,
+): PrecisionInstrumentRules {
+  const precision = rulebook.precision ?? DEFAULT_PRECISION;
+  const base = { ...DEFAULT_PRECISION_INSTRUMENT, ...(precision.default ?? {}) };
+  return { ...base, ...(precision.instruments?.[symbol] ?? {}) };
+}
+
 export const DEFAULT_RULEBOOK: Rulebook = {
-  version: "v1.5.0-live",
+  version: "v2.1.0-live",
   closed_candles_only: true,
   min_rr_tp1: 2.0,
-  max_daily_actionable: 30,
   max_data_age_seconds: 300,
   max_spread_atr_ratio: 0.15,
   late_entry_max_atr_from_entry: 1.5,
@@ -121,13 +265,8 @@ export const DEFAULT_RULEBOOK: Rulebook = {
   max_stop_atr_multiple: 4,
   grades: { A_PLUS: 95, A: 90, B: 80, C: 70 },
   tier_min_rr: { A_PLUS: 2.0, A: 2.0, B: 1.5, C: 1.2 },
-  tier_daily_max: { A: 30, B: 20, C: 20 },
+  precision: DEFAULT_PRECISION,
 };
-
-/** A non-positive or non-finite cap means "no daily limit". */
-export function isUnlimitedCap(max: number | null | undefined): boolean {
-  return !Number.isFinite(max ?? NaN) || (max as number) <= 0;
-}
 
 /** Candle-gap tolerance for one instrument, honouring any rulebook override. */
 export function candleGapMultipleFor(rulebook: Rulebook, symbol: string): number {
@@ -135,6 +274,36 @@ export function candleGapMultipleFor(rulebook: Rulebook, symbol: string): number
   return Number.isFinite(override) && (override as number) > 0
     ? (override as number)
     : rulebook.max_candle_gap_multiple;
+}
+
+/**
+ * ARMING displacement thresholds — deliberately lower than the final quality
+ * threshold `displacement_min_atr`. Opening a watch is cheap and reversible; an
+ * alert is not. The measured displacement is preserved verbatim for scoring, so
+ * a weak impulse simply scores lower, it is never rounded up.
+ */
+export const DEFAULT_ARMING_DISPLACEMENT_MIN_ATR = 0.6;
+
+export const DEFAULT_INSTRUMENT_ARMING_DISPLACEMENT: Record<string, number> = {
+  EURUSD: 0.6,
+  GBPUSD: 0.6,
+  USDJPY: 0.6,
+  GBPAUD: 0.65,
+  XAUUSD: 0.7,
+};
+
+/** Arming displacement threshold for one instrument (rulebook override wins). */
+export function armingDisplacementFor(rulebook: Rulebook, symbol?: string | null): number {
+  const perSymbol = symbol
+    ? (rulebook.instrument_arming_displacement_min_atr?.[symbol] ??
+      DEFAULT_INSTRUMENT_ARMING_DISPLACEMENT[symbol])
+    : undefined;
+  const base =
+    rulebook.arming_displacement_min_atr ?? DEFAULT_ARMING_DISPLACEMENT_MIN_ATR;
+  const chosen = Number.isFinite(perSymbol) && (perSymbol as number) > 0 ? (perSymbol as number) : base;
+  // Arming can never be stricter than final quality; that would make the
+  // stricter gate unreachable.
+  return Math.min(chosen, rulebook.displacement_min_atr);
 }
 
 

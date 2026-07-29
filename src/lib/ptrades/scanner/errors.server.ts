@@ -19,6 +19,7 @@ export type ScannerStage =
   | "EVALUATION"
   | "PERSISTENCE"
   | "PROMOTION"
+  | "PRECISION"
   | "NOTIFICATION";
 
 export async function recordScannerError(

@@ -29,6 +29,19 @@ export type MarketDataAccount = {
   accountIdMismatch: boolean;
 };
 
+/** Live two-sided price. Read-only; nothing here can act on the market. */
+export type MarketQuote = {
+  symbol: string;
+  bid: number;
+  ask: number;
+  time: string;
+};
+
+/** The price a manual trade would actually pay in this direction. */
+export function executionPrice(quote: MarketQuote, direction: "LONG" | "SHORT"): number {
+  return direction === "LONG" ? quote.ask : quote.bid;
+}
+
 export type MarketDataSymbolSpec = {
   symbol: string;
   digits: number | null;
@@ -45,6 +58,7 @@ export type ReadOnlyMarketDataClient = {
   getAccount(force?: boolean): Promise<MarketDataAccount>;
   getCandles(symbol: string, timeframe: Timeframe, limit?: number): Promise<Candle[]>;
   getSpread(symbol: string): Promise<number | null>;
+  getQuote(symbol: string): Promise<MarketQuote | null>;
   getSymbolSpec(symbol: string): Promise<MarketDataSymbolSpec | null>;
   listSymbols(): Promise<string[]>;
 };
@@ -55,6 +69,7 @@ export const READ_ONLY_METHODS = [
   "getAccount",
   "getCandles",
   "getSpread",
+  "getQuote",
   "getSymbolSpec",
   "listSymbols",
 ] as const;
@@ -74,13 +89,14 @@ export class MarketDataNotConfiguredError extends MarketDataError {
 }
 
 // A whole scan (five instruments x five timeframes) must finish well inside a
-// single worker invocation, so a single read gets a bounded budget and retries.
-// The budget is deliberately generous: the broker feed regularly needs more
-// than ten seconds for a first candle read after an idle period, and a timed
-// out read costs a whole instrument for that minute.
-const DEFAULT_TIMEOUT_MS = 15_000;
-const DEFAULT_ATTEMPTS = 3;
-const RETRY_BASE_MS = 400;
+// single worker invocation. Callers (the context scan) apply their own, much
+// tighter per-read budget and their own single retry, so a long inner retry
+// ladder here only kept a dead read alive past the scan lock TTL and made
+// context runs overrun. One bounded attempt, retried by the caller.
+const DEFAULT_TIMEOUT_MS = 8_000;
+const DEFAULT_ATTEMPTS = 2;
+const RETRY_BASE_MS = 250;
+
 
 
 function fail(operation: string, error: unknown): never {
@@ -230,6 +246,27 @@ export function createMetaApiMarketData(
             return num(await (await provider()).getCurrentSpread(symbol));
           } catch (error) {
             return fail(`getSpread(${symbol})`, error);
+          }
+        },
+        timeoutMs,
+      );
+    },
+
+    async getQuote(symbol) {
+      return withRetry(
+        "getQuote",
+        async () => {
+          try {
+            const quote = await (await provider()).getCurrentQuote(symbol);
+            if (!quote) return null;
+            return Object.freeze({
+              symbol,
+              bid: Number(quote.bid),
+              ask: Number(quote.ask),
+              time: quote.time,
+            });
+          } catch (error) {
+            return fail(`getQuote(${symbol})`, error);
           }
         },
         timeoutMs,

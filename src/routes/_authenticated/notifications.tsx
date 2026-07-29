@@ -77,7 +77,7 @@ function Notifications() {
         {notifications.length === 0 ? (
           <EmptyState
             title="No alerts yet"
-            description="Every tier appears here — A+, A, B and C. An alert is issued when a setup passes every rulebook gate at its tier's reward-to-risk floor, up to that tier's daily cap."
+            description="Every tier appears here — A+, A, B and C. An alert is issued when a setup passes every rulebook gate at its tier's reward-to-risk floor and its entry moment is confirmed. There is no daily cap."
           />
         ) : (
           <ul className="divide-y divide-border/60">

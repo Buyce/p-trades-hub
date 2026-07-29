@@ -1,15 +1,21 @@
-import type { Bias, Candidate, Candle, GateResult, Rulebook, Timeframe } from "./types";
+import type { Bias, Candidate, Candle, GateCode, GateResult, Rulebook, Timeframe } from "./types";
 import {
   DEFAULT_RULEBOOK,
   TIMEFRAME_LABEL,
   TIMEFRAME_SECONDS,
+  armingDisplacementFor,
   candleGapMultipleFor,
-  isUnlimitedCap,
+  precisionRulesFor,
 } from "./types";
 
 import { marketData } from "./market-data.server";
 
 import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
+import { isStoreFresh, readSeries, storeCandles } from "./market-candles.server";
+import { evaluateBiasPolicy, biasPolicyGate, type BiasDecision } from "./bias-policy.server";
+import { structuralIdeaId } from "./structural-idea";
+import { validateRulebook } from "./rulebook-validate";
+
 import { recordScannerError } from "./errors.server";
 import { AppError } from "../errors";
 import { atr } from "./atr.server";
@@ -17,55 +23,107 @@ import { higherTimeframeBias } from "./bias.server";
 import { checkLateEntry } from "./late-entry.server";
 import { fingerprint } from "./fingerprint.server";
 import { rulebookChecksum } from "./rulebook.server";
-import { minTierRr, scoreCandidate, tierFor } from "./scoring.server";
+import { minTierRr, scoreCandidate } from "./scoring.server";
 import { rewardToRisk, structuralTargets } from "./risk.server";
 import { swingHighs, swingLows } from "./swings.server";
-import { detectSetup } from "./setups.server";
+import { detectSetupDetailed, type SetupResult } from "./setups.server";
 import { checkCandleSanity } from "./sanity.server";
 import { sessionAt } from "./sessions.server";
 import { currenciesFor, macroContextFor, type MacroEvent } from "./macro.server";
 import { resolveSymbol, roundToDigits, type InstrumentRow } from "./symbols.server";
-import { acquireScanLock, releaseScanLock } from "./lock.server";
+import { entryAnchorForSetup } from "./entry-anchor.server";
+import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
+import { buildInvalidation, hasInvalidation } from "./invalidation.server";
+import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
 import {
-  biasConflict,
+  SCAN_LOCK_KEY,
+  acquireScanLock,
+  createDeadline,
+  newLockHolder,
+  readLock,
+  releaseScanLock,
+  renewScanLock,
+} from "./lock.server";
+import { armedExpiry } from "./lifecycle.server";
+import {
   candleSanity,
-  dailyCap,
   duplicate,
-  expiry,
-  failedGates,
+  gate,
   invalidStop,
-  lateEntry,
+  invalidationGate,
   missingData,
   newsLockout,
   noSetup,
-  rrGate,
   sessionGate,
-  spreadGate,
   staleData,
 } from "./gates.server";
-import { tierBucket, type Tier } from "../tiers";
+
 import {
-  actionableCountToday,
   closeStaleRuns,
   cacheCandle,
-  claimActionableSlot,
-  incrementActionableCount,
 
   fingerprintExistsToday,
   finishRun,
+  openPrecisionWatch,
   promoteToSignal,
   saveCandidate,
   saveRejections,
   startRun,
   tradingDayUtc,
 } from "./persist.server";
-import { notifyQualifiedSignal } from "./notify.server";
-import { writeHeartbeat } from "./heartbeat.server";
+import { safeHeartbeat } from "./heartbeat.server";
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
 
 const ENTRY_TF: Timeframe = "M15";
 const REQUIRED: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
+const CANDLE_FETCH_TIMEOUT_MS = 4_000;
+const SPREAD_FETCH_TIMEOUT_MS = 3_000;
+const ACCOUNT_FETCH_TIMEOUT_MS = 3_000;
+
+const EXECUTION_ONLY_GATES = new Set<GateCode>([
+  "SPREAD",
+  "RR_BELOW_MIN",
+  "LATE_ENTRY",
+  "EXPIRED",
+  "NO_MICRO_TRIGGER",
+  "NO_MICRO_RETEST",
+  "NOT_NEAR_ENTRY",
+  "TARGET_TOUCHED",
+  "TIER_NOT_MET",
+]);
+
+export function armingFailedGates(gates: GateResult[]): GateResult[] {
+  return gates.filter((g) => !g.passed && !EXECUTION_ONLY_GATES.has(g.code));
+}
+
+/**
+ * Arming boundary. A watch may open on a lower displacement than final quality
+ * requires: the measured value is preserved and re-judged at ENTRY_READY.
+ */
+export function isArmableSetup(
+  setup: SetupResult,
+  rulebook: Rulebook,
+  symbol?: string | null,
+): boolean {
+  const threshold = armingDisplacementFor(rulebook, symbol);
+  const displacementOk = setup.displacementAtr !== null && setup.displacementAtr >= threshold;
+  const hasStructure = setup.sweepFound || setup.structureType !== null;
+  return Boolean(setup.direction && setup.level !== null && hasStructure && displacementOk);
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([
+    promise.finally(() => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+    }),
+    timeout,
+  ]);
+}
 
 export type ScanSummary = {
   ok: boolean;
@@ -74,15 +132,47 @@ export type ScanSummary = {
   candidates: number;
   qualified: number;
   actionable: number;
+  /** Setups armed this run and handed to the precision loop. */
+  armed?: number;
   rejections: number;
   message?: string;
 };
 
-function parseRulebook(row: { version: string; rules: unknown } | null): Rulebook {
-  if (!row) return DEFAULT_RULEBOOK;
-  const rules = (row.rules ?? {}) as Partial<Rulebook>;
-  return { ...DEFAULT_RULEBOOK, ...rules, version: row.version };
+/** The active rulebook, for callers outside the scan (the precision loop). */
+export async function loadActiveRulebook(admin: Admin): Promise<Rulebook> {
+  const { data } = await admin
+    .from("rulebook_versions")
+    .select("version, rules")
+    .eq("is_active", true)
+    .order("effective_from", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return parseRulebook(data);
 }
+
+/**
+ * Deep-merges and VALIDATES the stored rulebook. A shallow spread used to let a
+ * partial override delete every sibling key it did not mention, and nothing
+ * checked that the resulting grade bands were reachable. An invalid rulebook is
+ * now rejected outright in favour of the known-good defaults.
+ */
+export function parseRulebook(row: { version: string; rules: unknown } | null): Rulebook {
+  if (!row) return DEFAULT_RULEBOOK;
+  const result = validateRulebook(row.rules ?? {}, row.version);
+  if (!result.valid) {
+    console.error(
+      `rulebook ${row.version} rejected, falling back to defaults:`,
+      result.issues.map((i) => `${i.path}: ${i.message}`).join("; "),
+    );
+  }
+  return result.rulebook;
+}
+
+/** The validation report, for governance telemetry. */
+export function inspectRulebook(row: { version: string; rules: unknown } | null) {
+  return validateRulebook(row?.rules ?? {}, row?.version ?? DEFAULT_RULEBOOK.version);
+}
+
 
 async function loadMacroEvents(admin: Admin): Promise<MacroEvent[]> {
   const now = Date.now();
@@ -124,26 +214,13 @@ function scanTargets(
 type FetchedCandles = {
   candles: Record<Timeframe, Candle[]>;
   rejects: Array<{ timeframe: Timeframe; rejects: CandleReject[] }>;
-  /** Timeframes served from the last-good series after repeated fetch failures. */
+  /** Timeframes the store could not serve and that had to be fetched live. */
   degraded: Array<{ timeframe: Timeframe; message: string; firstMessage: string }>;
+  /** Where each timeframe came from — proof the data plane is working. */
+  sources: Record<string, "STORE" | "LIVE" | "MISSING">;
+  /** Age in seconds of each served series, measured from its close. */
+  ages: Record<string, number | null>;
 };
-
-
-/**
- * Fetches every required timeframe and pushes it through the single
- * normaliser. Malformed candles are dropped and reported, never repaired.
- *
- * Timeframes are fetched two at a time: firing all five at once caused
- * provider read timeouts, while a fully sequential fetch made a whole scan
- * overrun its worker invocation so runs never finished.
- *
- * Higher timeframes are additionally cached in-process: H4 and D1 cannot
- * change between minute-by-minute scans, and re-reading them every minute was
- * the main source of provider read timeouts on a single resource slot. The
- * cache only ever serves candles that are still inside their own timeframe
- * interval, so no stale bar can reach a gate.
- */
-const FETCH_CONCURRENCY = 2;
 
 /**
  * Single source of truth for how long a run may hold the scan lock. Stale-run
@@ -152,106 +229,102 @@ const FETCH_CONCURRENCY = 2;
  */
 export const SCAN_LOCK_TTL_SECONDS = 180;
 
-
-/** How long a fetched series may be reused, per timeframe. */
-const CANDLE_CACHE_TTL_MS: Partial<Record<Timeframe, number>> = {
-  "4h": 10 * 60_000,
-  "1d": 30 * 60_000,
-};
-
-const candleCache = new Map<string, { at: number; candles: Candle[] }>();
+/**
+ * Hard runtime budget for a whole context scan. The run stops cleanly at the
+ * budget and reports PARTIAL rather than being killed mid-write, which is what
+ * used to leave the lock behind and skip every subsequent tick.
+ */
+export const SCAN_BUDGET_MS = 100_000;
 
 /**
- * Last successful series per symbol/timeframe, kept as a retry fallback only.
- * Serving it can never leak a stale bar into a decision: the freshness and
- * candle-sanity gates measure the candles themselves, so a fallback series that
- * is too old simply rejects the candidate with STALE_DATA instead of failing
- * the whole instrument with no diagnosis.
+ * The context scan READS the durable candle store; it does not download
+ * history. The `sync-market-data` pass owns downloads.
+ *
+ * A live fetch is still attempted for a timeframe the store cannot serve, so a
+ * cold start or a sync outage degrades rather than blacks out — and every such
+ * fallback is recorded, because a silent fallback is how a broken data plane
+ * stays invisible.
  */
-const LAST_GOOD_TTL_MS = 60 * 60_000;
-const lastGood = new Map<string, { at: number; candles: Candle[] }>();
-
-function cachedCandles(symbol: string, tf: Timeframe): Candle[] | null {
-  const ttl = CANDLE_CACHE_TTL_MS[tf];
-  if (!ttl) return null;
-  const hit = candleCache.get(`${symbol}:${tf}`);
-  if (!hit || Date.now() - hit.at > ttl) return null;
-  return hit.candles;
-}
-
-function rememberCandles(symbol: string, tf: Timeframe, candles: Candle[]): void {
-  if (candles.length === 0) return;
-  lastGood.set(`${symbol}:${tf}`, { at: Date.now(), candles });
-  if (!CANDLE_CACHE_TTL_MS[tf]) return;
-  candleCache.set(`${symbol}:${tf}`, { at: Date.now(), candles });
-}
-
-function lastGoodCandles(symbol: string, tf: Timeframe): Candle[] | null {
-  const hit = lastGood.get(`${symbol}:${tf}`);
-  if (!hit || Date.now() - hit.at > LAST_GOOD_TTL_MS) return null;
-  return hit.candles;
-}
-
-async function fetchTimeframes(symbol: string): Promise<FetchedCandles> {
+async function fetchTimeframes(
+  admin: Admin,
+  instrument: string,
+  symbol: string,
+  feedBudgetSeconds: number,
+  minBars: number,
+): Promise<FetchedCandles> {
   const rejects: FetchedCandles["rejects"] = [];
   const degraded: FetchedCandles["degraded"] = [];
+  const sources: FetchedCandles["sources"] = {};
+  const ages: FetchedCandles["ages"] = {};
   const entries: Array<readonly [Timeframe, Candle[]]> = [];
 
-  const pending: Timeframe[] = [];
+  const stored = await readSeries(admin, {
+    brokerSymbol: symbol,
+    timeframes: REQUIRED,
+    limit: 200,
+  });
+
   for (const tf of REQUIRED) {
-    const cached = cachedCandles(symbol, tf);
-    if (cached) entries.push([tf, cached] as const);
-    else pending.push(tf);
-  }
+    const series = stored[tf] ?? { candles: [], ageSeconds: null };
+    const label = TIMEFRAME_LABEL[tf];
+    const usable =
+      series.candles.length >= minBars && isStoreFresh(series.ageSeconds, tf, feedBudgetSeconds);
 
-  // One retry per timeframe: the single provider resource slot times out often
-  // enough that a first-attempt failure is usually transient.
-  const fetchOne = async (tf: Timeframe) => {
-    const limit = tf === "1d" ? 120 : 200;
-    try {
-      return await marketData().getCandles(symbol, tf, limit);
-    } catch (first) {
-      await new Promise((r) => setTimeout(r, 500));
-      try {
-        return await marketData().getCandles(symbol, tf, limit);
-      } catch (second) {
-        const fallback = lastGoodCandles(symbol, tf);
-        if (!fallback) throw second;
-        degraded.push({
-          timeframe: tf,
-          message: second instanceof Error ? second.message : String(second),
-          firstMessage: first instanceof Error ? first.message : String(first),
-        });
-        return null;
-      }
+    if (usable) {
+      sources[label] = "STORE";
+      ages[label] = series.ageSeconds;
+      entries.push([tf, series.candles] as const);
+      continue;
     }
-  };
 
-  for (let i = 0; i < pending.length; i += FETCH_CONCURRENCY) {
-    const batch = pending.slice(i, i + FETCH_CONCURRENCY);
-    const fetched = await Promise.all(
-      batch.map(async (tf) => {
-        const raw = await fetchOne(tf);
-        return [tf, raw === null ? null : normaliseCandles(raw, tf)] as const;
-      }),
-    );
-    for (const [tf, normalised] of fetched) {
-      if (normalised === null) {
-        entries.push([tf, lastGoodCandles(symbol, tf) ?? []] as const);
-        continue;
-      }
+    try {
+      const raw = await withTimeout(
+        marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200),
+        CANDLE_FETCH_TIMEOUT_MS,
+        `getCandles(${symbol}/${tf})`,
+      );
+      const normalised = normaliseCandles(raw, tf);
       const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
       if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
-      rememberCandles(symbol, tf, normalised.candles);
+      // Write it back so the next scan reads it from the store.
+      await storeCandles(admin, {
+        instrument,
+        brokerSymbol: symbol,
+        timeframe: tf,
+        candles: normalised.candles,
+      });
+      sources[label] = "LIVE";
+      ages[label] = null;
+      degraded.push({
+        timeframe: tf,
+        message: series.candles.length === 0 ? "no stored series" : "stored series too old",
+        firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
+      });
       entries.push([tf, normalised.candles] as const);
+    } catch (error) {
+      // Serve whatever the store has. The freshness and sanity gates judge it
+      // on its own merits, so a stale series rejects with a diagnosis instead
+      // of failing the whole instrument silently.
+      sources[label] = series.candles.length > 0 ? "STORE" : "MISSING";
+      ages[label] = series.ageSeconds;
+      degraded.push({
+        timeframe: tf,
+        message: error instanceof Error ? error.message : String(error),
+        firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
+      });
+      entries.push([tf, series.candles] as const);
     }
   }
+
   return {
     candles: Object.fromEntries(entries) as Record<Timeframe, Candle[]>,
     rejects,
     degraded,
+    sources,
+    ages,
   };
 }
+
 
 
 
@@ -259,6 +332,25 @@ type Evaluation = {
   candidate: Candidate | null;
   gates: GateResult[];
   macroContext: Record<string, unknown>;
+  /** Everything the precision loop needs to arm and watch this setup. */
+  precision?: {
+    brokerSymbol: string;
+    preferredEntry: number | null;
+    zoneWidthPoints: number;
+    anchorSource: string | null;
+    structuralLevel: number | null;
+    invalidation: { price: number | null; condition: string | null; timeframe: string | null };
+    armedExpiryMinutes: number;
+    /** Structural score inputs, fixed at arming and re-used at ENTRY_READY. */
+    scoreInput: {
+      bias_aligned: boolean;
+      d1_aligned: boolean;
+      displacement_atr: number | null;
+      sweep_found: boolean;
+      macro_aligned: boolean;
+    };
+
+  };
 };
 
 /** Evaluates a single instrument and returns its candidate plus every gate result. */
@@ -298,10 +390,17 @@ async function evaluateInstrument(
     });
   }
 
+  const feedBudget = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
+  const minBars = rulebook.atr_period + 2;
+
   let candles: Record<Timeframe, Candle[]>;
+  let dataSources: Record<string, string> = {};
+  let dataAges: Record<string, number | null> = {};
   try {
-    const fetched = await fetchTimeframes(symbol);
+    const fetched = await fetchTimeframes(admin, instrument.symbol, symbol, feedBudget, minBars);
     candles = fetched.candles;
+    dataSources = fetched.sources;
+    dataAges = fetched.ages;
     for (const entry of fetched.degraded) {
       await recordScannerError(admin, {
         runId,
@@ -309,12 +408,12 @@ async function evaluateInstrument(
         stage: "MARKET_DATA",
         error: new AppError(
           "UPSTREAM",
-          `${TIMEFRAME_LABEL[entry.timeframe]} served from last-good series after two failed fetches`,
+          `${TIMEFRAME_LABEL[entry.timeframe]} could not be served from the candle store`,
         ),
         detail: {
           broker_symbol: symbol,
-          first_error: entry.firstMessage,
-          retry_error: entry.message,
+          store_state: entry.firstMessage,
+          fallback_result: entry.message,
         },
       });
     }
@@ -348,14 +447,17 @@ async function evaluateInstrument(
     return { candidate: null, gates, macroContext: {} };
   }
 
-  const haveAll = REQUIRED.every((tf) => candles[tf].length >= rulebook.atr_period + 2);
+  const haveAll = REQUIRED.every((tf) => candles[tf].length >= minBars);
   gates.push(
     missingData(haveAll, {
       broker_symbol: symbol,
       resolved_from: resolved.resolvedFrom,
+      data_sources: dataSources,
+      store_age_seconds: dataAges,
       ...Object.fromEntries(REQUIRED.map((tf) => [TIMEFRAME_LABEL[tf], candles[tf].length])),
     }),
   );
+
   if (!haveAll) return { candidate: null, gates, macroContext: {} };
 
   const entryCandles = candles[ENTRY_TF];
@@ -375,8 +477,8 @@ async function evaluateInstrument(
   // candle, which by definition ages a full timeframe interval before the next
   // one closes. Without that allowance a 300s budget on M15 rejects two thirds
   // of all minute-by-minute scans as STALE_DATA even on a perfectly live feed.
-  const feedBudget = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
   const maxAge = feedBudget + TIMEFRAME_SECONDS[ENTRY_TF];
+
   gates.push(staleData(dataAgeSeconds(entryCandles, ENTRY_TF), maxAge));
 
   // Macro lockout scoped to the currencies this instrument actually trades.
@@ -397,14 +499,88 @@ async function evaluateInstrument(
   const atrValue = atr(entryCandles, rulebook.atr_period, rulebook.atr_method);
   const { bias, d1 } = higherTimeframeBias(candles["4h"], candles["1d"], rulebook.swing_lookback);
 
-  const setup = detectSetup({
-    candles: entryCandles,
+  const armingThreshold = armingDisplacementFor(rulebook, instrument.symbol);
+  const detection = detectSetupDetailed(
+    {
+      candles: entryCandles,
+      atr: atrValue,
+      bias: bias as Bias,
+      swingLookback: rulebook.swing_lookback,
+      displacementMinAtr: rulebook.displacement_min_atr,
+    },
+    // Armability is evaluated for EVERY family before one is selected, so a
+    // non-armable sweep partial can never mask an armable break/retest.
+    (candidate) => isArmableSetup(candidate, rulebook, instrument.symbol),
+  );
+  const setup: SetupResult = detection.selected ?? {
+    found: false,
+    setupType: "SWEEP_DISPLACEMENT_RETEST" as const,
+    direction: null,
+    level: null,
+    extreme: null,
+    entryLow: null,
+    entryHigh: null,
+    sweepFound: false,
+    displacementAtr: null,
+    retestFound: false,
+    structureType: null,
+    sequence: { sweepIndex: null, breakIndex: null, displacementIndex: null, retestIndex: null },
+    sequenceValid: true,
+    detail: {},
+  };
+
+
+  // Detection telemetry. Without it a "no setup" rejection says only that
+  // nothing formed; with it we can see which stage of which family stopped,
+  // and whether the inputs themselves were degraded. Reporting only.
+  const armableSetup = isArmableSetup(setup, rulebook, instrument.symbol);
+  const familyTelemetry = detection.diagnosticResults.map((r) => ({
+    family: r.setupType,
+    complete: r.found,
+    armable: isArmableSetup(r, rulebook, instrument.symbol),
+    direction: r.direction,
+    level: r.level,
+    displacement_atr: r.displacementAtr,
+    sweep_found: r.sweepFound,
+    retest_found: r.retestFound,
+    structure_type: r.structureType,
+  }));
+  const detectionDetail = {
+    ...setup.detail,
+    stage: !setup.sweepFound && setup.structureType === null
+      ? "NO_STRUCTURE_EVENT"
+      : setup.displacementAtr === null || setup.displacementAtr < armingThreshold
+        ? "NO_DISPLACEMENT"
+        : !setup.retestFound
+          ? "ARMED_AWAITING_M1_EXECUTION"
+          : "COMPLETE",
+    armable: armableSetup,
+    selected_from: detection.selectedFrom,
+    best_family: setup.setupType,
+    families: familyTelemetry,
+    complete_families: detection.completeResults.map((r) => r.setupType),
+    armable_families: detection.armableResults.map((r) => r.setupType),
+    direction: setup.direction,
+    level: setup.level,
+    extreme: setup.extreme,
+    displacement_atr: setup.displacementAtr,
+    arming_displacement_min_atr: armingThreshold,
+    displacement_min_atr: rulebook.displacement_min_atr,
+    sweep_found: setup.sweepFound,
+    retest_found: setup.retestFound,
+    structure_type: setup.structureType,
+    bias,
     atr: atrValue,
-    bias: bias as Bias,
-    swingLookback: rulebook.swing_lookback,
-    displacementMinAtr: rulebook.displacement_min_atr,
-  });
-  gates.push(noSetup(setup.found, setup.setupType, setup.detail));
+    entry_candles: entryCandles.length,
+    swing_lookback: rulebook.swing_lookback,
+  };
+  gates.push(noSetup(armableSetup, setup.setupType, detectionDetail));
+
+  // No armable structure means every downstream derivation (anchor, zone, stop,
+  // targets, R:R, invalidation) is arithmetic on nulls. Stop here instead: the
+  // single NO_SETUP row now carries the diagnosis.
+  if (!armableSetup) return { candidate: null, gates, macroContext: {} };
+
 
   const direction: "LONG" | "SHORT" =
     setup.direction ?? (bias === "SHORT" ? "SHORT" : "LONG");
@@ -419,47 +595,32 @@ async function evaluateInstrument(
         : `${setup.setupType} does not require a liquidity sweep.`,
     detail: { level: setup.level, ...setup.detail },
   });
+  // Arming uses the arming threshold; the measured value is stored untouched
+  // and re-judged by scoring and the execution gates at ENTRY_READY.
   gates.push({
     code: "NO_DISPLACEMENT",
-    passed:
-      setup.displacementAtr !== null && setup.displacementAtr >= rulebook.displacement_min_atr,
+    passed: setup.displacementAtr !== null && setup.displacementAtr >= armingThreshold,
     reason:
       setup.displacementAtr !== null
         ? `Displacement candle of ${setup.displacementAtr.toFixed(2)} ATR in the ${direction} direction.`
         : "No displacement candle of sufficient size.",
-    detail: { bodyAtr: setup.displacementAtr, minAtr: rulebook.displacement_min_atr },
+    detail: {
+      bodyAtr: setup.displacementAtr,
+      armingMinAtr: armingThreshold,
+      finalMinAtr: rulebook.displacement_min_atr,
+    },
   });
-  gates.push({
-    code: "NO_RETEST",
-    passed: setup.retestFound,
-    reason: setup.retestFound
-      ? `Broken level ${setup.level} retested and held.`
-      : "The broken level has not been retested and held on a closed candle.",
-    detail: { level: setup.level, ...setup.detail },
-  });
-
-  const entryLow = roundToDigits(setup.entryLow, resolved.digits);
-  const entryHigh = roundToDigits(setup.entryHigh, resolved.digits);
-  const entry = entryLow !== null && entryHigh !== null ? (entryLow + entryHigh) / 2 : null;
-  const stop = roundToDigits(
-    setup.extreme !== null && atrValue
-      ? direction === "LONG"
-        ? setup.extreme - atrValue * 0.2
-        : setup.extreme + atrValue * 0.2
-      : null,
-    resolved.digits,
-  );
-
-  gates.push(biasConflict(bias as Bias, direction));
-  gates.push(invalidStop(entry, stop, direction, atrValue, rulebook.max_stop_atr_multiple));
-
   let spread: number | null = null;
   try {
-    spread = await marketData().getSpread(symbol);
+    spread = await withTimeout(
+      marketData().getSpread(symbol),
+      SPREAD_FETCH_TIMEOUT_MS,
+      `getSpread(${symbol})`,
+    );
   } catch (error) {
     spread = null;
-    // A missing spread fails the spread gate closed; without this log the
-    // instrument looks like it was rejected on merit rather than on a feed gap.
+    // A missing spread no longer blocks arming; execution spread is re-proved
+    // in the precision loop. The log keeps provider gaps visible.
     await recordScannerError(admin, {
       runId,
       instrument: instrument.symbol,
@@ -469,9 +630,73 @@ async function evaluateInstrument(
     });
   }
 
-  gates.push(
-    spreadGate(spread, atrValue, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null),
+  // Precision execution zone. The setup's own retest band is only an
+  // approximation of where price traded; the tradable zone is built from the
+  // anchor outwards, narrow, asymmetric and always on the favourable side.
+  const precisionRules = precisionRulesFor(rulebook, instrument.symbol);
+  const point = pointSizeFor(instrument.point_size ?? null, resolved.digits) ?? 0;
+  const anchor = entryAnchorForSetup(setup, entryCandles);
+  const atrM5 = atr(candles["M5"], rulebook.atr_period, rulebook.atr_method) ?? 0;
+  const spreadPoints =
+    point > 0 && spread !== null ? priceDistanceToPoints(spread, point) : 0;
+  const zoneWidthPoints = calculateAdaptiveZoneWidthPoints({
+    spreadPoints,
+    atrM1: 0,
+    atrM5,
+    point,
+    minimumWidthPoints: precisionRules.min,
+    maximumWidthPoints: precisionRules.max,
+    spreadMultiplier: precisionRules.spreadMult,
+    atrM1Multiplier: precisionRules.atrM1,
+    atrM5Multiplier: precisionRules.atrM5,
+  });
+  const zone =
+    anchor.anchor !== null
+      ? buildExecutionZone({
+          preferredEntry: anchor.anchor,
+          direction,
+          zoneWidthPoints,
+          point,
+        })
+      : null;
+
+  const entryLow = roundToDigits(zone ? zone.entryLow : setup.entryLow, resolved.digits);
+  const entryHigh = roundToDigits(zone ? zone.entryHigh : setup.entryHigh, resolved.digits);
+  // The plan is priced at the preferred entry, never at the middle of a band.
+  const entry =
+    roundToDigits(zone ? zone.preferredEntry : null, resolved.digits) ??
+    (entryLow !== null && entryHigh !== null ? (entryLow + entryHigh) / 2 : null);
+
+  const invalidation = buildInvalidation({
+    direction,
+    extreme: setup.extreme,
+    level: setup.level,
+    timeframe: TIMEFRAME_LABEL[ENTRY_TF],
+    digits: resolved.digits,
+  });
+  gates.push(invalidationGate(hasInvalidation(invalidation), invalidation.condition));
+
+  const stop = roundToDigits(
+    setup.extreme !== null && atrValue
+      ? direction === "LONG"
+        ? setup.extreme - atrValue * 0.2
+        : setup.extreme + atrValue * 0.2
+      : null,
+    resolved.digits,
   );
+
+  // Bias eligibility, not blind alignment: reversal families (sweep, CHOCH)
+  // are allowed to trade against the H4 bias; continuations are not.
+  const biasDecision: BiasDecision = evaluateBiasPolicy({
+    setup,
+    direction,
+    bias: bias as Bias,
+    d1: d1 as Bias,
+    rulebook,
+  });
+  gates.push(biasPolicyGate(biasDecision));
+
+  gates.push(invalidStop(entry, stop, direction, atrValue, rulebook.max_stop_atr_multiple));
 
   // Opposing liquidity ahead of the entry: prior swing highs for a long, prior
   // swing lows for a short. These are the destinations the setup is actually
@@ -496,15 +721,6 @@ async function evaluateInstrument(
   const rrRaw = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
   // Stored to two decimals so a displayed R:R always matches the stored one.
   const rr = rrRaw === null ? null : Number(rrRaw.toFixed(2));
-  // Per-instrument minimums raise the top tiers only; the hard RR gate uses the
-  // lowest tier floor, and the tier a candidate earns is decided after scoring.
-  const topTierRr = Math.max(instrument.min_rr, rulebook.tier_min_rr.A);
-  const tierRulebook: Rulebook = {
-    ...rulebook,
-    tier_min_rr: { ...rulebook.tier_min_rr, A_PLUS: topTierRr, A: topTierRr },
-  };
-  gates.push(rrGate(rr, minTierRr(tierRulebook)));
-
   const late = checkLateEntry(
     last.close,
     entryLow,
@@ -512,13 +728,6 @@ async function evaluateInstrument(
     atrValue,
     rulebook.late_entry_max_atr_from_entry,
   );
-  gates.push(lateEntry(late.late, late.distanceAtr));
-
-  // Expiry: a setup confirmed too long ago is no longer tradable.
-  const triggerTime =
-    (setup.detail.retestAt as string | undefined) ?? last.time ?? null;
-  gates.push(expiry(triggerTime, rulebook.signal_expiry_minutes, now.getTime()));
-
   const print = fingerprint({
     instrument: instrument.symbol,
     direction,
@@ -532,7 +741,7 @@ async function evaluateInstrument(
   gates.push(duplicate(await fingerprintExistsToday(admin, print), print));
 
   const spreadRatio = spread !== null && atrValue ? spread / atrValue : null;
-  const { score, components } = scoreCandidate(
+  const { score, grade: scoreGrade, components } = scoreCandidate(
     {
       rr,
       biasAligned: bias === direction,
@@ -544,23 +753,17 @@ async function evaluateInstrument(
       lateDistanceAtr: late.distanceAtr,
       macroAligned: macro.aligned,
     },
-    tierRulebook,
+    rulebook,
   );
 
-  // Tier requires both the score band and that tier's reward-to-risk floor.
-  const tier = tierFor(score, rr, tierRulebook);
-  const bucket = tier ? tierBucket(tier) : "A";
-  // A non-positive tier allowance means unlimited: the cap gate always passes.
-  const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
-  if (!isUnlimitedCap(bucketMax)) {
-    gates.push(dailyCap(await actionableCountToday(admin, bucket), bucketMax));
-  }
-
-
-  const failed = failedGates(gates);
-  const qualified = failed.length === 0 && tier !== null;
-  // A setup that failed a hard gate is never labelled with a tradable tier.
-  const grade = qualified ? tier : null;
+  // Arming boundary: a setup is armable when every ARMING gate passes. The
+  // score band is NOT an arming requirement — the tier a setup earns is
+  // resolved by the precision loop at execution prices, so requiring a final
+  // grade here made the lower tiers unreachable.
+  const failed = armingFailedGates(gates);
+  const qualified = failed.length === 0;
+  // Provisional tier only. The displayed tier is recalculated at ENTRY_READY.
+  const grade = scoreGrade;
 
   const candidate: Candidate = {
     instrument: instrument.symbol,
@@ -589,6 +792,22 @@ async function evaluateInstrument(
   return {
     candidate,
     gates,
+    precision: {
+      brokerSymbol: symbol,
+      preferredEntry: entry,
+      zoneWidthPoints,
+      anchorSource: anchor.source,
+      structuralLevel: setup.level,
+      invalidation,
+      armedExpiryMinutes: precisionRules.armedExpiryMinutes,
+      scoreInput: {
+        bias_aligned: biasDecision.aligned,
+        d1_aligned: d1 === direction,
+        displacement_atr: setup.displacementAtr,
+        sweep_found: setup.sweepFound || setup.structureType !== null,
+        macro_aligned: macro.aligned,
+      },
+    },
     macroContext: {
       session,
       currencies,
@@ -615,12 +834,14 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     candidates: 0,
     qualified: 0,
     actionable: 0,
+    armed: 0,
     rejections: 0,
     message,
   });
 
   if (settings && settings.scanning_enabled === false) {
-    await writeHeartbeat(admin, {
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
       status: "IDLE",
       metaapiConnected: null,
       rulebookVersion: settings.rulebook_version ?? null,
@@ -630,7 +851,8 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   }
 
   if (!marketData().isConfigured()) {
-    await writeHeartbeat(admin, {
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
       status: "ERROR",
       metaapiConnected: false,
       rulebookVersion: settings?.rulebook_version ?? null,
@@ -640,23 +862,65 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   }
 
   // Overlap protection: a slow run must never race the next scheduled tick.
+  // The holder is unique per invocation, so a slow predecessor can never
+  // release the lock its successor now owns.
+  const holder = newLockHolder("context");
   const locked = await acquireScanLock(admin, {
     ttlSeconds: SCAN_LOCK_TTL_SECONDS,
-    holder: new Date().toISOString(),
+    holder,
   });
 
   if (!locked) {
+    // The component is alive; it just could not take the lock this tick.
+    // Report WHO holds it and for how long, otherwise a SKIPPED streak is
+    // indistinguishable from a healthy idle scanner.
+    const { data: lockRow } = await admin
+      .from("scanner_locks")
+      .select("holder, locked_at, expires_at")
+      .eq("lock_key", SCAN_LOCK_KEY)
+      .maybeSingle();
+    const lockedAtMs = lockRow?.locked_at ? new Date(lockRow.locked_at).getTime() : null;
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
+      status: "SKIPPED",
+      metaapiConnected: null,
+      rulebookVersion: settings?.rulebook_version ?? null,
+      detail: {
+        reason: "A scan was already running.",
+        lock_holder: lockRow?.holder ?? null,
+        lock_locked_at: lockRow?.locked_at ?? null,
+        lock_expires_at: lockRow?.expires_at ?? null,
+        lock_age_seconds: lockedAtMs ? Math.round((Date.now() - lockedAtMs) / 1000) : null,
+      },
+    });
     return empty("A scan is already running");
   }
 
   try {
-    return await runScanLocked(admin, shadowMode);
+    return await runScanLocked(admin, shadowMode, holder);
+  } catch (error) {
+    // A thrown scan must still report liveness, otherwise a crashing scanner
+    // and a stopped scanner look identical from the dashboard.
+    const message = error instanceof Error ? error.message : "scan failed";
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
+      status: "ERROR",
+      metaapiConnected: null,
+      rulebookVersion: settings?.rulebook_version ?? null,
+      detail: { error: message, lock_holder: holder },
+    });
+    throw error;
   } finally {
-    await releaseScanLock(admin);
+    await releaseScanLock(admin, SCAN_LOCK_KEY, holder);
   }
 }
 
-async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSummary> {
+async function runScanLocked(
+  admin: Admin,
+  shadowMode: boolean,
+  holder: string,
+): Promise<ScanSummary> {
+  const startedAtMs = Date.now();
   const { data: rulebookRow } = await admin
     .from("rulebook_versions")
     .select("version, rules")
@@ -688,7 +952,9 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   let candidates = 0;
   let qualifiedCount = 0;
   let actionable = 0;
+  let armed = 0;
   let rejectionCount = 0;
+  const completedSymbols: string[] = [];
   const runRejections: Array<{ instrument: string; gate: string; reason: string }> = [];
   let metaapiConnected = true;
   let errorMessage: string | null = null;
@@ -696,7 +962,8 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
   for (const instrument of rows) {
     try {
       const result = await evaluateInstrument(admin, instrument, rulebook, macroEvents, runId);
-      const failed = failedGates(result.gates);
+      completedSymbols.push(instrument.symbol);
+      const failed = armingFailedGates(result.gates);
       rejectionCount += failed.length;
       for (const f of failed) {
         runRejections.push({ instrument: instrument.symbol, gate: f.code, reason: f.reason });
@@ -742,30 +1009,12 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
         continue;
       }
 
-      // Live mode: when a tier is capped, claim a slot atomically BEFORE
-      // promoting so concurrent work can never exceed that cap. When the tier
-      // is unlimited, no slot is claimed — the counter is still kept up to
-      // date, but purely as a statistic.
-      const tier = (result.candidate.grade ?? "C") as Tier;
-      const bucket = tierBucket(tier);
-      const bucketMax = rulebook.tier_daily_max[bucket] ?? rulebook.max_daily_actionable;
-      const unlimited = isUnlimitedCap(bucketMax);
-
-      if (unlimited) {
-        await incrementActionableCount(admin, 0, bucket);
-      } else {
-        const claimed = await claimActionableSlot(admin, bucketMax, bucket);
-        if (!claimed) {
-          runRejections.push({
-            instrument: instrument.symbol,
-            gate: "DAILY_CAP",
-            reason: "Daily actionable cap already claimed.",
-          });
-          continue;
-        }
-      }
-
-
+      // Live mode: the scan no longer alerts. It arms the setup and hands
+      // execution timing to the precision loop, which is the only place a
+      // signal may become actionable. Daily allowances are claimed there too,
+      // so an armed setup that never triggers cannot consume one.
+      const armedAt = new Date();
+      const precision = result.precision;
       const signalId = await promoteToSignal(admin, result.candidate, {
         candidateId,
         runId,
@@ -773,25 +1022,51 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
         rulebookChecksum: checksum,
         shadowMode,
         macroContext: result.macroContext,
+        precision: {
+          preferredEntry: precision?.preferredEntry ?? null,
+          zoneWidthPoints: precision?.zoneWidthPoints ?? null,
+          invalidation: precision?.invalidation.condition ?? null,
+          invalidationPrice: precision?.invalidation.price ?? null,
+          invalidationTimeframe: precision?.invalidation.timeframe ?? null,
+          lifecycleState: "ARMED",
+          armedAt: armedAt.toISOString(),
+        },
       });
 
-      if (signalId) {
-        actionable += 1;
-        await notifyQualifiedSignal(admin, {
-          shadowMode,
-          signalId,
-          instrument: result.candidate.instrument,
+      if (signalId && precision) {
+        armed += 1;
+        await openPrecisionWatch(admin, {
+          signal_id: signalId,
+          symbol: result.candidate.instrument,
+          broker_symbol: precision.brokerSymbol,
           direction: result.candidate.direction,
-          grade: result.candidate.grade,
-          setupType: result.candidate.setup_type,
-          timeframe: result.candidate.timeframe,
-          entryZoneLow: result.candidate.entry_zone_low,
-          entryZoneHigh: result.candidate.entry_zone_high,
-          stopLoss: result.candidate.stop_loss,
-          targets: result.candidate.targets,
-          rr: result.candidate.rr_tp1,
-          score: result.candidate.score,
-          reasons: result.candidate.reasons,
+          state: "ARMED",
+          armed_at: armedAt.toISOString(),
+          expires_at: armedExpiry(armedAt, precision.armedExpiryMinutes),
+          entry_anchor: precision.preferredEntry,
+          anchor_source: precision.anchorSource,
+          preferred_entry: precision.preferredEntry,
+          entry_zone_low: result.candidate.entry_zone_low,
+          entry_zone_high: result.candidate.entry_zone_high,
+          zone_width_points: precision.zoneWidthPoints,
+          stop_loss: result.candidate.stop_loss,
+          targets: result.candidate.targets as never,
+          structural_level: precision.structuralLevel,
+          invalidation_price: precision.invalidation.price,
+          invalidation_condition: precision.invalidation.condition,
+          invalidation_timeframe: precision.invalidation.timeframe,
+          provisional_score: result.candidate.score,
+          provisional_grade: result.candidate.grade,
+          metadata: {
+            grade: result.candidate.grade,
+            setup_type: result.candidate.setup_type,
+            score: result.candidate.score,
+            rr_tp1: result.candidate.rr_tp1,
+            reasons: result.candidate.reasons,
+            // Structural score inputs are fixed at arming; the precision loop
+            // re-scores with these plus live execution readings.
+            score_input: precision.scoreInput,
+          } as never,
         });
       }
     } catch (error) {
@@ -816,9 +1091,14 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
 
   // Non-sensitive account context so Scanner Health can show which broker feed
   // the scan read from. Never includes tokens, passwords or balances.
-  const accountInfo = await marketData().getAccount().catch(() => null);
+  const accountInfo = await withTimeout(
+    marketData().getAccount(),
+    ACCOUNT_FETCH_TIMEOUT_MS,
+    "getAccount",
+  ).catch(() => null);
 
-  await writeHeartbeat(admin, {
+  await safeHeartbeat(admin, {
+    source: "CONTEXT_SCANNER",
     status: errorMessage ? "DEGRADED" : "OK",
     metaapiConnected,
     rulebookVersion: rulebook.version,
@@ -827,8 +1107,17 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
       rulebook_checksum: checksum,
       session: sessionAt(new Date()),
       instruments: symbols,
+      // Completion telemetry: a SKIPPED heartbeat must never hide when the
+      // last full context scan actually finished, or how long it took.
+      completed_symbols: completedSymbols,
+      symbols_completed: completedSymbols.length,
+      symbols_started: symbols.length,
+      duration_ms: Date.now() - startedAtMs,
+      completed_at: new Date().toISOString(),
+      lock_holder: holder,
       candidates,
       qualified: qualifiedCount,
+      armed,
       rejections: rejectionCount,
       macro_events: macroEvents.length,
       account: accountInfo
@@ -852,6 +1141,7 @@ async function runScanLocked(admin: Admin, shadowMode: boolean): Promise<ScanSum
     candidates,
     qualified: qualifiedCount,
     actionable,
+    armed,
     rejections: rejectionCount,
     message: errorMessage ?? undefined,
   };

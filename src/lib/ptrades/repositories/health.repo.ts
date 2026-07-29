@@ -1,5 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { Tables } from "@/integrations/supabase/types";
+import { HEARTBEAT_SOURCES } from "@/lib/ptrades/heartbeat-health";
 import { db, unwrap, unwrapList } from "./client";
 
 /** Repository for system health, scanner runs, instruments and macro events. */
@@ -28,6 +29,7 @@ export const latestHeartbeatQuery = () =>
 export const heartbeatHistoryQuery = (limit = 30) =>
   queryOptions({
     queryKey: ["heartbeat", "history", limit],
+    refetchInterval: 60_000,
     queryFn: () =>
       unwrapList(
         db
@@ -37,6 +39,31 @@ export const heartbeatHistoryQuery = (limit = 30) =>
           .limit(limit),
         { repo: "health.heartbeatHistory" },
       ),
+  });
+
+/**
+ * The newest heartbeat for each scheduled component. Detection and execution
+ * run on separate schedules, so one can die while the other keeps reporting —
+ * a single combined heartbeat hides exactly that failure.
+ */
+export const componentHeartbeatsQuery = () =>
+  queryOptions({
+    queryKey: ["heartbeat", "components"],
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<Record<string, Heartbeat>> => {
+      const rows = await unwrapList(
+        db
+          .from("system_heartbeats")
+          .select("*")
+          .in("source", [...HEARTBEAT_SOURCES])
+          .order("received_at", { ascending: false })
+          .limit(50),
+        { repo: "health.componentHeartbeats" },
+      );
+      const latest: Record<string, Heartbeat> = {};
+      for (const row of rows) if (!latest[row.source]) latest[row.source] = row;
+      return latest;
+    },
   });
 
 export const scannerRunsQuery = (limit = 25) =>
@@ -231,3 +258,146 @@ export const lastPurgeQuery = () =>
     },
   });
 
+export type FunnelStage = {
+  stage: string;
+  count: number;
+  note: string;
+};
+
+export type ExecutionFunnel = {
+  stages: FunnelStage[];
+  topBlocking: { code: string; reason: string; count: number }[];
+};
+
+/**
+ * The execution funnel for the current UTC trading day: detected -> armed ->
+ * micro-triggered -> entry ready -> alerted, plus the reasons armed setups are
+ * currently stuck. Reporting only: every number is read from stored rows.
+ */
+export const executionFunnelQuery = () =>
+  queryOptions({
+    queryKey: ["scanner", "funnel"],
+    refetchInterval: 60_000,
+    queryFn: async (): Promise<ExecutionFunnel> => {
+      const day = new Date().toISOString().slice(0, 10);
+      const dayStart = `${day}T00:00:00.000Z`;
+
+      const [signals, watches, alerts] = await Promise.all([
+        unwrapList(
+          db
+            .from("signals")
+            .select("id, lifecycle_state, armed_at, entry_ready_at")
+            .eq("trading_day_utc", day)
+            .limit(1000),
+          { repo: "health.funnel.signals" },
+        ),
+        unwrapList(
+          db
+            .from("precision_watches")
+            .select("id, state, entry_ready_at, metadata")
+            .gte("armed_at", dayStart)
+            .limit(1000),
+          { repo: "health.funnel.watches" },
+        ),
+        unwrapList(
+          db.from("notifications").select("id").gte("created_at", dayStart).limit(1000),
+          { repo: "health.funnel.alerts" },
+        ),
+      ]);
+
+      const armed = watches.length;
+      const triggered = watches.filter(
+        (w) => w.state === "MICRO_TRIGGERED" || w.entry_ready_at !== null,
+      ).length;
+      const entryReady = watches.filter((w) => w.entry_ready_at !== null).length;
+      const open = watches.filter((w) => w.state === "ARMED" || w.state === "MICRO_TRIGGERED");
+
+      const reasons = new Map<string, { reason: string; count: number }>();
+      for (const w of open) {
+        const meta = (w.metadata ?? {}) as { blocking?: { code: string; reason: string }[] };
+        for (const b of meta.blocking ?? []) {
+          const entry = reasons.get(b.code) ?? { reason: b.reason, count: 0 };
+          entry.count += 1;
+          reasons.set(b.code, entry);
+        }
+      }
+
+      return {
+        stages: [
+          {
+            stage: "Setups detected",
+            count: signals.length,
+            note: "Qualified setups stored today",
+          },
+          { stage: "Armed", count: armed, note: "Handed to the precision loop" },
+          { stage: "Micro-triggered", count: triggered, note: "M1 sequence started" },
+          { stage: "Entry ready", count: entryReady, note: "All execution gates passed" },
+          { stage: "Alerted", count: alerts.length, note: "Notifications delivered" },
+        ],
+        topBlocking: [...reasons.entries()]
+          .map(([code, v]) => ({ code, reason: v.reason, count: v.count }))
+          .sort((a, b) => b.count - a.count)
+          .slice(0, 6),
+      };
+    },
+  });
+
+
+export type ContextRuntimeSnapshot = {
+  latestAttemptAt: string | null;
+  latestStatus: string | null;
+  recentStatuses: string[];
+  lastSuccessAt: string | null;
+  lastSuccessDurationMs: number | null;
+  lastSuccessSymbolsCompleted: number | null;
+  lastSuccessSymbolsStarted: number | null;
+  lockHolder: string | null;
+  lockExpiresAt: string | null;
+  lockAgeSeconds: number | null;
+};
+
+/**
+ * Context scanner runtime: the latest ATTEMPT and the last COMPLETED scan, kept
+ * separate on purpose. A SKIPPED attempt must never hide when detection last
+ * actually ran, which is the failure that made a wedged scanner look healthy.
+ */
+export const contextRuntimeQuery = () =>
+  queryOptions({
+    queryKey: ["heartbeat", "context-runtime"],
+    refetchInterval: 30_000,
+    queryFn: async (): Promise<ContextRuntimeSnapshot> => {
+      const rows = await unwrapList(
+        db
+          .from("system_heartbeats")
+          .select("status, received_at, detail")
+          .eq("source", "CONTEXT_SCANNER")
+          .order("received_at", { ascending: false })
+          .limit(60),
+        { repo: "health.contextRuntime" },
+      );
+
+      const latest = rows[0] ?? null;
+      const completed = rows.find(
+        (r) =>
+          (r.status === "OK" || r.status === "DEGRADED") &&
+          typeof (r.detail as Record<string, unknown>)?.completed_at === "string",
+      );
+      const detail = (completed?.detail ?? {}) as Record<string, unknown>;
+      const skipDetail = (latest?.detail ?? {}) as Record<string, unknown>;
+      const num = (v: unknown) => (typeof v === "number" ? v : null);
+      const text = (v: unknown) => (typeof v === "string" ? v : null);
+
+      return {
+        latestAttemptAt: latest?.received_at ?? null,
+        latestStatus: latest?.status ?? null,
+        recentStatuses: rows.map((r) => r.status),
+        lastSuccessAt: text(detail.completed_at) ?? completed?.received_at ?? null,
+        lastSuccessDurationMs: num(detail.duration_ms),
+        lastSuccessSymbolsCompleted: num(detail.symbols_completed),
+        lastSuccessSymbolsStarted: num(detail.symbols_started),
+        lockHolder: text(skipDetail.lock_holder),
+        lockExpiresAt: text(skipDetail.lock_expires_at),
+        lockAgeSeconds: num(skipDetail.lock_age_seconds),
+      };
+    },
+  });

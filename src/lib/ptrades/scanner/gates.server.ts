@@ -162,18 +162,6 @@ export function duplicate(isDuplicate: boolean, fingerprint: string | null): Gat
   );
 }
 
-export function dailyCap(count: number, max: number): GateResult {
-  const ok = count < max;
-  return gate(
-    "DAILY_CAP",
-    ok,
-    ok
-      ? `${count}/${max} actionable alerts used today.`
-      : `Daily cap reached: ${count}/${max} actionable alerts already issued.`,
-    { count, max },
-  );
-}
-
 export function allPassed(gates: GateResult[]): boolean {
   return gates.every((g) => g.passed);
 }
@@ -233,8 +221,86 @@ export function noSetup(found: boolean, setupType: string, detail: Record<string
     "NO_SETUP",
     found,
     found
-      ? `A complete ${setupType} setup formed on the entry timeframe.`
+      ? `A ${setupType} setup was detected on the entry timeframe.`
       : "No setup family completed on the entry timeframe.",
     detail,
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * Precision-entry gates. These only ever run on the execution stage:  *
+ * a setup that fails one of them stays armed, it is not rejected.     *
+ * ------------------------------------------------------------------ */
+
+export function microTrigger(confirmed: boolean, failures: string[]): GateResult {
+  return gate(
+    "NO_MICRO_TRIGGER",
+    confirmed,
+    confirmed
+      ? "Closed M1 rejection, displacement and break of structure all completed."
+      : failures[0] ?? "The M1 microstructure trigger has not completed.",
+    { failures },
+  );
+}
+
+export function microRetest(found: boolean, level: number | null): GateResult {
+  return gate(
+    "NO_MICRO_RETEST",
+    found,
+    found
+      ? `The broken M1 level ${level} was retested and held on a closed candle.`
+      : "The broken M1 level has not been retested and held.",
+    { level },
+  );
+}
+
+export function nearEntry(
+  near: boolean,
+  distancePoints: number | null,
+  proximityPoints: number,
+): GateResult {
+  return gate(
+    "NOT_NEAR_ENTRY",
+    near,
+    near
+      ? `Price is ${distancePoints?.toFixed(1)} points from the preferred entry (limit ${proximityPoints}).`
+      : `Price is ${distancePoints?.toFixed(1)} points from the preferred entry, beyond the ${proximityPoints}-point limit.`,
+    { distancePoints, proximityPoints },
+  );
+}
+
+export function extensionGate(extensionR: number, maxExtensionR: number): GateResult {
+  const ok = Number.isFinite(extensionR) && extensionR <= maxExtensionR;
+  return gate(
+    "LATE_ENTRY",
+    ok,
+    ok
+      ? `Price has run ${extensionR.toFixed(3)}R past the planned entry (limit ${maxExtensionR}R).`
+      : `Too late: price has already run ${
+          Number.isFinite(extensionR) ? extensionR.toFixed(3) : "an undefinable amount"
+        }R past the planned entry (limit ${maxExtensionR}R).`,
+    { extensionR, maxExtensionR },
+  );
+}
+
+export function invalidationGate(present: boolean, condition: string | null): GateResult {
+  return gate(
+    "MISSING_INVALIDATION",
+    present,
+    present
+      ? `Structural invalidation: ${condition}.`
+      : "Missing structural invalidation, so the setup cannot be armed.",
+    { condition },
+  );
+}
+
+export function targetTouched(touched: boolean, target: number | null): GateResult {
+  return gate(
+    "TARGET_TOUCHED",
+    !touched,
+    touched
+      ? `TP1 at ${target} was already reached before an entry existed.`
+      : "TP1 has not been reached yet.",
+    { target },
   );
 }
