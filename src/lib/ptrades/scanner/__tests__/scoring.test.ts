@@ -81,24 +81,22 @@ describe("scoreCandidate", () => {
     expect(result.grade).toBeNull();
   });
 
-  it("uses the sweep family's 100-point scorecard", () => {
+  it("uses the Master Handoff component weights", () => {
     const { components } = scoreCandidate(perfect, rulebook);
     expect(components).toEqual({
       htf_alignment: 20,
-      liquidity_sweep: 25,
-      structure_break: 0,
-      displacement_strength: 20,
-      retest_quality: 20,
+      liquidity_quality: 20,
+      structure_confirmation: 15,
+      displacement_strength: 15,
+      retest_quality: 15,
       macro_alignment: 10,
       execution_quality: 5,
     });
   });
 
-  it("does not score reward-to-risk — R:R is a per-tier hard floor, not quality", () => {
-    const withRr = scoreCandidate({ ...empty, rr: 4 }, rulebook);
-    const withoutRr = scoreCandidate({ ...empty, rr: null }, rulebook);
-    expect(withRr.score).toBe(0);
-    expect(withRr.components).toEqual(withoutRr.components);
+  it("scores the 2.0R minimum at half of structure confirmation", () => {
+    const { components } = scoreCandidate({ ...empty, rr: 2 }, rulebook);
+    expect(components.structure_confirmation).toBeCloseTo(7.5, 10);
   });
 
   it("never awards negative points for very poor inputs", () => {
@@ -124,18 +122,17 @@ describe("scoreCandidate", () => {
     expect(withoutMacro.components.macro_alignment).toBe(0);
   });
 
-  it("drops a sweep with no retest into the C band, where hard gates still apply", () => {
-    // Sweep + displacement + perfect execution, but no retest and no macro: 70.
+  it("rejects a sweep with no retest, so the scanner stays fail-closed", () => {
+    // Sweep + displacement + perfect execution, but no retest and no macro: 75.
     const sweepOnly = scoreCandidate(
       { ...perfect, retestFound: false, macroAligned: false },
       rulebook,
     );
-    expect(sweepOnly.score).toBe(70);
-    // A missing retest is a hard gate elsewhere in the pipeline, so scoring
-    // does not have to reject it.
+    expect(sweepOnly.score).toBe(75);
+    // 75 lands in the C band on score alone; a missing retest is a hard gate
+    // elsewhere in the pipeline, so scoring does not have to reject it.
     expect(sweepOnly.grade).toBe("C");
   });
-
 
   it("reaches A only when the retest also confirms", () => {
     const withRetest = scoreCandidate({ ...perfect, macroAligned: false }, rulebook);

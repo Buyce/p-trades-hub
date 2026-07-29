@@ -22,10 +22,8 @@ export const TIER_DESCRIPTION: Record<Tier, string> = {
   C: "Lowest tier. Same safety gates, relaxed reward-to-risk only.",
 };
 
-// Every tier is actionable, so a new user receives every tier by default and
-// opts out rather than opting in.
-export const DEFAULT_EMAIL_TIERS: Tier[] = ["A_PLUS", "A", "B", "C"];
-export const DEFAULT_PUSH_TIERS: Tier[] = ["A_PLUS", "A", "B", "C"];
+export const DEFAULT_EMAIL_TIERS: Tier[] = ["A_PLUS", "A"];
+export const DEFAULT_PUSH_TIERS: Tier[] = ["A_PLUS", "A"];
 export const DEFAULT_TERMINAL_TIERS: Tier[] = ["A_PLUS", "A", "B", "C"];
 
 export function isTier(value: unknown): value is Tier {
@@ -43,7 +41,10 @@ export function parseTiers(value: unknown, fallback: Tier[]): Tier[] {
   return tiers.length > 0 ? tiers : [];
 }
 
-/** Reporting bucket for a tier. A+ and A are grouped in funnel counts. */
+/**
+ * Daily-cap bucket for a tier. A+ and A share one allowance so the top tiers
+ * cannot together exceed the headline daily cap.
+ */
 export function tierBucket(tier: Tier): "A" | "B" | "C" {
   return tier === "A_PLUS" || tier === "A" ? "A" : tier;
 }

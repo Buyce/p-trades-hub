@@ -228,7 +228,6 @@ async function account(): Promise<{ accountId: string; region: string }> {
 
 /** MetaApi MT5 timeframe codes. */
 const API_TIMEFRAME: Record<Timeframe, string> = {
-  M1: "1m",
   M5: "5m",
   M15: "15m",
   "1h": "1h",
@@ -278,23 +277,6 @@ export async function getSymbolSpec(symbol: string): Promise<SymbolSpec> {
   const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/symbols/${encodeURIComponent(symbol)}/specification`;
   return get<SymbolSpec>(clientHost(region), path);
-}
-
-export type CurrentQuote = { bid: number; ask: number; time: string };
-
-/** Live bid/ask. Read-only: this endpoint cannot place or change an order. */
-export async function getCurrentQuote(symbol: string): Promise<CurrentQuote | null> {
-  const { accountId, region } = await account();
-  const path = `/users/current/accounts/${accountId}/symbols/${encodeURIComponent(symbol)}/current-price`;
-  const price = await get<{ bid?: number; ask?: number; time?: string }>(clientHost(region), path, {
-    keepSubscription: "false",
-  });
-  if (typeof price.bid !== "number" || typeof price.ask !== "number") return null;
-  return {
-    bid: price.bid,
-    ask: price.ask,
-    time: typeof price.time === "string" ? price.time : new Date().toISOString(),
-  };
 }
 
 export async function getCurrentSpread(symbol: string): Promise<number | null> {

@@ -33,7 +33,7 @@ GateCode = Literal[
     "RR_BELOW_MIN",
     "LATE_ENTRY",
     "DUPLICATE",
-    "TIER_NOT_MET",
+    "DAILY_CAP",
     "SESSION",
     "CANDLE_SANITY",
     "EXPIRED",
@@ -87,10 +87,17 @@ class TierMinRr(Strict):
     C: Annotated[float, Field(ge=0)]
 
 
+class TierDailyMax(Strict):
+    A: Annotated[int, Field(ge=0, le=30)]
+    B: Annotated[int, Field(ge=0, le=30)]
+    C: Annotated[int, Field(ge=0, le=30)]
+
+
 class Rulebook(Strict):
     version: str
     closed_candles_only: bool
     min_rr_tp1: Annotated[float, Field(ge=0)]
+    max_daily_actionable: Annotated[int, Field(ge=0, le=30)]
     grades: Grades
     max_data_age_seconds: float | None = None
     max_spread_atr_ratio: float | None = None
@@ -103,6 +110,7 @@ class Rulebook(Strict):
     signal_expiry_minutes: float | None = None
     max_stop_atr_multiple: float | None = None
     tier_min_rr: TierMinRr | None = None
+    tier_daily_max: TierDailyMax | None = None
     max_candle_gap_multiple: float | None = None
     macro_lookahead_minutes: float | None = None
 

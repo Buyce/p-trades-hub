@@ -1,4 +1,3 @@
-import type { Database } from "@/integrations/supabase/types";
 import type { Candidate, GateResult } from "./types";
 
 /**
@@ -137,16 +136,6 @@ export async function saveRejections(
   if (error) console.error("rejection insert failed", error.message);
 }
 
-export type PrecisionPromotion = {
-  preferredEntry: number | null;
-  zoneWidthPoints: number | null;
-  invalidation: string | null;
-  invalidationPrice: number | null;
-  invalidationTimeframe: string | null;
-  lifecycleState: string;
-  armedAt: string | null;
-};
-
 export async function promoteToSignal(
   admin: Admin,
   candidate: Candidate,
@@ -157,12 +146,6 @@ export async function promoteToSignal(
     rulebookChecksum?: string | null;
     shadowMode: boolean;
     macroContext?: Record<string, unknown>;
-    /**
-     * Present when the precision engine owns execution timing. The signal is
-     * stored ARMED and NOT actionable; only the precision loop may promote it
-     * to ENTRY_READY and make it alertable.
-     */
-    precision?: PrecisionPromotion;
   },
 ): Promise<string | null> {
   const entry =
@@ -194,18 +177,10 @@ export async function promoteToSignal(
         rejection_reasons: [] as never,
         macro_context: (meta.macroContext ?? {}) as never,
         spread: candidate.spread,
-        // Shadow mode can never emit an actionable alert, and neither can a
-        // setup the precision engine has merely armed.
-        is_actionable: meta.shadowMode || meta.precision ? false : true,
+        // Shadow mode can never emit an actionable alert.
+        is_actionable: meta.shadowMode ? false : true,
         shadow_mode: meta.shadowMode,
         status: "ACTIVE",
-        lifecycle_state: meta.precision?.lifecycleState ?? "DETECTED",
-        armed_at: meta.precision?.armedAt ?? null,
-        preferred_entry: meta.precision?.preferredEntry ?? null,
-        zone_width_points: meta.precision?.zoneWidthPoints ?? null,
-        invalidation: meta.precision?.invalidation ?? null,
-        invalidation_price: meta.precision?.invalidationPrice ?? null,
-        invalidation_timeframe: meta.precision?.invalidationTimeframe ?? null,
         rulebook_version: meta.rulebookVersion,
         rulebook_checksum: meta.rulebookChecksum ?? null,
         scanner_run_id: meta.runId,
@@ -216,7 +191,6 @@ export async function promoteToSignal(
     )
     .select("id")
     .maybeSingle();
-
 
   if (error) {
     console.error("signal upsert failed", error.message, { entry });
@@ -229,6 +203,16 @@ export async function promoteToSignal(
       .eq("id", meta.candidateId);
   }
   return data?.id ?? null;
+}
+
+export async function actionableCountToday(admin: Admin, bucket?: string): Promise<number> {
+  let query = admin
+    .from("daily_alert_counters")
+    .select("actionable_count")
+    .eq("trading_day_utc", tradingDayUtc());
+  if (bucket) query = query.eq("tier", bucket);
+  const { data } = await query;
+  return (data ?? []).reduce((sum, row) => sum + (row.actionable_count ?? 0), 0);
 }
 
 /**
@@ -254,6 +238,18 @@ export async function closeStaleRuns(admin: Admin, olderThanSeconds = 600): Prom
     return 0;
   }
   return data?.length ?? 0;
+}
+
+export async function incrementActionableCount(admin: Admin, max: number, bucket = "A") {
+  const day = tradingDayUtc();
+  const current = await actionableCountToday(admin, bucket);
+  const { error } = await admin
+    .from("daily_alert_counters")
+    .upsert(
+      { trading_day_utc: day, tier: bucket, actionable_count: current + 1, max_allowed: max },
+      { onConflict: "trading_day_utc,tier" },
+    );
+  if (error) console.error("daily counter update failed", error.message);
 }
 
 export async function cacheCandle(
@@ -300,154 +296,23 @@ export async function fingerprintExistsToday(
   return Boolean(data && data.length > 0);
 }
 
-/* ------------------------------------------------------------------ *
- * Precision watches — the durable record of a setup that is armed and *
- * waiting for its execution moment. One open watch per signal.        *
- * ------------------------------------------------------------------ */
-
-export type PrecisionWatchRow =
-  Database["public"]["Tables"]["precision_watches"]["Row"];
-
-export async function openPrecisionWatch(
+/**
+ * Atomically claims one of the day's limited actionable slots. Returns false
+ * when the cap is already used, so two concurrent runs can never both alert.
+ */
+export async function claimActionableSlot(
   admin: Admin,
-  watch: Database["public"]["Tables"]["precision_watches"]["Insert"],
-): Promise<string | null> {
-  const { data, error } = await admin
-    .from("precision_watches")
-    .upsert(watch, { onConflict: "signal_id", ignoreDuplicates: false })
-    .select("id")
-    .maybeSingle();
-  if (error) {
-    console.error("precision watch insert failed", error.message);
-    return null;
-  }
-  return data?.id ?? null;
-}
-
-/** Every watch still capable of reaching ENTRY_READY. */
-export async function listOpenWatches(admin: Admin): Promise<PrecisionWatchRow[]> {
-  const { data, error } = await admin
-    .from("precision_watches")
-    .select("*")
-    .in("state", ["ARMED", "MICRO_TRIGGERED"])
-    .order("armed_at", { ascending: true });
-  if (error) {
-    console.error("precision watch read failed", error.message);
-    return [];
-  }
-  return (data ?? []) as PrecisionWatchRow[];
-}
-
-export async function updateWatch(
-  admin: Admin,
-  id: string,
-  patch: Database["public"]["Tables"]["precision_watches"]["Update"],
-): Promise<void> {
-  const { error } = await admin.from("precision_watches").update(patch).eq("id", id);
-  if (error) console.error("precision watch update failed", error.message);
-}
-
-/** Records a terminal outcome. Terminal watches are kept for calibration. */
-export async function resolveWatch(
-  admin: Admin,
-  id: string,
-  state: "MISSED" | "EXPIRED" | "INVALIDATED",
-  reason: string,
-): Promise<void> {
-  await updateWatch(admin, id, {
-    state,
-    resolved_at: new Date().toISOString(),
-    metadata: { resolution: reason } as never,
-  });
-}
-
-/** Mirrors a watch's terminal state onto its signal. */
-export async function closeSignalLifecycle(
-  admin: Admin,
-  signalId: string,
-  state: "MISSED" | "EXPIRED" | "INVALIDATED",
-): Promise<void> {
-  const { error } = await admin
-    .from("signals")
-    .update({
-      lifecycle_state: state,
-      status: state === "INVALIDATED" ? "INVALIDATED" : "EXPIRED",
-    })
-    .eq("id", signalId)
-    .eq("is_actionable", false);
-  if (error) console.error("signal lifecycle close failed", error.message);
-}
-
-/** Promotes an armed signal to a tradable, alertable ENTRY_READY signal. */
-export async function markSignalEntryReady(
-  admin: Admin,
-  signalId: string,
-  patch: {
-    preferredEntry: number | null;
-    entryLow: number | null;
-    entryHigh: number | null;
-    zoneWidthPoints: number | null;
-    triggerSummary: string | null;
-    triggerTimeframe: string | null;
-    triggerCandleTime: string | null;
-    triggerLevel: number | null;
-    priceAtAlert: number | null;
-    distanceToEntryPoints: number | null;
-    rr: number | null;
-    spread: number | null;
-    reasons: string[];
-    expiresAtUtc: string | null;
-    /** The tier earned at arming time, kept for calibration. */
-    provisionalScore: number | null;
-    provisionalGrade: string | null;
-    /** The tier actually earned at execution prices — the one users see. */
-    finalScore: number | null;
-    finalGrade: string | null;
-    finalScoreComponents: Record<string, number>;
-  },
+  max: number,
+  bucket = "A",
 ): Promise<boolean> {
-  const now = new Date().toISOString();
-  const { data, error } = await admin
-    .from("signals")
-    .update({
-      lifecycle_state: "ENTRY_READY",
-      is_actionable: true,
-      entry_ready_at: now,
-      signal_time_utc: now,
-      preferred_entry: patch.preferredEntry,
-      entry_zone_low: patch.entryLow,
-      entry_zone_high: patch.entryHigh,
-      zone_width_points: patch.zoneWidthPoints,
-      trigger_summary: patch.triggerSummary,
-      trigger_timeframe: patch.triggerTimeframe,
-      trigger_candle_time: patch.triggerCandleTime,
-      trigger_level: patch.triggerLevel,
-      price_at_alert: patch.priceAtAlert,
-      distance_to_entry_points: patch.distanceToEntryPoints,
-      rr_tp1: patch.rr,
-      spread: patch.spread,
-      reasons: patch.reasons as never,
-      expires_at_utc: patch.expiresAtUtc,
-      provisional_score: patch.provisionalScore,
-      provisional_grade: (patch.provisionalGrade ?? null) as never,
-      final_score: patch.finalScore,
-      final_grade: (patch.finalGrade ?? null) as never,
-      final_score_components: patch.finalScoreComponents as never,
-      score_calculated_at: now,
-      // The displayed tier is the recalculated one, so a stored signal can
-      // never show a tier the alert did not actually earn.
-      score: patch.finalScore,
-      grade: (patch.finalGrade ?? null) as never,
-    })
-    .eq("id", signalId)
-    // Idempotency: a signal already made actionable is never alerted twice.
-    .eq("is_actionable", false)
-    .select("id")
-    .maybeSingle();
-
+  const { data, error } = await admin.rpc("claim_actionable_slot", {
+    _day: tradingDayUtc(),
+    _max: max,
+    _tier: bucket,
+  });
   if (error) {
-    console.error("entry-ready promotion failed", error.message);
-    return false;
+    console.error("claim_actionable_slot failed", error.message);
+    return false; // Fail closed.
   }
-  return Boolean(data?.id);
+  return data === true;
 }

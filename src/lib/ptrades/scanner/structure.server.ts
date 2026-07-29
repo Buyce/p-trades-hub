@@ -9,8 +9,7 @@ import { swingHighs, swingLows } from "./swings.server";
  * ChoCH (change of character): price closes beyond the most recent opposing
  *      swing against the existing structure — the first sign of a reversal.
  *
- * Deterministic and pure: same candles in, same event out. The break INDEX is
- * returned so a retest can be required to occur strictly AFTER the break.
+ * Deterministic and pure: same candles in, same event out.
  */
 
 export type StructureType = "BOS" | "CHOCH";
@@ -21,8 +20,6 @@ export type StructureEvent = {
   direction: "LONG" | "SHORT" | null;
   level: number | null;
   at: string | null;
-  /** Index of the breaking candle in the input series, or null. */
-  atIndex: number | null;
   priorTrend: "LONG" | "SHORT" | "NEUTRAL";
 };
 
@@ -32,7 +29,6 @@ const NONE: StructureEvent = {
   direction: null,
   level: null,
   at: null,
-  atIndex: null,
   priorTrend: "NEUTRAL",
 };
 
@@ -48,25 +44,16 @@ export function priorTrend(highs: Swing[], lows: Swing[]): "LONG" | "SHORT" | "N
   return "NEUTRAL";
 }
 
-/**
- * @param afterIndex when set, only candles strictly after this index may count
- *   as the break. Used to require break-after-sweep chronology.
- */
 export function detectStructureEvent(
   candles: Candle[],
   lookback = 5,
   window = 6,
-  afterIndex: number | null = null,
 ): StructureEvent {
   if (candles.length < lookback * 2 + 3) return NONE;
   const highs = swingHighs(candles, lookback);
   const lows = swingLows(candles, lookback);
   const trend = priorTrend(highs, lows);
-  const start = Math.max(
-    0,
-    candles.length - window,
-    afterIndex === null ? 0 : afterIndex + 1,
-  );
+  const start = Math.max(0, candles.length - window);
 
   for (let i = candles.length - 1; i >= start; i -= 1) {
     const c = candles[i];
@@ -80,7 +67,6 @@ export function detectStructureEvent(
         direction: "LONG",
         level: high.price,
         at: c.time,
-        atIndex: i,
         priorTrend: trend,
       };
     }
@@ -91,7 +77,6 @@ export function detectStructureEvent(
         direction: "SHORT",
         level: low.price,
         at: c.time,
-        atIndex: i,
         priorTrend: trend,
       };
     }

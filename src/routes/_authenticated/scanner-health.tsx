@@ -4,25 +4,16 @@ import { useServerFn } from "@tanstack/react-start";
 import { getScannerLink } from "@/lib/ptrades/backend.functions";
 import {
   heartbeatHistoryQuery,
-  componentHeartbeatsQuery,
-  contextRuntimeQuery,
   scannerRunsQuery,
   activeRulebookQuery,
   blockingGatesTodayQuery,
   instrumentCoverageQuery,
-  executionFunnelQuery,
   lastPurgeQuery,
   RETENTION_WINDOWS,
+
+
 } from "@/lib/ptrades/queries";
 import { useIsStaff, useTimezone } from "@/lib/ptrades/session";
-import {
-  HEARTBEAT_SOURCES,
-  contextRuntimeHealth,
-  HEARTBEAT_SOURCE_LABEL,
-  heartbeatHealth,
-  heartbeatLabel,
-  heartbeatPillState,
-} from "@/lib/ptrades/heartbeat-health";
 import { tierReachability } from "@/lib/ptrades/scanner/reachability";
 import { DEFAULT_RULEBOOK, type Rulebook } from "@/lib/ptrades/scanner/types";
 import { tierLabel } from "@/lib/ptrades/tiers";
@@ -63,20 +54,11 @@ function ScannerHealth() {
     enabled: isStaff,
   });
   const { data: heartbeats = [] } = useQuery({ ...heartbeatHistoryQuery(20), enabled: isStaff });
-  const { data: componentBeats } = useQuery({ ...componentHeartbeatsQuery(), enabled: isStaff });
-  const { data: contextSnapshot } = useQuery({ ...contextRuntimeQuery(), enabled: isStaff });
-  const contextRuntime = contextRuntimeHealth({
-    latestAt: contextSnapshot?.latestAttemptAt,
-    recentStatuses: contextSnapshot?.recentStatuses,
-    lastSuccessAt: contextSnapshot?.lastSuccessAt,
-  });
   const { data: runs = [] } = useQuery({ ...scannerRunsQuery(20), enabled: isStaff });
   const { data: rulebook } = useQuery({ ...activeRulebookQuery(), enabled: isStaff });
   const { data: blocking = [] } = useQuery({ ...blockingGatesTodayQuery(), enabled: isStaff });
   const { data: lastPurge } = useQuery({ ...lastPurgeQuery(), enabled: isStaff });
   const { data: coverage = [] } = useQuery({ ...instrumentCoverageQuery(), enabled: isStaff });
-  const { data: funnel } = useQuery({ ...executionFunnelQuery(), enabled: isStaff });
-
 
 
 
@@ -128,111 +110,6 @@ function ScannerHealth() {
         {link?.message ? <DataRow label="Last error" value={link.message} /> : null}
       </SectionCard>
 
-      <SectionCard title="Execution funnel">
-        <p className="mb-3 text-xs text-muted-foreground">
-          Where today's setups stopped, from detection to a delivered alert. Every number is read
-          from stored rows.
-        </p>
-        <ul className="divide-y divide-border/60">
-          {(funnel?.stages ?? []).map((s) => (
-            <li key={s.stage} className="flex items-center justify-between gap-3 py-2.5">
-              <div>
-                <p className="text-sm">{s.stage}</p>
-                <p className="text-xs text-muted-foreground">{s.note}</p>
-              </div>
-              <span className="num text-sm font-semibold">{s.count}</span>
-            </li>
-          ))}
-        </ul>
-        {funnel && funnel.topBlocking.length > 0 && (
-          <div className="mt-3 border-t border-border/60 pt-3">
-            <p className="mb-2 text-xs text-muted-foreground">Armed setups are waiting on:</p>
-            <ul className="space-y-1.5">
-              {funnel.topBlocking.map((b) => (
-                <li key={b.code} className="text-xs">
-                  <span className="num font-semibold text-primary">{b.code}</span>{" "}
-                  <span className="num text-muted-foreground">×{b.count}</span>
-                  <p className="text-muted-foreground">{b.reason}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </SectionCard>
-
-
-      <SectionCard title="Context scan runtime">
-        <p className="mb-3 text-xs text-muted-foreground">
-          A skipped tick means the scheduler fired while a previous run still held the lock. Only a
-          completed scan proves detection ran.
-        </p>
-        <DataRow
-          label="Health"
-          value={`${heartbeatLabel(contextRuntime.health)} · ${contextRuntime.reason}`}
-        />
-        <DataRow
-          label="Last attempt"
-          value={
-            contextSnapshot?.latestAttemptAt
-              ? `${field(contextSnapshot.latestStatus)} · ${relativeFromNow(contextSnapshot.latestAttemptAt)}`
-              : "None recorded"
-          }
-        />
-        <DataRow
-          label="Last completed"
-          value={
-            contextSnapshot?.lastSuccessAt
-              ? `${relativeFromNow(contextSnapshot.lastSuccessAt)} · ${contextSnapshot.lastSuccessSymbolsCompleted ?? "?"}/${contextSnapshot.lastSuccessSymbolsStarted ?? "?"} symbols · ${
-                  contextSnapshot.lastSuccessDurationMs
-                    ? `${Math.round(contextSnapshot.lastSuccessDurationMs / 1000)}s`
-                    : "duration n/a"
-                }`
-              : "No context scan has completed"
-          }
-        />
-        <DataRow label="Consecutive skips" value={String(contextRuntime.skipStreak)} />
-        <DataRow
-          label="Lock"
-          value={
-            contextSnapshot?.lockHolder
-              ? `held by ${contextSnapshot.lockHolder.slice(0, 8)}${
-                  contextSnapshot.lockAgeSeconds !== null
-                    ? ` · ${Math.round(contextSnapshot.lockAgeSeconds)}s old`
-                    : ""
-                }`
-              : "Free"
-          }
-        />
-      </SectionCard>
-
-      <SectionCard title="Component liveness">
-        <p className="mb-3 text-xs text-muted-foreground">
-          Detection and execution run on separate schedules. Liveness is measured from heartbeat
-          age, so a stale “OK” reads as not reporting.
-        </p>
-        <ul className="divide-y divide-border/60">
-          {HEARTBEAT_SOURCES.map((source) => {
-            const beat = componentBeats?.[source] ?? null;
-            const health =
-              source === "CONTEXT_SCANNER"
-                ? contextRuntime.health
-                : heartbeatHealth(beat?.received_at);
-            return (
-              <li key={source} className="flex items-center justify-between gap-3 py-2.5">
-                <div>
-                  <p className="text-sm">{HEARTBEAT_SOURCE_LABEL[source]}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {beat
-                      ? `${field(beat.status)} · ${formatTime(beat.received_at, tz)} · ${relativeFromNow(beat.received_at)}`
-                      : "No heartbeat recorded"}
-                  </p>
-                </div>
-                <StatusPill state={heartbeatPillState(health)}>{heartbeatLabel(health)}</StatusPill>
-              </li>
-            );
-          })}
-        </ul>
-      </SectionCard>
 
       <SectionCard title="Heartbeats">
         {heartbeats.length === 0 ? (
@@ -242,12 +119,12 @@ function ScannerHealth() {
             {heartbeats.map((h) => (
               <li key={h.id} className="flex items-center justify-between gap-3 py-2.5">
                 <div>
-                  <p className="num text-sm">{HEARTBEAT_SOURCE_LABEL[h.source] ?? field(h.source)}</p>
+                  <p className="num text-sm">{field(h.source)}</p>
                   <p className="text-xs text-muted-foreground">
                     {formatTime(h.received_at, tz)} · {relativeFromNow(h.received_at)}
                   </p>
                 </div>
-                <StatusPill state={h.status === "OK" ? "ok" : h.status === "ERROR" ? "down" : "warn"}>
+                <StatusPill state={h.status === "OK" ? "ok" : "warn"}>
                   {field(h.status)}
                 </StatusPill>
               </li>

@@ -254,45 +254,6 @@ export type Database = {
         }
         Relationships: []
       }
-      market_candles: {
-        Row: {
-          broker_symbol: string
-          close: number
-          fetched_at: string
-          high: number
-          instrument: string
-          low: number
-          open: number
-          open_time: string
-          timeframe: string
-          volume: number | null
-        }
-        Insert: {
-          broker_symbol: string
-          close: number
-          fetched_at?: string
-          high: number
-          instrument: string
-          low: number
-          open: number
-          open_time: string
-          timeframe: string
-          volume?: number | null
-        }
-        Update: {
-          broker_symbol?: string
-          close?: number
-          fetched_at?: string
-          high?: number
-          instrument?: string
-          low?: number
-          open?: number
-          open_time?: string
-          timeframe?: string
-          volume?: number | null
-        }
-        Relationships: []
-      }
       notifications: {
         Row: {
           body: string | null
@@ -326,134 +287,6 @@ export type Database = {
             foreignKeyName: "notifications_signal_id_fkey"
             columns: ["signal_id"]
             isOneToOne: false
-            referencedRelation: "signals"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      precision_watches: {
-        Row: {
-          anchor_source: string | null
-          armed_at: string
-          broker_symbol: string | null
-          check_count: number
-          created_at: string
-          direction: string
-          entry_anchor: number | null
-          entry_ready_at: string | null
-          entry_zone_high: number | null
-          entry_zone_low: number | null
-          expires_at: string
-          id: string
-          invalidation_condition: string | null
-          invalidation_price: number | null
-          invalidation_timeframe: string | null
-          last_checked_at: string | null
-          last_m1_candle_time: string | null
-          metadata: Json
-          preferred_entry: number | null
-          provisional_grade: Database["public"]["Enums"]["signal_grade"] | null
-          provisional_score: number | null
-          resolved_at: string | null
-          retest_deadline: string | null
-          signal_id: string
-          state: string
-          stop_loss: number | null
-          structural_idea_id: string | null
-          structural_level: number | null
-          symbol: string
-          targets: Json
-          trigger_candle_time: string | null
-          trigger_level: number | null
-          trigger_summary: string | null
-          trigger_timeframe: string | null
-          triggered_at: string | null
-          updated_at: string
-          zone_width_points: number | null
-        }
-        Insert: {
-          anchor_source?: string | null
-          armed_at?: string
-          broker_symbol?: string | null
-          check_count?: number
-          created_at?: string
-          direction: string
-          entry_anchor?: number | null
-          entry_ready_at?: string | null
-          entry_zone_high?: number | null
-          entry_zone_low?: number | null
-          expires_at: string
-          id?: string
-          invalidation_condition?: string | null
-          invalidation_price?: number | null
-          invalidation_timeframe?: string | null
-          last_checked_at?: string | null
-          last_m1_candle_time?: string | null
-          metadata?: Json
-          preferred_entry?: number | null
-          provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
-          provisional_score?: number | null
-          resolved_at?: string | null
-          retest_deadline?: string | null
-          signal_id: string
-          state?: string
-          stop_loss?: number | null
-          structural_idea_id?: string | null
-          structural_level?: number | null
-          symbol: string
-          targets?: Json
-          trigger_candle_time?: string | null
-          trigger_level?: number | null
-          trigger_summary?: string | null
-          trigger_timeframe?: string | null
-          triggered_at?: string | null
-          updated_at?: string
-          zone_width_points?: number | null
-        }
-        Update: {
-          anchor_source?: string | null
-          armed_at?: string
-          broker_symbol?: string | null
-          check_count?: number
-          created_at?: string
-          direction?: string
-          entry_anchor?: number | null
-          entry_ready_at?: string | null
-          entry_zone_high?: number | null
-          entry_zone_low?: number | null
-          expires_at?: string
-          id?: string
-          invalidation_condition?: string | null
-          invalidation_price?: number | null
-          invalidation_timeframe?: string | null
-          last_checked_at?: string | null
-          last_m1_candle_time?: string | null
-          metadata?: Json
-          preferred_entry?: number | null
-          provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
-          provisional_score?: number | null
-          resolved_at?: string | null
-          retest_deadline?: string | null
-          signal_id?: string
-          state?: string
-          stop_loss?: number | null
-          structural_idea_id?: string | null
-          structural_level?: number | null
-          symbol?: string
-          targets?: Json
-          trigger_candle_time?: string | null
-          trigger_level?: number | null
-          trigger_summary?: string | null
-          trigger_timeframe?: string | null
-          triggered_at?: string | null
-          updated_at?: string
-          zone_width_points?: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "precision_watches_signal_id_fkey"
-            columns: ["signal_id"]
-            isOneToOne: true
             referencedRelation: "signals"
             referencedColumns: ["id"]
           },
@@ -715,9 +548,6 @@ export type Database = {
         Row: {
           atr: number | null
           bias: string | null
-          bias_policy: string | null
-          bias_policy_passed: boolean | null
-          bias_policy_reason: string | null
           broker_symbol: string | null
           candle_time_utc: string | null
           created_at: string
@@ -730,8 +560,6 @@ export type Database = {
           grade: Database["public"]["Enums"]["signal_grade"] | null
           id: string
           instrument: string
-          prior_d1_bias: string | null
-          prior_h4_bias: string | null
           promoted_signal_id: string | null
           qualified: boolean
           reasons: Json
@@ -741,12 +569,10 @@ export type Database = {
           scanner_run_id: string | null
           score: number | null
           score_components: Json
-          sequence_valid: boolean | null
           setup_type: string | null
           shadow_mode: boolean
           spread: number | null
           stop_loss: number | null
-          structural_idea_id: string | null
           targets: Json
           timeframe: string | null
           trading_day_utc: string
@@ -754,9 +580,6 @@ export type Database = {
         Insert: {
           atr?: number | null
           bias?: string | null
-          bias_policy?: string | null
-          bias_policy_passed?: boolean | null
-          bias_policy_reason?: string | null
           broker_symbol?: string | null
           candle_time_utc?: string | null
           created_at?: string
@@ -769,8 +592,6 @@ export type Database = {
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument: string
-          prior_d1_bias?: string | null
-          prior_h4_bias?: string | null
           promoted_signal_id?: string | null
           qualified?: boolean
           reasons?: Json
@@ -780,12 +601,10 @@ export type Database = {
           scanner_run_id?: string | null
           score?: number | null
           score_components?: Json
-          sequence_valid?: boolean | null
           setup_type?: string | null
           shadow_mode?: boolean
           spread?: number | null
           stop_loss?: number | null
-          structural_idea_id?: string | null
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
@@ -793,9 +612,6 @@ export type Database = {
         Update: {
           atr?: number | null
           bias?: string | null
-          bias_policy?: string | null
-          bias_policy_passed?: boolean | null
-          bias_policy_reason?: string | null
           broker_symbol?: string | null
           candle_time_utc?: string | null
           created_at?: string
@@ -808,8 +624,6 @@ export type Database = {
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument?: string
-          prior_d1_bias?: string | null
-          prior_h4_bias?: string | null
           promoted_signal_id?: string | null
           qualified?: boolean
           reasons?: Json
@@ -819,12 +633,10 @@ export type Database = {
           scanner_run_id?: string | null
           score?: number | null
           score_components?: Json
-          sequence_valid?: boolean | null
           setup_type?: string | null
           shadow_mode?: boolean
           spread?: number | null
           stop_loss?: number | null
-          structural_idea_id?: string | null
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
@@ -921,36 +733,21 @@ export type Database = {
       }
       signals: {
         Row: {
-          armed_at: string | null
-          bias_policy: string | null
-          bias_policy_reason: string | null
           broker_symbol: string | null
           candidate_id: string | null
           created_at: string
           direction: string
-          distance_to_entry_points: number | null
-          entry_ready_at: string | null
           entry_zone_high: number | null
           entry_zone_low: number | null
           expires_at_utc: string | null
           external_id: string | null
-          final_grade: Database["public"]["Enums"]["signal_grade"] | null
-          final_score: number | null
-          final_score_components: Json
           fingerprint: string | null
           grade: Database["public"]["Enums"]["signal_grade"] | null
           id: string
           instrument: string
           invalidation: string | null
-          invalidation_price: number | null
-          invalidation_timeframe: string | null
           is_actionable: boolean
-          lifecycle_state: string
           macro_context: Json
-          preferred_entry: number | null
-          price_at_alert: number | null
-          provisional_grade: Database["public"]["Enums"]["signal_grade"] | null
-          provisional_score: number | null
           reasons: Json
           rejection_reasons: Json
           rr_tp1: number | null
@@ -958,7 +755,6 @@ export type Database = {
           rulebook_version: string | null
           scanner_run_id: string | null
           score: number | null
-          score_calculated_at: string | null
           score_components: Json
           setup_type: string | null
           shadow_mode: boolean
@@ -966,47 +762,26 @@ export type Database = {
           spread: number | null
           status: string
           stop_loss: number | null
-          structural_idea_id: string | null
           targets: Json
           timeframe: string | null
           trading_day_utc: string
-          trigger_candle_time: string | null
-          trigger_level: number | null
-          trigger_summary: string | null
-          trigger_timeframe: string | null
-          zone_width_points: number | null
         }
         Insert: {
-          armed_at?: string | null
-          bias_policy?: string | null
-          bias_policy_reason?: string | null
           broker_symbol?: string | null
           candidate_id?: string | null
           created_at?: string
           direction: string
-          distance_to_entry_points?: number | null
-          entry_ready_at?: string | null
           entry_zone_high?: number | null
           entry_zone_low?: number | null
           expires_at_utc?: string | null
           external_id?: string | null
-          final_grade?: Database["public"]["Enums"]["signal_grade"] | null
-          final_score?: number | null
-          final_score_components?: Json
           fingerprint?: string | null
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument: string
           invalidation?: string | null
-          invalidation_price?: number | null
-          invalidation_timeframe?: string | null
           is_actionable?: boolean
-          lifecycle_state?: string
           macro_context?: Json
-          preferred_entry?: number | null
-          price_at_alert?: number | null
-          provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
-          provisional_score?: number | null
           reasons?: Json
           rejection_reasons?: Json
           rr_tp1?: number | null
@@ -1014,7 +789,6 @@ export type Database = {
           rulebook_version?: string | null
           scanner_run_id?: string | null
           score?: number | null
-          score_calculated_at?: string | null
           score_components?: Json
           setup_type?: string | null
           shadow_mode?: boolean
@@ -1022,47 +796,26 @@ export type Database = {
           spread?: number | null
           status?: string
           stop_loss?: number | null
-          structural_idea_id?: string | null
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
-          trigger_candle_time?: string | null
-          trigger_level?: number | null
-          trigger_summary?: string | null
-          trigger_timeframe?: string | null
-          zone_width_points?: number | null
         }
         Update: {
-          armed_at?: string | null
-          bias_policy?: string | null
-          bias_policy_reason?: string | null
           broker_symbol?: string | null
           candidate_id?: string | null
           created_at?: string
           direction?: string
-          distance_to_entry_points?: number | null
-          entry_ready_at?: string | null
           entry_zone_high?: number | null
           entry_zone_low?: number | null
           expires_at_utc?: string | null
           external_id?: string | null
-          final_grade?: Database["public"]["Enums"]["signal_grade"] | null
-          final_score?: number | null
-          final_score_components?: Json
           fingerprint?: string | null
           grade?: Database["public"]["Enums"]["signal_grade"] | null
           id?: string
           instrument?: string
           invalidation?: string | null
-          invalidation_price?: number | null
-          invalidation_timeframe?: string | null
           is_actionable?: boolean
-          lifecycle_state?: string
           macro_context?: Json
-          preferred_entry?: number | null
-          price_at_alert?: number | null
-          provisional_grade?: Database["public"]["Enums"]["signal_grade"] | null
-          provisional_score?: number | null
           reasons?: Json
           rejection_reasons?: Json
           rr_tp1?: number | null
@@ -1070,7 +823,6 @@ export type Database = {
           rulebook_version?: string | null
           scanner_run_id?: string | null
           score?: number | null
-          score_calculated_at?: string | null
           score_components?: Json
           setup_type?: string | null
           shadow_mode?: boolean
@@ -1078,15 +830,9 @@ export type Database = {
           spread?: number | null
           status?: string
           stop_loss?: number | null
-          structural_idea_id?: string | null
           targets?: Json
           timeframe?: string | null
           trading_day_utc?: string
-          trigger_candle_time?: string | null
-          trigger_level?: number | null
-          trigger_summary?: string | null
-          trigger_timeframe?: string | null
-          zone_width_points?: number | null
         }
         Relationships: [
           {
@@ -1316,7 +1062,6 @@ export type Database = {
       }
       is_admin: { Args: never; Returns: boolean }
       is_staff: { Args: { _user_id: string }; Returns: boolean }
-      purge_market_candles: { Args: { retain?: string }; Returns: number }
       purge_scanner_diagnostics: {
         Args: {
           retain_candidates?: string
@@ -1326,13 +1071,7 @@ export type Database = {
         }
         Returns: Json
       }
-      release_scanner_lock:
-        | { Args: { _key: string }; Returns: undefined }
-        | { Args: { _holder?: string; _key: string }; Returns: boolean }
-      renew_scanner_lock: {
-        Args: { _holder: string; _key: string; _ttl_seconds?: number }
-        Returns: boolean
-      }
+      release_scanner_lock: { Args: { _key: string }; Returns: undefined }
     }
     Enums: {
       app_role: "owner" | "admin" | "trader"
