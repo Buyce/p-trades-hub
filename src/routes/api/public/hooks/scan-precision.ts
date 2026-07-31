@@ -85,12 +85,20 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
           const channels = await verifyNotificationChannels(supabaseAdmin).catch(() => null);
           await safeHeartbeat(supabaseAdmin, {
             source: "PRECISION_SCANNER",
-            // No open watches is a healthy idle scanner, not a fault.
-            status: precision.watched === 0 ? "IDLE" : "OK",
+            // No open watches is a healthy idle scanner, not a fault. A watch
+            // that could not be judged because its M1 series was missing is a
+            // data outage and must never read as a quiet market.
+            status:
+              precision.watched === 0
+                ? "IDLE"
+                : precision.microDataMissing > 0
+                  ? "DEGRADED"
+                  : "OK",
             metaapiConnected: null,
             rulebookVersion: rulebook.version ?? null,
             detail: { ...precision, channels, duration_ms: Date.now() - startedAt },
           });
+
           return Response.json({ ok: true, precision, watchdog, channels });
         } catch (error) {
           const message = error instanceof Error ? error.message : "precision pass failed";

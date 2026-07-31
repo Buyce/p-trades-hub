@@ -15,6 +15,8 @@
 
 import type { GateResult, Rulebook } from "./types";
 import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL, precisionRulesFor } from "./types";
+import { validateRulebook } from "./rulebook-validate";
+
 import { marketData } from "./market-data.server";
 import { atr } from "./atr.server";
 import { dataAgeSeconds, normaliseCandles } from "./candles.server";
@@ -30,6 +32,7 @@ import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
 import {
   calculateExtensionR,
   distanceToEntryPoints,
+  extremeSinceArmed,
   isPriceNearEntry,
   targetAlreadyTouched,
 } from "./proximity.server";
@@ -77,7 +80,16 @@ export type PrecisionSummary = {
   resolved: number;
   /** Watches evaluated from the live quote alone because no new M1 closed. */
   quoteOnly: number;
+  /** Watches still running under the rulebook they were armed with. */
+  legacyRulebook: number;
+  /**
+   * Watches that could not be judged at all because the stored M1 series was
+   * missing or too short. Distinct from "no trigger found": one is a data
+   * outage, the other is a market fact.
+   */
+  microDataMissing: number;
 };
+
 
 export type PrecisionPassOptions = {
   /** Overrides the stored scanner setting. Shadow mode never notifies. */
@@ -110,7 +122,10 @@ export async function runPrecisionPass(
     entryReady: 0,
     resolved: 0,
     quoteOnly: 0,
+    legacyRulebook: 0,
+    microDataMissing: 0,
   };
+
   if (rulebook.precision?.enabled === false) return summary;
 
   // Delivery mode is read from the stored setting, never hardcoded.
@@ -141,24 +156,49 @@ export async function runPrecisionPass(
   const instruments = await loadInstruments(admin);
   const macroEvents = await loadMacroEvents(admin);
 
+  // Rulebooks armed under an older version are NOT discarded. A version bump
+  // is a governance event, not a market event, and killing live watches on one
+  // silently emptied the funnel. The watch continues under the exact rulebook
+  // it was armed with; it is only retired when that rulebook can no longer be
+  // loaded, because then its terms are genuinely unknown.
+  const legacyRulebooks = new Map<string, Rulebook | null>();
+  const rulebookForWatch = async (version: string | null): Promise<Rulebook | null> => {
+    if (version === null || version === rulebook.version) return rulebook;
+    if (!legacyRulebooks.has(version)) {
+      const { data } = await admin
+        .from("rulebook_versions")
+        .select("version, rules")
+        .eq("version", version)
+        .maybeSingle();
+      legacyRulebooks.set(
+        version,
+        data ? validateRulebook(data.rules ?? {}, data.version).rulebook : null,
+      );
+    }
+    return legacyRulebooks.get(version) ?? null;
+  };
+
   for (const watch of watches) {
     try {
       const watchRulebookVersion = versionBySignal.get(watch.signal_id) ?? null;
-      if (watchRulebookVersion !== rulebook.version) {
+      const watchRulebook = await rulebookForWatch(watchRulebookVersion);
+      if (watchRulebook === null) {
         await resolveWatch(
           admin,
           watch.id,
           "EXPIRED",
-          `Watch rulebook ${watchRulebookVersion ?? "unknown"} does not match active ${rulebook.version}.`,
+          `Watch rulebook ${watchRulebookVersion ?? "unknown"} could not be loaded; its terms are unknown.`,
+          watch.metadata,
         );
         await closeSignalLifecycle(admin, watch.signal_id, "EXPIRED");
         summary.resolved += 1;
         continue;
       }
+      if (watchRulebook.version !== rulebook.version) summary.legacyRulebook += 1;
       const outcome = await evaluateWatch(
         admin,
         watch,
-        rulebook,
+        watchRulebook,
         instruments,
         macroEvents,
         shadowMode,
@@ -167,6 +207,8 @@ export async function runPrecisionPass(
       if (outcome === "ENTRY_READY") summary.entryReady += 1;
       if (outcome === "RESOLVED") summary.resolved += 1;
       if (outcome === "QUOTE_ONLY") summary.quoteOnly += 1;
+      if (outcome === "NO_MICRO_DATA") summary.microDataMissing += 1;
+
     } catch (error) {
       await recordScannerError(admin, {
         runId: null,
@@ -181,7 +223,13 @@ export async function runPrecisionPass(
   return summary;
 }
 
-type WatchOutcome = "WAITING" | "ENTRY_READY" | "RESOLVED" | "QUOTE_ONLY";
+type WatchOutcome =
+  | "WAITING"
+  | "ENTRY_READY"
+  | "RESOLVED"
+  | "QUOTE_ONLY"
+  | "NO_MICRO_DATA";
+
 
 async function evaluateWatch(
   admin: Admin,
@@ -196,17 +244,47 @@ async function evaluateWatch(
 
   // Expiry is checked before anything is fetched: a dead watch costs nothing.
   if (isExpired(watch.expires_at, nowMs)) {
-    await resolveWatch(admin, watch.id, "EXPIRED", "The armed setup expired before an entry formed.");
+    const last = ((watch.metadata ?? {}) as Record<string, unknown>).last_check as
+      | Record<string, unknown>
+      | undefined;
+    // An expiry with no record of how close it came cannot be calibrated, so
+    // the final observation is carried into the resolution itself.
+    await resolveWatch(
+      admin,
+      watch.id,
+      "EXPIRED",
+      "The armed setup expired before an entry formed.",
+      {
+        ...((watch.metadata ?? {}) as Record<string, unknown>),
+        expiry_diagnostics: {
+          checks: watch.check_count,
+          armed_at: watch.armed_at,
+          expires_at: watch.expires_at,
+          last_distance_points: last?.distance_points ?? null,
+          last_price: last?.price ?? null,
+          micro_triggered: last?.micro_triggered ?? false,
+          micro_confirmed: last?.micro_confirmed ?? false,
+          last_blocking: ((watch.metadata ?? {}) as Record<string, unknown>).blocking ?? null,
+        },
+      },
+    );
     await closeSignalLifecycle(admin, watch.signal_id, "EXPIRED");
     return "RESOLVED";
   }
 
   const instrument = instruments.get(watch.symbol);
   if (!instrument) {
-    await resolveWatch(admin, watch.id, "MISSED", "The instrument is no longer enabled.");
+    await resolveWatch(
+      admin,
+      watch.id,
+      "MISSED",
+      "The instrument is no longer enabled.",
+      watch.metadata,
+    );
     await closeSignalLifecycle(admin, watch.signal_id, "MISSED");
     return "RESOLVED";
   }
+
 
   const resolved = await resolveSymbol(instrument);
   const brokerSymbol = watch.broker_symbol ?? resolved.broker;
@@ -260,6 +338,28 @@ async function evaluateWatch(
   const { candles: m1 } = normaliseCandles(storedM1.candles, MICRO_TF);
   const lastClosedCandle = m1.at(-1) ?? null;
 
+  // A watch cannot be judged on a series that is too short to produce an ATR.
+  // Silently finding "no trigger" in that case reads identically to a market
+  // with no setup, which is how a three-day data outage stayed invisible.
+  const minimumBars = rulebook.atr_period + 2;
+  if (m1.length < minimumBars) {
+    await updateWatch(admin, watch.id, {
+      last_checked_at: new Date(nowMs).toISOString(),
+      check_count: watch.check_count + 1,
+      metadata: {
+        ...((watch.metadata ?? {}) as Record<string, unknown>),
+        micro_data: {
+          at: new Date(nowMs).toISOString(),
+          bars: m1.length,
+          required_bars: minimumBars,
+          store_age_seconds: storedM1.ageSeconds,
+          note: "Not evaluated: the stored M1 series is too short to judge execution timing.",
+        },
+      } as never,
+    });
+    return "NO_MICRO_DATA";
+  }
+
   const gates: GateResult[] = [];
 
   // 1. Still valid? A close beyond the invalidation retires the setup for good.
@@ -269,22 +369,46 @@ async function evaluateWatch(
       watch.id,
       "INVALIDATED",
       `Price accepted beyond ${watch.invalidation_price}.`,
+      watch.metadata,
     );
     await closeSignalLifecycle(admin, watch.signal_id, "INVALIDATED");
     return "RESOLVED";
   }
 
-  const extremeSinceArmed =
-    direction === "LONG"
-      ? m1.reduce<number | null>((m, c) => (m === null || c.high > m ? c.high : m), null)
-      : m1.reduce<number | null>((m, c) => (m === null || c.low < m ? c.low : m), null);
+  // "Since armed" must mean since armed. The stored M1 window is two hours of
+  // history, most of it older than this watch; reducing over all of it counted
+  // pre-arming excursions as the trade already having run, and retired live
+  // setups as MISSED on their very first pass.
+  const armedAtMs = watch.armed_at !== null ? Date.parse(watch.armed_at) : Number.NaN;
+  const barsSinceArmed = Number.isFinite(armedAtMs)
+    ? m1.filter((c) => Date.parse(c.time) >= armedAtMs)
+    : m1;
+  const extreme = extremeSinceArmed(m1, direction, watch.armed_at);
+
 
   // 2. Has the move already happened without us? That is a miss, not an alert.
-  if (targetAlreadyTouched(direction, tp1, extremeSinceArmed)) {
-    await resolveWatch(admin, watch.id, "MISSED", "TP1 was reached before an entry formed.");
+  //    With no bar yet closed after arming there is nothing to judge, so the
+  //    test is skipped rather than failed.
+  if (targetAlreadyTouched(direction, tp1, extreme)) {
+    await resolveWatch(
+      admin,
+      watch.id,
+      "MISSED",
+      "TP1 was reached before an entry formed.",
+      {
+        ...((watch.metadata ?? {}) as Record<string, unknown>),
+        missed_window: {
+          armed_at: watch.armed_at,
+          bars_since_armed: barsSinceArmed.length,
+          extreme_since_armed: extreme,
+          tp1,
+        },
+      },
+    );
     await closeSignalLifecycle(admin, watch.signal_id, "MISSED");
     return "RESOLVED";
   }
+
 
   const quote = liveQuote !== null ? liveQuote.ask - liveQuote.bid : null;
   const price =

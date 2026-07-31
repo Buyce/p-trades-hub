@@ -47,6 +47,29 @@ export function calculateExtensionR(
 }
 
 /**
+ * The furthest price travelled in the trade's favour AFTER the setup was armed.
+ *
+ * The window matters more than the arithmetic: the stored micro series is hours
+ * of history, and measuring the extreme across all of it counts excursions that
+ * happened before the plan existed. Returns null when no bar has closed since
+ * arming, which means "not yet knowable" — not "already missed".
+ */
+export function extremeSinceArmed(
+  candles: Array<{ time: string; high: number; low: number }>,
+  direction: Direction,
+  armedAt: string | null,
+): number | null {
+  const armedAtMs = armedAt !== null ? Date.parse(armedAt) : Number.NaN;
+  const window = Number.isFinite(armedAtMs)
+    ? candles.filter((c) => Date.parse(c.time) >= armedAtMs)
+    : candles;
+  if (window.length === 0) return null;
+  return direction === "LONG"
+    ? window.reduce<number | null>((m, c) => (m === null || c.high > m ? c.high : m), null)
+    : window.reduce<number | null>((m, c) => (m === null || c.low < m ? c.low : m), null);
+}
+
+/**
  * True when the first target was already reached before an entry existed. The
  * move is over; converting that into an alert is chasing.
  */
@@ -59,3 +82,4 @@ export function targetAlreadyTouched(
   if (extremeSinceArmed === null || extremeSinceArmed === undefined) return false;
   return direction === "LONG" ? extremeSinceArmed >= target : extremeSinceArmed <= target;
 }
+

@@ -42,12 +42,25 @@ export const SYNC_TIMEFRAMES: Timeframe[] = ["M1", "M5", "M15", "1h", "4h", "1d"
 const FETCH_TIMEOUT_MS = 5_000;
 const MEDIUM_TIMEFRAME_TIMEOUT_MS = 8_000;
 const SLOW_TIMEFRAME_TIMEOUT_MS = 12_000;
+/**
+ * M1 is the execution timeframe: without it no watch can ever trigger, so it
+ * gets its own budget and a single retry instead of sharing the generic
+ * intraday cap that was silently timing out at 5s on XAUUSD.
+ */
+const MICRO_TIMEFRAME_TIMEOUT_MS = 8_000;
+const MICRO_RETRIES = 1;
 
 function fetchTimeoutFor(tf: Timeframe): number {
   if (tf === "1d" || tf === "4h") return SLOW_TIMEFRAME_TIMEOUT_MS;
   if (tf === "M15" || tf === "1h") return MEDIUM_TIMEFRAME_TIMEOUT_MS;
+  if (tf === "M1") return MICRO_TIMEFRAME_TIMEOUT_MS;
   return FETCH_TIMEOUT_MS;
 }
+
+function attemptsFor(tf: Timeframe): number {
+  return tf === "M1" ? 1 + MICRO_RETRIES : 1;
+}
+
 /** One scheduled tick is a minute; stop well before the next one fires. */
 export const SYNC_BUDGET_MS = 40_000;
 export const SYNC_LOCK_TTL_SECONDS = 90;
@@ -131,12 +144,26 @@ async function syncInstrument(
     }
 
     const fetchStartedAt = Date.now();
+    const attempts = attemptsFor(tf);
     try {
-      const raw = await withTimeout(
-        marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
-        fetchTimeoutFor(tf),
-        `getCandles(${brokerSymbol}/${tf})`,
-      );
+      let raw: Awaited<ReturnType<ReturnType<typeof marketData>["getCandles"]>> | null = null;
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        if (attempt > 1 && deadline.expired()) break;
+        try {
+          raw = await withTimeout(
+            marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
+            fetchTimeoutFor(tf),
+            `getCandles(${brokerSymbol}/${tf}) attempt ${attempt}`,
+          );
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (raw === null) throw lastError ?? new Error("fetch failed");
+
       summary.fetched += 1;
       const normalised = normaliseCandles(raw, tf);
       const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
