@@ -307,6 +307,28 @@ async function evaluateWatch(
   const { candles: m1 } = normaliseCandles(storedM1.candles, MICRO_TF);
   const lastClosedCandle = m1.at(-1) ?? null;
 
+  // A watch cannot be judged on a series that is too short to produce an ATR.
+  // Silently finding "no trigger" in that case reads identically to a market
+  // with no setup, which is how a three-day data outage stayed invisible.
+  const minimumBars = rulebook.atr_period + 2;
+  if (m1.length < minimumBars) {
+    await updateWatch(admin, watch.id, {
+      last_checked_at: new Date(nowMs).toISOString(),
+      check_count: watch.check_count + 1,
+      metadata: {
+        ...((watch.metadata ?? {}) as Record<string, unknown>),
+        micro_data: {
+          at: new Date(nowMs).toISOString(),
+          bars: m1.length,
+          required_bars: minimumBars,
+          store_age_seconds: storedM1.ageSeconds,
+          note: "Not evaluated: the stored M1 series is too short to judge execution timing.",
+        },
+      } as never,
+    });
+    return "NO_MICRO_DATA";
+  }
+
   const gates: GateResult[] = [];
 
   // 1. Still valid? A close beyond the invalidation retires the setup for good.
@@ -316,22 +338,50 @@ async function evaluateWatch(
       watch.id,
       "INVALIDATED",
       `Price accepted beyond ${watch.invalidation_price}.`,
+      watch.metadata,
     );
     await closeSignalLifecycle(admin, watch.signal_id, "INVALIDATED");
     return "RESOLVED";
   }
 
+  // "Since armed" must mean since armed. The stored M1 window is two hours of
+  // history, most of it older than this watch; reducing over all of it counted
+  // pre-arming excursions as the trade already having run, and retired live
+  // setups as MISSED on their very first pass.
+  const armedAtMs = watch.armed_at !== null ? Date.parse(watch.armed_at) : Number.NaN;
+  const barsSinceArmed = Number.isFinite(armedAtMs)
+    ? m1.filter((c) => Date.parse(c.time) >= armedAtMs)
+    : m1;
   const extremeSinceArmed =
-    direction === "LONG"
-      ? m1.reduce<number | null>((m, c) => (m === null || c.high > m ? c.high : m), null)
-      : m1.reduce<number | null>((m, c) => (m === null || c.low < m ? c.low : m), null);
+    barsSinceArmed.length === 0
+      ? null
+      : direction === "LONG"
+        ? barsSinceArmed.reduce<number | null>((m, c) => (m === null || c.high > m ? c.high : m), null)
+        : barsSinceArmed.reduce<number | null>((m, c) => (m === null || c.low < m ? c.low : m), null);
 
   // 2. Has the move already happened without us? That is a miss, not an alert.
+  //    With no bar yet closed after arming there is nothing to judge, so the
+  //    test is skipped rather than failed.
   if (targetAlreadyTouched(direction, tp1, extremeSinceArmed)) {
-    await resolveWatch(admin, watch.id, "MISSED", "TP1 was reached before an entry formed.");
+    await resolveWatch(
+      admin,
+      watch.id,
+      "MISSED",
+      "TP1 was reached before an entry formed.",
+      {
+        ...((watch.metadata ?? {}) as Record<string, unknown>),
+        missed_window: {
+          armed_at: watch.armed_at,
+          bars_since_armed: barsSinceArmed.length,
+          extreme_since_armed: extremeSinceArmed,
+          tp1,
+        },
+      },
+    );
     await closeSignalLifecycle(admin, watch.signal_id, "MISSED");
     return "RESOLVED";
   }
+
 
   const quote = liveQuote !== null ? liveQuote.ask - liveQuote.bid : null;
   const price =
