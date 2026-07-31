@@ -40,10 +40,13 @@ export const SYNC_TIMEFRAMES: Timeframe[] = ["M1", "M5", "M15", "1h", "4h", "1d"
  * budget; the pass deadline still bounds the whole run.
  */
 const FETCH_TIMEOUT_MS = 5_000;
+const MEDIUM_TIMEFRAME_TIMEOUT_MS = 8_000;
 const SLOW_TIMEFRAME_TIMEOUT_MS = 12_000;
 
 function fetchTimeoutFor(tf: Timeframe): number {
   return tf === "1d" || tf === "4h" ? SLOW_TIMEFRAME_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+  if (tf === "M15" || tf === "1h") return MEDIUM_TIMEFRAME_TIMEOUT_MS;
+  return FETCH_TIMEOUT_MS;
 }
 /** One scheduled tick is a minute; stop well before the next one fires. */
 export const SYNC_BUDGET_MS = 40_000;
@@ -212,7 +215,12 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
     .order("sort_order");
 
   const rows = (instruments ?? []) as InstrumentRow[];
-  for (const instrument of rows) {
+  // A recovery pass can consume its full deadline before reaching the final
+  // symbols. Rotate the starting symbol every scheduled three-minute slot so
+  // stale feeds recover fairly instead of permanently favouring sort order.
+  const rotation = rows.length > 0 ? Math.floor(Date.now() / 180_000) % rows.length : 0;
+  const orderedRows = [...rows.slice(rotation), ...rows.slice(0, rotation)];
+  for (const instrument of orderedRows) {
     if (deadline.expired()) {
       summary.deadlineHit = true;
       break;
