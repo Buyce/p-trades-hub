@@ -227,14 +227,16 @@ type FetchedCandles = {
  * cleanup uses the same value, so a run can never be declared dead while it
  * still legitimately owns the lock.
  */
-export const SCAN_LOCK_TTL_SECONDS = 180;
+export const SCAN_LOCK_TTL_SECONDS = 110;
 
 /**
  * Hard runtime budget for a whole context scan. The run stops cleanly at the
  * budget and reports PARTIAL rather than being killed mid-write, which is what
- * used to leave the lock behind and skip every subsequent tick.
+ * used to leave the lock behind and skip every subsequent tick. At a
+ * one-minute cadence a run that overruns must yield the next tick quickly, so
+ * the budget sits inside two ticks rather than two minutes.
  */
-export const SCAN_BUDGET_MS = 100_000;
+export const SCAN_BUDGET_MS = 50_000;
 
 /**
  * The context scan READS the durable candle store; it does not download
