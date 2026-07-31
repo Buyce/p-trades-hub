@@ -144,12 +144,26 @@ async function syncInstrument(
     }
 
     const fetchStartedAt = Date.now();
+    const attempts = attemptsFor(tf);
     try {
-      const raw = await withTimeout(
-        marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
-        fetchTimeoutFor(tf),
-        `getCandles(${brokerSymbol}/${tf})`,
-      );
+      let raw: Awaited<ReturnType<ReturnType<typeof marketData>["getCandles"]>> | null = null;
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= attempts; attempt += 1) {
+        if (attempt > 1 && deadline.expired()) break;
+        try {
+          raw = await withTimeout(
+            marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
+            fetchTimeoutFor(tf),
+            `getCandles(${brokerSymbol}/${tf}) attempt ${attempt}`,
+          );
+          lastError = null;
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (raw === null) throw lastError ?? new Error("fetch failed");
+
       summary.fetched += 1;
       const normalised = normaliseCandles(raw, tf);
       const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
