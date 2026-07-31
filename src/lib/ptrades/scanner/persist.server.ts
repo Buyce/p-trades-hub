@@ -347,19 +347,29 @@ export async function updateWatch(
   if (error) console.error("precision watch update failed", error.message);
 }
 
-/** Records a terminal outcome. Terminal watches are kept for calibration. */
+/**
+ * Records a terminal outcome. Terminal watches are kept for calibration, so the
+ * diagnostic snapshot written by the last evaluation is preserved rather than
+ * overwritten — an expiry with no record of how close it came is unusable.
+ */
 export async function resolveWatch(
   admin: Admin,
   id: string,
   state: "MISSED" | "EXPIRED" | "INVALIDATED",
   reason: string,
+  previousMetadata?: unknown,
 ): Promise<void> {
+  const prior =
+    previousMetadata && typeof previousMetadata === "object"
+      ? (previousMetadata as Record<string, unknown>)
+      : {};
   await updateWatch(admin, id, {
     state,
     resolved_at: new Date().toISOString(),
-    metadata: { resolution: reason } as never,
+    metadata: { ...prior, resolution: reason, resolved_state: state } as never,
   });
 }
+
 
 /** Mirrors a watch's terminal state onto its signal. */
 export async function closeSignalLifecycle(
