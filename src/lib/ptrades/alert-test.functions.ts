@@ -22,7 +22,7 @@ type StaffContext = {
 };
 
 async function assertStaff(context: unknown) {
-  const ctx = context as StaffContext;
+  const ctx = context as unknown as StaffContext;
   const { data, error } = await ctx.supabase.rpc("is_staff", { _user_id: ctx.userId });
   if (error || data !== true) throw new Error("Forbidden: owner or admin role required.");
 }
@@ -47,7 +47,7 @@ export const setAlertTestMode = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => z.object({ enabled: z.boolean() }).parse(input))
   .handler(async ({ data, context }): Promise<{ enabled: boolean }> => {
     await assertStaff(context);
-    const ctx = context as StaffContext;
+    const ctx = context as unknown as StaffContext;
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { error } = await supabaseAdmin
       .from("scanner_settings")
@@ -57,7 +57,7 @@ export const setAlertTestMode = createServerFn({ method: "POST" })
 
     await supabaseAdmin.from("audit_log").insert({
       actor_kind: "USER",
-      actor_id: ctx.userId,
+      actor_user_id: ctx.userId,
       action: data.enabled ? "ALERT_TEST_MODE_ON" : "ALERT_TEST_MODE_OFF",
       entity_type: "scanner_settings",
       detail: { alert_test_mode: data.enabled } as never,
