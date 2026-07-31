@@ -10,6 +10,7 @@ import {
   removePushSubscription,
 } from "@/lib/ptrades/queries";
 import { getPushPublicKey } from "@/lib/ptrades/push.functions";
+import { getAlertTestMode, setAlertTestMode } from "@/lib/ptrades/alert-test.functions";
 import {
   pushPermission,
   pushSupported,
@@ -173,6 +174,28 @@ function Settings() {
     onError: (e: unknown) => toast.error(userMessageOf(e)),
   });
 
+  /* ---- staff: alert delivery test mode ---- */
+  const readTestMode = useServerFn(getAlertTestMode);
+  const writeTestMode = useServerFn(setAlertTestMode);
+  const { data: testMode } = useQuery({
+    queryKey: ["scanner", "alertTestMode"],
+    queryFn: () => readTestMode(),
+    enabled: isStaff,
+    retry: false,
+  });
+  const toggleTestMode = useMutation({
+    mutationFn: (enabled: boolean) => writeTestMode({ data: { enabled } }),
+    onSuccess: (_d, enabled) => {
+      queryClient.invalidateQueries({ queryKey: ["scanner", "alertTestMode"] });
+      toast.success(
+        enabled
+          ? "Alert test mode on — the next armed setup sends a sample alert."
+          : "Alert test mode off.",
+      );
+    },
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
+  });
+
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
@@ -314,6 +337,35 @@ function Settings() {
         </div>
       </SectionCard>
 
+
+      {isStaff ? (
+        <SectionCard title="Alert delivery test">
+          <div className="space-y-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <Label htmlFor="alert-test-mode">Send a sample alert when a setup arms</Label>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Proves the in-app, push and email channels end to end without waiting for an
+                  execution trigger. Test alerts are labelled [TEST], are never actionable and
+                  never change detection, scoring or tiers. Switch it off once delivery is
+                  confirmed.
+                </p>
+              </div>
+              <Switch
+                id="alert-test-mode"
+                checked={Boolean(testMode?.enabled)}
+                disabled={toggleTestMode.isPending}
+                onCheckedChange={(checked) => toggleTestMode.mutate(checked)}
+              />
+            </div>
+            <DataRow
+              label="Status"
+              value={testMode?.enabled ? "Test mode active" : "Off"}
+              mono={false}
+            />
+          </div>
+        </SectionCard>
+      ) : null}
 
       <SectionCard title="Account">
         <DataRow label="Email" value={user?.email ?? undefined} />
