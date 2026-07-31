@@ -94,7 +94,10 @@ export class MarketDataNotConfiguredError extends MarketDataError {
 // ladder here only kept a dead read alive past the scan lock TTL and made
 // context runs overrun. One bounded attempt, retried by the caller.
 const DEFAULT_TIMEOUT_MS = 8_000;
-const DEFAULT_ATTEMPTS = 2;
+// One transport attempt per operation. Callers own scheduling and fallback.
+// Retrying here after a caller timeout leaves an unobserved provider request
+// running and congests the account's single market-data resource slot.
+const DEFAULT_ATTEMPTS = 1;
 const RETRY_BASE_MS = 250;
 
 

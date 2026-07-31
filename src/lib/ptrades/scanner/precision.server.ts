@@ -62,6 +62,7 @@ import {
 import { notifyQualifiedSignal } from "./notify.server";
 import { recordScannerError } from "./errors.server";
 import { executionPrice } from "./market-data.server";
+import { readCandles } from "./market-candles.server";
 import { minTierRr, scoreCandidate, tierFor } from "./scoring";
 import { isActionable, systemModeFor } from "../tiers-policy";
 
@@ -234,8 +235,8 @@ async function evaluateWatch(
     return "QUOTE_ONLY";
   }
 
-  const raw = await marketData().getCandles(brokerSymbol, MICRO_TF, 120);
-  const { candles: m1 } = normaliseCandles(raw, MICRO_TF);
+  const storedM1 = await readCandles(admin, { brokerSymbol, timeframe: MICRO_TF, limit: 120 });
+  const { candles: m1 } = normaliseCandles(storedM1.candles, MICRO_TF);
   const lastClosedCandle = m1.at(-1) ?? null;
 
   const gates: GateResult[] = [];
@@ -264,10 +265,7 @@ async function evaluateWatch(
     return "RESOLVED";
   }
 
-  const quote =
-    liveQuote !== null
-      ? liveQuote.ask - liveQuote.bid
-      : await marketData().getSpread(brokerSymbol).catch(() => null);
+  const quote = liveQuote !== null ? liveQuote.ask - liveQuote.bid : null;
   const price =
     liveQuote !== null ? executionPrice(liveQuote, direction) : (lastClosedCandle?.close ?? null);
   const atrM1 = atr(m1, rulebook.atr_period, rulebook.atr_method);
