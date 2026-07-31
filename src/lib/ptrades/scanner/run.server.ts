@@ -1055,7 +1055,48 @@ async function runScanLocked(
             score_input: precision.scoreInput,
           } as never,
         });
+
+        if (alertTestMode) {
+          // Best-effort and clearly labelled. A failure here must never stop
+          // a scan, and it never marks the signal actionable.
+          const { notifyQualifiedSignal } = await import("./notify.server");
+          const delivery = await notifyQualifiedSignal(admin, {
+            shadowMode: false,
+            test: true,
+            signalId,
+            instrument: result.candidate.instrument,
+            direction: result.candidate.direction,
+            grade: result.candidate.grade,
+            setupType: result.candidate.setup_type,
+            timeframe: result.candidate.timeframe,
+            entryZoneLow: result.candidate.entry_zone_low,
+            entryZoneHigh: result.candidate.entry_zone_high,
+            stopLoss: result.candidate.stop_loss,
+            targets: (result.candidate.targets ?? []) as number[],
+            rr: result.candidate.rr_tp1,
+            score: result.candidate.score,
+            reasons: result.candidate.reasons ?? [],
+          }).catch((error) => {
+            console.error(
+              "armed test alert failed",
+              error instanceof Error ? error.message : "unknown",
+            );
+            return null;
+          });
+          await admin.from("audit_log").insert({
+            actor_kind: "SYSTEM",
+            action: "ALERT_TEST_DELIVERY",
+            entity_type: "signal",
+            entity_id: signalId,
+            detail: {
+              instrument: result.candidate.instrument,
+              tier: result.candidate.grade,
+              delivery,
+            } as never,
+          });
+        }
       }
+
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "scan failed";
       await recordScannerError(admin, {
