@@ -128,12 +128,33 @@ export async function runPrecisionPass(
   summary.watched = watches.length;
   if (watches.length === 0) return summary;
 
+  const signalIds = watches.map((watch) => watch.signal_id);
+  const { data: signalVersions } = await admin
+    .from("signals")
+    .select("id, rulebook_version")
+    .in("id", signalIds);
+  const versionBySignal = new Map(
+    (signalVersions ?? []).map((signal) => [signal.id, signal.rulebook_version]),
+  );
+
   summary.passes = 1;
   const instruments = await loadInstruments(admin);
   const macroEvents = await loadMacroEvents(admin);
 
   for (const watch of watches) {
     try {
+      const watchRulebookVersion = versionBySignal.get(watch.signal_id) ?? null;
+      if (watchRulebookVersion !== rulebook.version) {
+        await resolveWatch(
+          admin,
+          watch.id,
+          "EXPIRED",
+          `Watch rulebook ${watchRulebookVersion ?? "unknown"} does not match active ${rulebook.version}.`,
+        );
+        await closeSignalLifecycle(admin, watch.signal_id, "EXPIRED");
+        summary.resolved += 1;
+        continue;
+      }
       const outcome = await evaluateWatch(
         admin,
         watch,

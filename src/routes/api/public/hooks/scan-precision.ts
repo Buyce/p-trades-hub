@@ -62,6 +62,16 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
         const startedAt = Date.now();
         try {
           const rulebook = await loadActiveRulebook(supabaseAdmin);
+          const { data: settings } = await supabaseAdmin
+            .from("scanner_settings")
+            .select("rulebook_version")
+            .eq("id", true)
+            .maybeSingle();
+          if (settings?.rulebook_version !== rulebook.version) {
+            throw new Error(
+              `Rulebook mismatch: settings=${settings?.rulebook_version ?? "none"}, active=${rulebook.version}`,
+            );
+          }
           const precision = await runPrecisionPass(supabaseAdmin, rulebook);
           const { checkExecutionStall } = await import(
             "@/lib/ptrades/scanner/watchdog.server"

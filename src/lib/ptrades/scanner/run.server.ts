@@ -902,11 +902,14 @@ async function runScanLocked(
   const startedAtMs = Date.now();
   const { data: rulebookRow } = await admin
     .from("rulebook_versions")
-    .select("version, rules")
+    .select("version, rules, status")
     .eq("is_active", true)
     .order("effective_from", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (!rulebookRow || rulebookRow.status !== "ACTIVE") {
+    throw new Error("Active rulebook governance changed during the scan.");
+  }
   const rulebook = parseRulebook(rulebookRow);
   // Governance: every row this run writes carries the checksum of the exact
   // rules it was evaluated against.
@@ -935,7 +938,6 @@ async function runScanLocked(
   let rejectionCount = 0;
   const completedSymbols: string[] = [];
   const runRejections: Array<{ instrument: string; gate: string; reason: string }> = [];
-  let metaapiConnected = true;
   let errorMessage: string | null = null;
 
   for (const instrument of rows) {
@@ -1049,7 +1051,6 @@ async function runScanLocked(
         });
       }
     } catch (error) {
-      metaapiConnected = false;
       errorMessage = error instanceof Error ? error.message : "scan failed";
       await recordScannerError(admin, {
         runId,
@@ -1071,7 +1072,7 @@ async function runScanLocked(
   await safeHeartbeat(admin, {
     source: "CONTEXT_SCANNER",
     status: errorMessage ? "DEGRADED" : "OK",
-    metaapiConnected,
+    metaapiConnected: null,
     rulebookVersion: rulebook.version,
     detail: {
       shadow_mode: shadowMode,
