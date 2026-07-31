@@ -275,9 +275,30 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
   summary.durationMs = deadline.elapsedMs();
   summary.ok = summary.failures.length < Math.max(1, summary.instruments);
 
+  // Per-symbol M1 health, reported explicitly. Starvation of the execution
+  // timeframe is the single failure that silences the whole alert pipeline, so
+  // it must be readable at a glance instead of inferred from a read list.
+  const microHealth = rows.map((row) => {
+    const read = summary.reads.find(
+      (r) => r.instrument === row.symbol && r.timeframe === TIMEFRAME_LABEL.M1,
+    );
+    return {
+      instrument: row.symbol,
+      status: read?.status ?? "NOT_REACHED",
+      age_seconds: read?.ageSeconds ?? null,
+      latency_ms: read?.latencyMs ?? null,
+    };
+  });
+  const microStarved = microHealth.filter((m) => m.status === "FAILED" || m.status === "NOT_REACHED");
+
   await safeHeartbeat(admin, {
     source: "MARKET_DATA_SYNC",
-    status: summary.failures.length === 0 ? "OK" : summary.ok ? "DEGRADED" : "ERROR",
+    status:
+      microStarved.length > 0
+        ? "ERROR"
+        : summary.failures.length === 0
+          ? "OK"
+          : "DEGRADED",
     metaapiConnected: summary.failures.length === 0,
     rulebookVersion: null,
     detail: {
@@ -285,6 +306,8 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
       timeframes_fetched: summary.fetched,
       timeframes_up_to_date: summary.skipped,
       candles_stored: summary.stored,
+      micro_health: microHealth,
+      micro_starved: microStarved.map((m) => m.instrument),
       failures: summary.failures.slice(0, 20),
       reads: summary.reads,
       deadline_hit: summary.deadlineHit,
