@@ -196,6 +196,36 @@ function Settings() {
     onError: (e: unknown) => toast.error(userMessageOf(e)),
   });
 
+  /* ---- staff: historical review (past x days) ---- */
+  const readBackfill = useServerFn(getBackfillConfig);
+  const writeBackfill = useServerFn(setBackfillConfig);
+  const { data: backfill } = useQuery({
+    queryKey: ["scanner", "backfillConfig"],
+    queryFn: () => readBackfill(),
+    enabled: isStaff,
+    retry: false,
+    refetchInterval: 60_000,
+  });
+  const saveBackfill = useMutation({
+    mutationFn: (input: {
+      days: number;
+      maxBarsPerTick: number;
+      budgetMs: number;
+      restart?: boolean;
+    }) => writeBackfill({ data: input }),
+    onSuccess: (_d, input) => {
+      queryClient.invalidateQueries({ queryKey: ["scanner", "backfillConfig"] });
+      toast.success(
+        input.days === 0
+          ? "Historical review switched off."
+          : `Reviewing the past ${input.days} day${input.days === 1 ? "" : "s"}.`,
+      );
+    },
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
+  });
+
+
+
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
