@@ -11,7 +11,7 @@ import {
 import { marketData } from "./market-data.server";
 
 import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
-import { isStoreFresh, readSeries, storeCandles } from "./market-candles.server";
+import { isStoreFresh, readSeries } from "./market-candles.server";
 import { evaluateBiasPolicy, biasPolicyGate, type BiasDecision } from "./bias-policy.server";
 import { structuralIdeaId } from "./structural-idea";
 import { validateRulebook } from "./rulebook-validate";
@@ -77,9 +77,6 @@ type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["su
 
 const ENTRY_TF: Timeframe = "M15";
 const REQUIRED: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
-const CANDLE_FETCH_TIMEOUT_MS = 4_000;
-const SPREAD_FETCH_TIMEOUT_MS = 3_000;
-const ACCOUNT_FETCH_TIMEOUT_MS = 3_000;
 
 const EXECUTION_ONLY_GATES = new Set<GateCode>([
   "SPREAD",
@@ -142,11 +139,14 @@ export type ScanSummary = {
 export async function loadActiveRulebook(admin: Admin): Promise<Rulebook> {
   const { data } = await admin
     .from("rulebook_versions")
-    .select("version, rules")
+    .select("version, rules, status")
     .eq("is_active", true)
     .order("effective_from", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (!data || data.status !== "ACTIVE") {
+    throw new Error("No governed ACTIVE rulebook is selected.");
+  }
   return parseRulebook(data);
 }
 
@@ -240,10 +240,9 @@ export const SCAN_BUDGET_MS = 100_000;
  * The context scan READS the durable candle store; it does not download
  * history. The `sync-market-data` pass owns downloads.
  *
- * A live fetch is still attempted for a timeframe the store cannot serve, so a
- * cold start or a sync outage degrades rather than blacks out — and every such
- * fallback is recorded, because a silent fallback is how a broken data plane
- * stays invisible.
+ * Missing or stale history fails closed. The sync pass is the only component
+ * allowed to download candles, preventing context and precision from competing
+ * for the provider's single market-data resource slot.
  */
 async function fetchTimeframes(
   admin: Admin,
@@ -277,43 +276,14 @@ async function fetchTimeframes(
       continue;
     }
 
-    try {
-      const raw = await withTimeout(
-        marketData().getCandles(symbol, tf, tf === "1d" ? 120 : 200),
-        CANDLE_FETCH_TIMEOUT_MS,
-        `getCandles(${symbol}/${tf})`,
-      );
-      const normalised = normaliseCandles(raw, tf);
-      const malformed = normalised.rejected.filter((r) => r.reason !== "NOT_CLOSED");
-      if (malformed.length) rejects.push({ timeframe: tf, rejects: malformed });
-      // Write it back so the next scan reads it from the store.
-      await storeCandles(admin, {
-        instrument,
-        brokerSymbol: symbol,
-        timeframe: tf,
-        candles: normalised.candles,
-      });
-      sources[label] = "LIVE";
-      ages[label] = null;
-      degraded.push({
-        timeframe: tf,
-        message: series.candles.length === 0 ? "no stored series" : "stored series too old",
-        firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
-      });
-      entries.push([tf, normalised.candles] as const);
-    } catch (error) {
-      // Serve whatever the store has. The freshness and sanity gates judge it
-      // on its own merits, so a stale series rejects with a diagnosis instead
-      // of failing the whole instrument silently.
-      sources[label] = series.candles.length > 0 ? "STORE" : "MISSING";
-      ages[label] = series.ageSeconds;
-      degraded.push({
-        timeframe: tf,
-        message: error instanceof Error ? error.message : String(error),
-        firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
-      });
-      entries.push([tf, series.candles] as const);
-    }
+    sources[label] = series.candles.length > 0 ? "STORE" : "MISSING";
+    ages[label] = series.ageSeconds;
+    degraded.push({
+      timeframe: tf,
+      message: series.candles.length === 0 ? "no stored series" : "stored series too old",
+      firstMessage: `store age ${series.ageSeconds ?? "n/a"}s, bars ${series.candles.length}`,
+    });
+    entries.push([tf, series.candles] as const);
   }
 
   return {
@@ -610,25 +580,9 @@ async function evaluateInstrument(
       finalMinAtr: rulebook.displacement_min_atr,
     },
   });
-  let spread: number | null = null;
-  try {
-    spread = await withTimeout(
-      marketData().getSpread(symbol),
-      SPREAD_FETCH_TIMEOUT_MS,
-      `getSpread(${symbol})`,
-    );
-  } catch (error) {
-    spread = null;
-    // A missing spread no longer blocks arming; execution spread is re-proved
-    // in the precision loop. The log keeps provider gaps visible.
-    await recordScannerError(admin, {
-      runId,
-      instrument: instrument.symbol,
-      stage: "MARKET_DATA",
-      error,
-      detail: { broker_symbol: symbol, operation: "getSpread" },
-    });
-  }
+  // Spread is execution-time data. Context never calls the live provider;
+  // Precision proves spread from its one two-sided quote before alerting.
+  const spread: number | null = null;
 
   // Precision execution zone. The setup's own retest band is only an
   // approximation of where price traded; the tradable zone is built from the
@@ -826,6 +780,31 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     .eq("id", true)
     .maybeSingle();
   const shadowMode = settings?.shadow_mode ?? true;
+  const activeRulebook = await loadActiveRulebook(admin);
+  if (settings?.rulebook_version !== activeRulebook.version) {
+    await safeHeartbeat(admin, {
+      source: "CONTEXT_SCANNER",
+      status: "ERROR",
+      metaapiConnected: null,
+      rulebookVersion: activeRulebook.version,
+      detail: {
+        reason: "Rulebook governance/setting mismatch; scan failed closed.",
+        settings_version: settings?.rulebook_version ?? null,
+        active_version: activeRulebook.version,
+      },
+    });
+    return {
+      ok: false,
+      shadowMode,
+      scanned: [],
+      candidates: 0,
+      qualified: 0,
+      actionable: 0,
+      armed: 0,
+      rejections: 0,
+      message: "Rulebook version mismatch",
+    };
+  }
 
   const empty = (message: string, ok = true): ScanSummary => ({
     ok,
@@ -1089,14 +1068,6 @@ async function runScanLocked(
     error_message: errorMessage,
   });
 
-  // Non-sensitive account context so Scanner Health can show which broker feed
-  // the scan read from. Never includes tokens, passwords or balances.
-  const accountInfo = await withTimeout(
-    marketData().getAccount(),
-    ACCOUNT_FETCH_TIMEOUT_MS,
-    "getAccount",
-  ).catch(() => null);
-
   await safeHeartbeat(admin, {
     source: "CONTEXT_SCANNER",
     status: errorMessage ? "DEGRADED" : "OK",
@@ -1120,17 +1091,7 @@ async function runScanLocked(
       armed,
       rejections: rejectionCount,
       macro_events: macroEvents.length,
-      account: accountInfo
-        ? {
-            login: accountInfo.login ?? null,
-            server: accountInfo.server ?? null,
-            region: accountInfo.region,
-            state: accountInfo.state ?? null,
-            connection_status: accountInfo.connectionStatus ?? null,
-            reliability: accountInfo.reliability ?? null,
-            account_id_mismatch: accountInfo.accountIdMismatch ?? false,
-          }
-        : null,
+      market_data_source: "DURABLE_STORE",
     },
   });
 
