@@ -77,6 +77,8 @@ function Watchlist() {
   const tz = useTimezone();
   const { data: instruments = [], isPending } = useQuery(instrumentsQuery());
   const { data: signals = [] } = useQuery(signalsTodayQuery());
+  const { data: diagnostics = [] } = useQuery(instrumentDiagnosticsQuery());
+
 
   const symbols = instruments.length
     ? {
