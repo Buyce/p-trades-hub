@@ -87,6 +87,12 @@ export type MicroTriggerInput = {
   swingLookback?: number;
   /** Closed candles allowed between the micro BOS and its retest. */
   retestWithinBars?: number;
+  /**
+   * Whether the retest must complete before the trigger counts as confirmed.
+   * Defaults to false: the retest is still searched for and reported, it just
+   * does not block. See `PrecisionRules.require_micro_retest`.
+   */
+  requireRetest?: boolean;
   /** How many recent candles to search for the rejection. */
   window?: number;
 };
@@ -101,6 +107,7 @@ export function detectMicroTrigger(input: MicroTriggerInput): MicroTriggerResult
     displacementMinAtr = 0.8,
     swingLookback = 2,
     retestWithinBars = 3,
+    requireRetest = false,
     window = 20,
   } = input;
 
@@ -193,7 +200,9 @@ export function detectMicroTrigger(input: MicroTriggerInput): MicroTriggerResult
     triggered: true,
   };
 
-  // 4/5. A later closed candle returns to the broken level and holds it.
+  // 4/5. A later closed candle returns to the broken level and holds it. This
+  // is always searched for — it is valuable journal evidence — but it only
+  // BLOCKS when the rulebook asks it to.
   const tolerance = atrM1 * 0.5;
   const limit = Math.min(candles.length - 1, bosIndex + retestWithinBars);
   for (let i = bosIndex + 1; i <= limit; i += 1) {
@@ -212,6 +221,18 @@ export function detectMicroTrigger(input: MicroTriggerInput): MicroTriggerResult
         failures,
       };
     }
+  }
+
+  if (!requireRetest) {
+    reasons.push("Retest not required by the active rulebook; the closed BOS candle is the entry.");
+    return {
+      ...triggeredCore,
+      confirmed: true,
+      retestCandleTime: null,
+      summary: `M1 ${direction === "LONG" ? "bullish" : "bearish"} BOS close confirmed`,
+      reasons,
+      failures,
+    };
   }
 
   failures.push("The broken M1 level has not been retested and held on a closed candle.");
@@ -258,8 +279,10 @@ export function detectPersistedTriggerRetest(input: {
   atrM1: number | null;
   /** Closed candles allowed between the micro BOS and its retest. */
   retestWithinBars?: number;
+  /** Whether the retest must complete before the trigger counts as confirmed. */
+  requireRetest?: boolean;
 }): MicroTriggerResult {
-  const { candles, trigger, atrM1, retestWithinBars = 3 } = input;
+  const { candles, trigger, atrM1, retestWithinBars = 3, requireRetest = true } = input;
   const { direction, brokenLevel, bosCandleTime } = trigger;
 
   const base: MicroTriggerResult = {
@@ -306,6 +329,18 @@ export function detectPersistedTriggerRetest(input: {
         reasons: [...base.reasons, `M1 retest of ${brokenLevel} held at ${c.time}.`],
       };
     }
+  }
+
+  if (!requireRetest) {
+    return {
+      ...base,
+      confirmed: true,
+      summary: `M1 ${direction === "LONG" ? "bullish" : "bearish"} BOS close confirmed`,
+      reasons: [
+        ...base.reasons,
+        "Retest not required by the active rulebook; the closed BOS candle is the entry.",
+      ],
+    };
   }
 
   return {

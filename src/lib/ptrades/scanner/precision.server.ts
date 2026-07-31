@@ -444,6 +444,7 @@ async function evaluateWatch(
   // level the plan was built on, so we only look for the persisted level's
   // retest and we keep the original deadline.
   const triggerBars = rulebook.precision?.trigger_expiry_bars ?? 3;
+  const requireRetest = rulebook.precision?.require_micro_retest ?? false;
   const persistedTriggerLive =
     watch.state === "MICRO_TRIGGERED" &&
     watch.trigger_level !== null &&
@@ -454,6 +455,7 @@ async function evaluateWatch(
         candles: m1,
         atrM1,
         retestWithinBars: triggerBars,
+        requireRetest,
         trigger: {
           brokenLevel: watch.trigger_level as number,
           bosCandleTime: watch.trigger_candle_time,
@@ -470,9 +472,12 @@ async function evaluateWatch(
           rulebook.precision?.displacement_m1_min_atr ??
           Math.min(1, rulebook.displacement_min_atr),
         retestWithinBars: triggerBars,
+        requireRetest,
       });
   gates.push(microTrigger(trigger.triggered, trigger.failures));
-  gates.push(microRetest(trigger.confirmed, trigger.brokenLevel));
+  // The retest is scored and journalled either way; it only gates when the
+  // active rulebook says it must.
+  gates.push(microRetest(trigger.retestCandleTime !== null, trigger.brokenLevel, requireRetest));
 
   // 5. Re-price the plan from the micro level once the trigger exists.
   const anchor = microEntryAnchor(trigger.brokenLevel, trigger.bosCandleTime, {
@@ -606,7 +611,7 @@ async function evaluateWatch(
       displacementAtr:
         typeof scoreInput.displacement_atr === "number" ? scoreInput.displacement_atr : null,
       sweepFound: scoreInput.sweep_found === true,
-      retestFound: trigger.confirmed,
+      retestFound: trigger.retestCandleTime !== null,
       spreadRatio: quote !== null && atrM1 ? quote / atrM1 : null,
       lateDistanceAtr:
         price !== null && preferredEntry !== null && atrM1
@@ -680,7 +685,7 @@ async function evaluateWatch(
     zone_width_points: zoneWidthPoints,
     trigger_summary: trigger.summary,
     trigger_timeframe: TIMEFRAME_LABEL[MICRO_TF],
-    trigger_candle_time: trigger.retestCandleTime,
+    trigger_candle_time: trigger.retestCandleTime ?? trigger.bosCandleTime,
     trigger_level: trigger.brokenLevel,
     metadata: {
       ...meta,

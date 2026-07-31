@@ -169,6 +169,18 @@ export type PrecisionRules = {
   /** Closed M1 candles allowed between the micro trigger and its retest. */
   trigger_expiry_bars: number;
   /**
+   * Whether the broken M1 level must ALSO be retested and held before an entry
+   * is allowed to exist.
+   *
+   * When false the confirmation is trigger + close: a closed M1 candle that
+   * displaces and closes beyond the protected micro swing, with price at the
+   * armed area, is enough. The retest is still detected and recorded on the
+   * signal for the journal — it simply no longer blocks the alert. A retest
+   * window lasts one or two minutes, so requiring it made ENTRY_READY
+   * practically unreachable at real scheduler cadence.
+   */
+  require_micro_retest: boolean;
+  /**
    * Displacement required of an M1 micro-trigger candle, in M1 ATR.
    *
    * This is an INDEPENDENT threshold. It used to be derived as
@@ -198,6 +210,7 @@ export const DEFAULT_PRECISION_INSTRUMENT: PrecisionInstrumentRules = {
 export const DEFAULT_PRECISION: PrecisionRules = {
   enabled: true,
   trigger_expiry_bars: 3,
+  require_micro_retest: false,
   displacement_m1_min_atr: 0.8,
   min_entry_ready_rr: 2.0,
   default: DEFAULT_PRECISION_INSTRUMENT,

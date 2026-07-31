@@ -47,7 +47,7 @@ const SLOW_TIMEFRAME_TIMEOUT_MS = 12_000;
  * gets its own budget and a single retry instead of sharing the generic
  * intraday cap that was silently timing out at 5s on XAUUSD.
  */
-const MICRO_TIMEFRAME_TIMEOUT_MS = 8_000;
+const MICRO_TIMEFRAME_TIMEOUT_MS = 10_000;
 const MICRO_RETRIES = 1;
 
 function fetchTimeoutFor(tf: Timeframe): number {
@@ -62,8 +62,8 @@ function attemptsFor(tf: Timeframe): number {
 }
 
 /** One scheduled tick is a minute; stop well before the next one fires. */
-export const SYNC_BUDGET_MS = 40_000;
-export const SYNC_LOCK_TTL_SECONDS = 90;
+export const SYNC_BUDGET_MS = 35_000;
+export const SYNC_LOCK_TTL_SECONDS = 55;
 
 export function barsFor(tf: Timeframe): number {
   if (tf === "1d" || tf === "M1") return 120;
@@ -126,11 +126,12 @@ async function syncInstrument(
   instrument: InstrumentRow,
   summary: SyncSummary,
   deadline: ReturnType<typeof createDeadline>,
+  timeframes: Timeframe[] = SYNC_TIMEFRAMES,
 ): Promise<void> {
   const resolved = await resolveSymbol(instrument);
   const brokerSymbol = resolved.broker;
 
-  for (const tf of SYNC_TIMEFRAMES) {
+  for (const tf of timeframes) {
     if (deadline.expired()) {
       summary.deadlineHit = true;
       return;
@@ -242,18 +243,31 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
     .order("sort_order");
 
   const rows = (instruments ?? []) as InstrumentRow[];
-  // A recovery pass can consume its full deadline before reaching the final
-  // symbols. Rotate the starting symbol every scheduled three-minute slot so
-  // stale feeds recover fairly instead of permanently favouring sort order.
-  const rotation = rows.length > 0 ? Math.floor(Date.now() / 180_000) % rows.length : 0;
+  // M1 is the execution timeframe: precision cannot trigger without it, so
+  // EVERY instrument gets its M1 refreshed on EVERY tick, concurrently, before
+  // anything slower is considered. One slow symbol can no longer starve the
+  // rest, which is what the old serial rotation did — five instruments on a
+  // rotating start meant a symbol's M1 could be a quarter of an hour old.
+  const microTimeframes: Timeframe[] = ["M1"];
+  const slowTimeframes = SYNC_TIMEFRAMES.filter((tf) => !microTimeframes.includes(tf));
+
+  summary.instruments = rows.length;
+  await Promise.all(
+    rows.map((instrument) => syncInstrument(admin, instrument, summary, deadline, microTimeframes)),
+  );
+  await renewScanLock(admin, SYNC_LOCK_KEY, holder, SYNC_LOCK_TTL_SECONDS);
+
+  // The slower frames change at most once an hour, so they keep the rotation:
+  // fair recovery without spending the tick's remaining budget on data that
+  // cannot have changed.
+  const rotation = rows.length > 0 ? Math.floor(Date.now() / 60_000) % rows.length : 0;
   const orderedRows = [...rows.slice(rotation), ...rows.slice(0, rotation)];
   for (const instrument of orderedRows) {
     if (deadline.expired()) {
       summary.deadlineHit = true;
       break;
     }
-    summary.instruments += 1;
-    await syncInstrument(admin, instrument, summary, deadline);
+    await syncInstrument(admin, instrument, summary, deadline, slowTimeframes);
     // Prove liveness so a healthy but slow pass is never evicted mid-flight.
     await renewScanLock(admin, SYNC_LOCK_KEY, holder, SYNC_LOCK_TTL_SECONDS);
   }
@@ -261,9 +275,30 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
   summary.durationMs = deadline.elapsedMs();
   summary.ok = summary.failures.length < Math.max(1, summary.instruments);
 
+  // Per-symbol M1 health, reported explicitly. Starvation of the execution
+  // timeframe is the single failure that silences the whole alert pipeline, so
+  // it must be readable at a glance instead of inferred from a read list.
+  const microHealth = rows.map((row) => {
+    const read = summary.reads.find(
+      (r) => r.instrument === row.symbol && r.timeframe === TIMEFRAME_LABEL.M1,
+    );
+    return {
+      instrument: row.symbol,
+      status: read?.status ?? "NOT_REACHED",
+      age_seconds: read?.ageSeconds ?? null,
+      latency_ms: read?.latencyMs ?? null,
+    };
+  });
+  const microStarved = microHealth.filter((m) => m.status === "FAILED" || m.status === "NOT_REACHED");
+
   await safeHeartbeat(admin, {
     source: "MARKET_DATA_SYNC",
-    status: summary.failures.length === 0 ? "OK" : summary.ok ? "DEGRADED" : "ERROR",
+    status:
+      microStarved.length > 0
+        ? "ERROR"
+        : summary.failures.length === 0
+          ? "OK"
+          : "DEGRADED",
     metaapiConnected: summary.failures.length === 0,
     rulebookVersion: null,
     detail: {
@@ -271,6 +306,8 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
       timeframes_fetched: summary.fetched,
       timeframes_up_to_date: summary.skipped,
       candles_stored: summary.stored,
+      micro_health: microHealth,
+      micro_starved: microStarved.map((m) => m.instrument),
       failures: summary.failures.slice(0, 20),
       reads: summary.reads,
       deadline_hit: summary.deadlineHit,

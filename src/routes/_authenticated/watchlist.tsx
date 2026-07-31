@@ -42,6 +42,32 @@ function readSymbols(payload: unknown): { enabled: string[]; disabled: string[] 
   return null;
 }
 
+/**
+ * Plain-language description of where a signal sits in its lifecycle, so a
+ * watchlist row explains what the terminal is doing instead of showing a bare
+ * state code or an empty value.
+ */
+function lifecycleCopy(state: string | null): string {
+  switch (state) {
+    case "DETECTED":
+      return "Setup detected, checking execution timing";
+    case "ARMED":
+      return "Armed, waiting for the entry trigger";
+    case "MICRO_TRIGGERED":
+      return "Trigger fired, confirming the entry";
+    case "ENTRY_READY":
+      return "Entry ready";
+    case "MISSED":
+      return "Price left the entry before it confirmed";
+    case "INVALIDATED":
+      return "Invalidated";
+    case "EXPIRED":
+      return "Expired before entry";
+    default:
+      return "Recorded";
+  }
+}
+
 function Watchlist() {
   const tz = useTimezone();
   const { data: instruments = [], isPending } = useQuery(instrumentsQuery());
@@ -89,16 +115,24 @@ function Watchlist() {
             ].map(({ symbol, enabled }) => {
               const todays = signals.filter((s) => s.instrument === symbol);
               const best = todays[0];
+              // A signal that has not reached ENTRY_READY has no final grade
+              // yet. That is the scanner still working, not missing data, so
+              // it shows the tier the current score would earn, marked
+              // provisional — never the blank "Unavailable" chip.
+              const tier = best ? (best.final_grade ?? best.grade ?? best.provisional_grade) : null;
+              const provisional = Boolean(best && !best.final_grade && !best.grade && tier);
+              const shownScore = best ? (best.final_score ?? best.score ?? best.provisional_score) : null;
+              const state = best?.lifecycle_state ?? null;
               return (
                 <li key={symbol} className="flex items-center justify-between gap-3 py-3">
                   <div>
                     <p className="num text-sm font-medium">{symbol}</p>
                     <p className="text-xs text-muted-foreground">
-                      {enabled
-                        ? best
-                          ? `Last record ${formatTime(best.signal_time_utc, tz)}`
-                          : "No record today"
-                        : "Disabled pending calibration"}
+                      {!enabled
+                        ? "Disabled pending calibration"
+                        : best
+                          ? `${lifecycleCopy(state)} · ${formatTime(best.signal_time_utc, tz)}`
+                          : "No setup has formed today. The scanner is still watching."}
                     </p>
                   </div>
                   {best ? (
@@ -107,8 +141,20 @@ function Watchlist() {
                       params={{ signalId: best.id }}
                       className="flex items-center gap-2"
                     >
-                      <span className="num text-xs text-muted-foreground">{score(best.score)}</span>
-                      <GradeBadge grade={best.grade} signalId={best.id} surface="watchlist" />
+                      <span className="num text-xs text-muted-foreground">{score(shownScore)}</span>
+                      {tier ? (
+                        <GradeBadge grade={tier} signalId={best.id} surface="watchlist" />
+                      ) : (
+                        <StatusPill state="idle">Scoring</StatusPill>
+                      )}
+                      {provisional ? (
+                        <span
+                          className="text-[10px] tracking-wide text-muted-foreground uppercase"
+                          title="The tier this score would earn. It is confirmed when the setup becomes entry ready."
+                        >
+                          Prov.
+                        </span>
+                      ) : null}
                     </Link>
                   ) : (
                     <StatusPill state={enabled ? "idle" : "warn"}>

@@ -79,18 +79,43 @@ describe("persisted trigger retest", () => {
     expect(result.bosCandleTime).toBe(trigger.bosCandleTime);
   });
 
-  it("stays unconfirmed while price never returns to the level", () => {
+  it("stays unconfirmed while price never returns to the level, when the retest is required", () => {
     const away = [
       candles[0],
       candle("2026-07-28T16:51:00.000Z", 100.8, 101.5, 100.75, 101.4),
     ];
-    const result = detectPersistedTriggerRetest({ candles: away, trigger, atrM1: 0.05 });
+    const result = detectPersistedTriggerRetest({
+      candles: away,
+      trigger,
+      atrM1: 0.05,
+      requireRetest: true,
+    });
     expect(result.confirmed).toBe(false);
     expect(result.failures.length).toBeGreaterThan(0);
   });
 
+  it("confirms on the break alone when the rulebook does not require a retest", () => {
+    const away = [
+      candles[0],
+      candle("2026-07-28T16:51:00.000Z", 100.8, 101.5, 100.75, 101.4),
+    ];
+    const result = detectPersistedTriggerRetest({
+      candles: away,
+      trigger,
+      atrM1: 0.05,
+      requireRetest: false,
+    });
+    expect(result.confirmed).toBe(true);
+    expect(result.retestCandleTime).toBeNull();
+  });
+
   it("fails closed when the M1 ATR is unavailable", () => {
-    const result = detectPersistedTriggerRetest({ candles, trigger, atrM1: null });
+    const result = detectPersistedTriggerRetest({
+      candles,
+      trigger,
+      atrM1: null,
+      requireRetest: false,
+    });
     expect(result.confirmed).toBe(false);
   });
 
@@ -99,7 +124,12 @@ describe("persisted trigger retest", () => {
       candles[0],
       candle("2026-07-28T16:51:00.000Z", 100.8, 100.9, 99.4, 99.5),
     ];
-    const result = detectPersistedTriggerRetest({ candles: broke, trigger, atrM1: 0.5 });
+    const result = detectPersistedTriggerRetest({
+      candles: broke,
+      trigger,
+      atrM1: 0.5,
+      requireRetest: true,
+    });
     expect(result.confirmed).toBe(false);
   });
 });

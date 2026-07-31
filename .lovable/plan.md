@@ -1,44 +1,63 @@
-## What production actually shows (verified this turn)
+## What production actually shows (verified just now)
 
-- `precision_watches`: 24 rows ever. **0 reached ENTRY_READY.** 20 EXPIRED, 3 MISSED, 1 INVALIDATED.
-- Last notification: **28 Jul 11:00**. Signals are still being created (latest 13:16 today), so arming works — promotion does not.
-- Three distinct kill reasons are recorded in `metadata.resolution`:
-  1. `"TP1 was reached before an entry formed."` — GBPAUD 13:16, resolved 60s later with `check_count = 0`. The watch was declared a miss on its very first evaluation.
-  2. `"Watch rulebook v1.8.0-live does not match active v2.1.0-live."` — watches armed under the old rulebook are killed outright after the activation fix.
-  3. `"The armed setup expired before an entry formed."` — 20 watches, 30-minute expiry, 6–22 checks, no M1 trigger ever fired.
-- Upstream is also thin, so precision is not the whole story: only **5 qualified candidates in 6 hours**, 466 `NO_SETUP` rejections, and `MARKET_DATA_SYNC` is reporting `ERROR/DEGRADED` with **FAILED M1/M5/M15 reads for XAUUSD** (5–8s timeouts).
-- Delivery is healthy: every precision heartbeat reports email transport ready, push ready, 2 recipients, all four tiers covered. Nothing is being blocked at the notification hop.
+**Your data feed is fine.** All five instruments have fresh candles — M1 up to 14:17, M15 up to 14:00, for XAUUSD, GBPAUD, GBPUSD, EURUSD and USDJPY. Nothing is unwatched.
 
-## Root cause of defect 1 (the clearest bug)
+**The three "Unavailable" chips are a labelling bug, not a scan failure.** A `grade` is only written when a signal reaches ENTRY_READY. GBPAUD (75.00), GBPUSD (51.69) and EURUSD (74.71) are real scanned signals sitting in ARMED/EXPIRED with `grade = NULL`, so the badge falls back to the generic "Unavailable" string. The terminal *did* scan them.
 
-`runWatch` computes `extremeSinceArmed` by reducing over the **entire stored 120-bar M1 window** (`src/lib/ptrades/scanner/precision.server.ts`, lines 259–287). That window is two hours of history, most of it *before* `armed_at`. Any excursion that already happened before the setup was armed counts as "TP1 reached", so the watch is retired as MISSED on its first pass with zero checks. The variable name says "since armed"; the code does not filter by `armed_at`.
+**The real reason there are no alerts: the jobs are running every 3 minutes, not every minute.** Heartbeats confirm it — context scans at 14:01, 14:04, 14:07, 14:10, 14:13, 14:16, 14:19; precision at 14:02, 14:05, 14:08, 14:11, 14:14, 14:17, 14:20. Your entry confirmation needs a rejection, a displacement, a break and *then* a retest — all on closed 1-minute candles. A retest window lasts one or two minutes. Precision only looks once every three. It is structurally almost impossible to catch. Watch history agrees: 20 EXPIRED, 4 MISSED, 1 INVALIDATED, 0 ever ENTRY_READY.
 
-## Repair plan
+**Second cause: market-data sync rotates one instrument per tick.** Five instruments × a 3-minute tick means each symbol is refreshed roughly every 15 minutes. Heartbeats show repeated `MARKET_DATA_SYNC ERROR` with 16-second M1 timeouts on USDJPY, EURUSD and GBPUSD, which then shows up as 8 `STALE_DATA` rejections.
 
-1. **Make "already moved" mean since arming**
-   - Filter the M1 series to candles at or after `armed_at` before computing the extreme.
-   - If no candle exists after `armed_at` yet, skip the TP1-touched test entirely instead of failing it. Fail-closed here means *not resolving*, not resolving as MISSED.
-   - Record the window used in `metadata.last_check` so the decision is auditable.
+**Third: the funnel dies upstream.** Last 5 hours: 509 `NO_SETUP` (275 no structure event, 234 no displacement), 12 `INVALID_STOP`, 8 `STALE_DATA`. Only ~1 candidate survives per scan.
 
-2. **Stop discarding watches on a rulebook version bump**
-   - Instead of resolving a version-mismatched watch, mark it as legacy and let it run to its natural expiry under the rulebook it was armed with, or re-derive it under the active rulebook when the setup fields are still valid.
-   - Only hard-kill when the two rulebooks disagree on a gate that would change the trade plan.
+So: not a code-complexity problem, a **cadence + confirmation-depth** problem.
 
-3. **Feed precision real M1 data**
-   - `sync-market-data` is currently failing M1/M5/M15 for XAUUSD, so `readCandles(MICRO_TF)` returns a short or stale series and no trigger can ever form. Give M1 its own read budget and retry, and make the precision pass report explicitly when the stored M1 series is too short or too old to evaluate, rather than silently finding no trigger.
-   - Surface "no trigger because no data" separately from "no trigger because no setup" in the heartbeat.
+---
 
-4. **Explain expiry instead of just recording it**
-   - On expiry, persist the last observed distance-to-entry, whether a displacement was seen, and which trigger stage was reached. Twenty expiries with no diagnostic is why this took three days to localise.
+## The plan
 
-5. **Verify without inventing a signal**
-   - Replay the GBPAUD 13:16 watch through the corrected TP1 window and confirm it would not have been MISSED.
-   - Confirm at least one watch survives past its first pass and accumulates checks with recorded trigger-stage telemetry.
-   - Confirm M1 reads succeed for all five enabled instruments across three consecutive sync cycles.
+### 1. Restore one-minute cadence and stop the jobs colliding
+Reschedule the three cron jobs so each runs every minute, staggered inside the minute rather than sharing it:
+- `sync-market-data` at second 0
+- `scan-context` at second 20
+- `scan-precision` at second 40
 
-## Technical notes
+pg_cron is minute-granular, so the stagger is implemented as three per-minute jobs with a short in-handler delay, or by keeping sync/context at 1-minute and precision at 1-minute with its existing 55s lock TTL. Lock TTLs get shortened to match (context 55s, precision 45s) so a crashed tick never blocks the next one — there was already one `SKIPPED` at 13:58 from a stale 3-minute lock.
 
-- Files: `src/lib/ptrades/scanner/precision.server.ts` (TP1 window, version handling, telemetry), `src/lib/ptrades/scanner/sync.server.ts` (M1 budget), `src/routes/api/public/hooks/scan-precision.ts` (heartbeat detail).
-- New unit coverage in the forensic replay suite for the `armed_at` window boundary.
+### 2. Simplify entry confirmation to trigger + close (your choice)
+In `micro-trigger.server.ts`, the confirmation becomes:
+- a closed M1 candle whose body breaks the trigger level in the signal's direction, **while price is inside the entry zone**;
+- the candle must close beyond the level (no close-back-through);
+- the displacement floor (`displacement_m1_min_atr`, 0.8) stays;
+- the separate **retest requirement is removed** as a blocking condition.
 
-**Constraint honoured:** no score, R:R, proximity, displacement, session or expiry threshold changes. Every change above is a correctness or observability fix.
+The retest is still *detected and recorded* on the signal (`trigger_summary`, metadata) so the journal keeps the full picture — it just no longer gates the alert. `retest_deadline` handling collapses accordingly. Everything else stays: closed candles only, M1 ATR must exist (fail-closed), invalidation must be present, tier R:R floors unchanged, dedup unchanged, no daily cap.
+
+This is the one change that touches trading rules, so it ships as a new rulebook version with a written change summary, and the old behaviour stays reachable by reactivating the previous rulebook.
+
+### 3. Make sync cover every instrument every tick
+`sync.server.ts` currently rotates. Change to: refresh M1 for **all** instruments each tick (it is the timeframe precision depends on), and keep rotation only for the slow frames (H1/H4/D1). Raise the M1 timeout to 10s with one retry and run the five symbols concurrently rather than serially, so one slow symbol cannot starve the rest. Heartbeat reports per-symbol M1 age so starvation is visible on Scanner Health.
+
+### 4. Widen the top of the funnel — measured, not guessed
+No threshold is changed blind. Instead, add a governance panel to Scanner Health showing the last 24h split of `NO_STRUCTURE_EVENT` vs `NO_DISPLACEMENT` vs downstream gates, per instrument. Once 1-minute cadence has run for a session, the numbers say whether `arming_displacement_min_atr` or the swing lookback is the binding constraint — and that becomes a separate, deliberate rulebook change with your sign-off.
+
+### 5. Watchlist: explain the state instead of saying "Unavailable"
+Replace the fallback badge for un-graded signals with an informative row:
+- a **provisional tier** chip derived from the stored `provisional_grade` / score, marked "provisional";
+- the lifecycle state in words — "Armed · waiting for entry trigger", "Expired · price never returned", "Missed · target hit before entry";
+- a one-line explainer under the list: *"Provisional means the setup is being tracked live. A final tier is assigned only when the entry trigger completes."*
+
+Instruments with no signal today keep "Watching" but gain the last-scan timestamp, so a quiet symbol never looks like an unmonitored one. This is presentation only — no score or tier is computed in the frontend; both come from the stored `provisional_score` / `provisional_grade` columns.
+
+### 6. Verification before I call it done
+- Confirm from `system_heartbeats` that context and precision tick every 60s for 15 consecutive minutes.
+- Confirm `MARKET_DATA_SYNC` reports `OK` with M1 age < 120s for all five instruments.
+- Replay the existing ARMED GBPAUD watch through the simplified trigger and show whether it would have fired.
+- Full Vitest suite green, including updated micro-trigger tests.
+
+---
+
+### Technical notes
+- Files: `sync.server.ts`, `micro-trigger.server.ts`, `precision.server.ts`, `lock.server.ts`, `run.server.ts` (telemetry), `scanner/types.ts` (rulebook fields), `watchlist.tsx`, `format.ts`, plus a rulebook-activation migration and a `cron.schedule` update run through the data tool.
+- No execution capability is added anywhere; every change stays read-only against MetaApi.
+- The frontend change reads only stored columns — no scoring moves client-side.
