@@ -103,10 +103,16 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
                   : "OK",
             metaapiConnected: null,
             rulebookVersion: rulebook.version ?? null,
-            detail: { ...precision, channels, duration_ms: Date.now() - startedAt },
+            detail: {
+              ...precision,
+              channels,
+              scheduler: jobs ? { faults: jobs.faults, alerted: jobs.alerted.length } : null,
+              duration_ms: Date.now() - startedAt,
+            },
           });
 
-          return Response.json({ ok: true, precision, watchdog, channels });
+          return Response.json({ ok: true, precision, watchdog, jobs, channels });
+
         } catch (error) {
           const message = error instanceof Error ? error.message : "precision pass failed";
           console.error("scan-precision failed", message);
