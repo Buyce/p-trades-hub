@@ -222,7 +222,13 @@ export async function runPrecisionPass(
   return summary;
 }
 
-type WatchOutcome = "WAITING" | "ENTRY_READY" | "RESOLVED" | "QUOTE_ONLY";
+type WatchOutcome =
+  | "WAITING"
+  | "ENTRY_READY"
+  | "RESOLVED"
+  | "QUOTE_ONLY"
+  | "NO_MICRO_DATA";
+
 
 async function evaluateWatch(
   admin: Admin,
