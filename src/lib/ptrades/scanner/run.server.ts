@@ -882,7 +882,7 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   }
 
   try {
-    return await runScanLocked(admin, shadowMode, holder);
+    return await runScanLocked(admin, shadowMode, holder, alertTestMode);
   } catch (error) {
     // A thrown scan must still report liveness, otherwise a crashing scanner
     // and a stopped scanner look identical from the dashboard.
@@ -904,6 +904,7 @@ async function runScanLocked(
   admin: Admin,
   shadowMode: boolean,
   holder: string,
+  alertTestMode: boolean,
 ): Promise<ScanSummary> {
   const startedAtMs = Date.now();
   const { data: rulebookRow } = await admin
