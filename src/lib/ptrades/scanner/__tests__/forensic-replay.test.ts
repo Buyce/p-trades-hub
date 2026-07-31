@@ -6,6 +6,10 @@ import { validateSequence } from "@/lib/ptrades/scanner/setups.server";
 import { DEFAULT_PRECISION, DEFAULT_RULEBOOK } from "@/lib/ptrades/scanner/types";
 import { validateRulebook } from "@/lib/ptrades/scanner/rulebook-validate";
 import { isStoreFresh, seriesAgeSeconds } from "@/lib/ptrades/scanner/market-candles.server";
+import {
+  extremeSinceArmed,
+  targetAlreadyTouched,
+} from "@/lib/ptrades/scanner/proximity.server";
 import { candle, MINUTE } from "./fixtures";
 
 /**
@@ -189,5 +193,41 @@ describe("forensic replay: durable data plane freshness", () => {
     // closes; treating that as stale is what blocked every scan.
     expect(isStoreFresh(15 * 60, "M15", 120)).toBe(true);
     expect(isStoreFresh(15 * 60 + 121, "M15", 120)).toBe(false);
+  });
+});
+
+describe("forensic replay: the armed window for a missed move", () => {
+  // Two hours of stored M1 history, but the watch was only armed on the last
+  // few bars. The early spike is history, not a missed trade.
+  const armedAt = "2026-07-31T13:16:00.000Z";
+  const series = [
+    { time: "2026-07-31T12:00:00.000Z", open: 100, high: 120, low: 99, close: 101 },
+    { time: "2026-07-31T12:30:00.000Z", open: 101, high: 104, low: 100, close: 102 },
+    { time: "2026-07-31T13:16:00.000Z", open: 102, high: 103, low: 101, close: 102 },
+    { time: "2026-07-31T13:17:00.000Z", open: 102, high: 103.5, low: 101.5, close: 103 },
+  ].map((c) => ({ ...c, volume: 100 }));
+
+  it("ignores an excursion that happened before the setup was armed", () => {
+    // The exact regression: the 120 high pre-dates arming, and counting it
+    // retired live watches as MISSED on their first pass with zero checks.
+    const extreme = extremeSinceArmed(series, LONG, armedAt);
+    expect(extreme).toBe(103.5);
+    expect(targetAlreadyTouched(LONG, 110, extreme)).toBe(false);
+  });
+
+  it("still reports a genuine post-arming run to target", () => {
+    const extreme = extremeSinceArmed(series, LONG, armedAt);
+    expect(targetAlreadyTouched(LONG, 103, extreme)).toBe(true);
+  });
+
+  it("returns not-yet-knowable when no bar has closed since arming", () => {
+    const extreme = extremeSinceArmed(series, LONG, "2026-07-31T14:00:00.000Z");
+    expect(extreme).toBeNull();
+    // Null must never be treated as "already missed".
+    expect(targetAlreadyTouched(LONG, 103, extreme)).toBe(false);
+  });
+
+  it("measures the low side for a short", () => {
+    expect(extremeSinceArmed(series, "SHORT", armedAt)).toBe(101);
   });
 });
