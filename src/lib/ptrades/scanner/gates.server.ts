@@ -243,14 +243,16 @@ export function microTrigger(confirmed: boolean, failures: string[]): GateResult
   );
 }
 
-export function microRetest(found: boolean, level: number | null): GateResult {
+export function microRetest(found: boolean, level: number | null, required = true): GateResult {
   return gate(
     "NO_MICRO_RETEST",
-    found,
+    found || !required,
     found
       ? `The broken M1 level ${level} was retested and held on a closed candle.`
-      : "The broken M1 level has not been retested and held.",
-    { level },
+      : required
+        ? "The broken M1 level has not been retested and held."
+        : `The closed M1 break of ${level} is the entry; a retest is not required.`,
+    { level, required, retested: found },
   );
 }
 
