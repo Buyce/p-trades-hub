@@ -243,17 +243,47 @@ async function evaluateWatch(
 
   // Expiry is checked before anything is fetched: a dead watch costs nothing.
   if (isExpired(watch.expires_at, nowMs)) {
-    await resolveWatch(admin, watch.id, "EXPIRED", "The armed setup expired before an entry formed.");
+    const last = ((watch.metadata ?? {}) as Record<string, unknown>).last_check as
+      | Record<string, unknown>
+      | undefined;
+    // An expiry with no record of how close it came cannot be calibrated, so
+    // the final observation is carried into the resolution itself.
+    await resolveWatch(
+      admin,
+      watch.id,
+      "EXPIRED",
+      "The armed setup expired before an entry formed.",
+      {
+        ...((watch.metadata ?? {}) as Record<string, unknown>),
+        expiry_diagnostics: {
+          checks: watch.check_count,
+          armed_at: watch.armed_at,
+          expires_at: watch.expires_at,
+          last_distance_points: last?.distance_points ?? null,
+          last_price: last?.price ?? null,
+          micro_triggered: last?.micro_triggered ?? false,
+          micro_confirmed: last?.micro_confirmed ?? false,
+          last_blocking: ((watch.metadata ?? {}) as Record<string, unknown>).blocking ?? null,
+        },
+      },
+    );
     await closeSignalLifecycle(admin, watch.signal_id, "EXPIRED");
     return "RESOLVED";
   }
 
   const instrument = instruments.get(watch.symbol);
   if (!instrument) {
-    await resolveWatch(admin, watch.id, "MISSED", "The instrument is no longer enabled.");
+    await resolveWatch(
+      admin,
+      watch.id,
+      "MISSED",
+      "The instrument is no longer enabled.",
+      watch.metadata,
+    );
     await closeSignalLifecycle(admin, watch.signal_id, "MISSED");
     return "RESOLVED";
   }
+
 
   const resolved = await resolveSymbol(instrument);
   const brokerSymbol = watch.broker_symbol ?? resolved.broker;
