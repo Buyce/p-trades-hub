@@ -114,6 +114,7 @@ export async function notifyQualifiedSignal(
   // Email
   const emailInput: AlertEmailInput = {
     signalId: alert.signalId,
+    test,
     tier,
     instrument: alert.instrument,
     direction: alert.direction,
