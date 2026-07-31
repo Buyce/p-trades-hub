@@ -48,6 +48,11 @@ export type MarketDataSymbolSpec = {
   tickSize: number | null;
 };
 
+export type MarketDataReadOptions = {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+};
+
 /**
  * The complete surface the scanner is allowed to use. Read-only by
  * construction: adding a write method here is a breach of the product mandate.
@@ -56,7 +61,12 @@ export type ReadOnlyMarketDataClient = {
   readonly kind: string;
   isConfigured(): boolean;
   getAccount(force?: boolean): Promise<MarketDataAccount>;
-  getCandles(symbol: string, timeframe: Timeframe, limit?: number): Promise<Candle[]>;
+  getCandles(
+    symbol: string,
+    timeframe: Timeframe,
+    limit?: number,
+    options?: MarketDataReadOptions,
+  ): Promise<Candle[]>;
   getSpread(symbol: string): Promise<number | null>;
   getQuote(symbol: string): Promise<MarketQuote | null>;
   getSymbolSpec(symbol: string): Promise<MarketDataSymbolSpec | null>;
@@ -108,20 +118,32 @@ function fail(operation: string, error: unknown): never {
   throw new MarketDataError(`${operation} failed: ${redact(raw)}`, "UPSTREAM", { operation });
 }
 
-async function withTimeout<T>(operation: string, task: () => Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
+async function withTimeout<T>(
+  operation: string,
+  task: (signal: AbortSignal) => Promise<T>,
+  ms: number,
+  externalSignal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController();
+  const abortFromExternal = () => controller.abort(externalSignal?.reason);
+  if (externalSignal?.aborted) abortFromExternal();
+  else externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+  const timer = setTimeout(
+    () => controller.abort(new MarketDataError(`${operation} timed out after ${ms}ms`, "TIMEOUT")),
+    ms,
+  );
   try {
-    return await Promise.race([
-      task(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new MarketDataError(`${operation} timed out after ${ms}ms`, "TIMEOUT")),
-          ms,
-        );
-      }),
-    ]);
+    return await task(controller.signal);
+  } catch (error) {
+    if (controller.signal.aborted) {
+      const reason = controller.signal.reason;
+      if (reason instanceof Error) throw reason;
+      throw new MarketDataError(`${operation} was cancelled`, "TIMEOUT");
+    }
+    throw error;
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", abortFromExternal);
   }
 }
 
@@ -138,14 +160,15 @@ function retryable(error: unknown): boolean {
  */
 async function withRetry<T>(
   operation: string,
-  task: () => Promise<T>,
+  task: (signal: AbortSignal) => Promise<T>,
   timeoutMs: number,
   attempts = DEFAULT_ATTEMPTS,
+  externalSignal?: AbortSignal,
 ): Promise<T> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await withTimeout(operation, task, timeoutMs);
+      return await withTimeout(operation, task, timeoutMs, externalSignal);
     } catch (error) {
       lastError = error;
       if (attempt === attempts || !retryable(error)) break;
@@ -226,18 +249,20 @@ export function createMetaApiMarketData(
       );
     },
 
-    async getCandles(symbol, timeframe, limit = 200) {
+    async getCandles(symbol, timeframe, limit = 200, readOptions = {}) {
       return withRetry(
         "getCandles",
-        async () => {
+        async (signal) => {
           try {
-            const raw = await (await provider()).getCandles(symbol, timeframe, limit);
+            const raw = await (await provider()).getCandles(symbol, timeframe, limit, signal);
             return (Array.isArray(raw) ? raw : []).map(toCandle);
           } catch (error) {
             return fail(`getCandles(${symbol}/${timeframe})`, error);
           }
         },
-        timeoutMs,
+        readOptions.timeoutMs ?? timeoutMs,
+        DEFAULT_ATTEMPTS,
+        readOptions.signal,
       );
     },
 

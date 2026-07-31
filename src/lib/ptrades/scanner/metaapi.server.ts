@@ -59,8 +59,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * request in a scan is queued and issued one at a time with a short gap.
  */
 let queue: Promise<unknown> = Promise.resolve();
-function serialize<T>(task: () => Promise<T>): Promise<T> {
-  const next = queue.then(task, task);
+function serialize<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const run = () => {
+    if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+    return task();
+  };
+  const next = queue.then(run, run);
   queue = next.then(
     () => sleep(120),
     () => sleep(120),
@@ -68,7 +72,12 @@ function serialize<T>(task: () => Promise<T>): Promise<T> {
   return next;
 }
 
-async function request<T>(host: string, path: string, query: Record<string, string>): Promise<T> {
+async function request<T>(
+  host: string,
+  path: string,
+  query: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<T> {
   const { token } = env();
   const url = new URL(`https://${host}${path}`);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
@@ -76,7 +85,7 @@ async function request<T>(host: string, path: string, query: Record<string, stri
   const response = await fetch(url, {
     method: "GET",
     headers: { "auth-token": token, Accept: "application/json" },
-    signal: AbortSignal.timeout(15_000),
+    signal: signal ?? AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {
@@ -88,13 +97,18 @@ async function request<T>(host: string, path: string, query: Record<string, stri
   return (await response.json()) as T;
 }
 
-async function get<T>(host: string, path: string, query: Record<string, string> = {}): Promise<T> {
+async function get<T>(
+  host: string,
+  path: string,
+  query: Record<string, string> = {},
+  signal?: AbortSignal,
+): Promise<T> {
   assertReadOnly(path);
   return serialize(async () => {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return await request<T>(host, path, query);
+        return await request<T>(host, path, query, signal);
       } catch (error) {
         lastError = error;
         const status = (error as { status?: number }).status;
@@ -103,7 +117,7 @@ async function get<T>(host: string, path: string, query: Record<string, string> 
       }
     }
     throw lastError;
-  });
+  }, signal);
 }
 
 
@@ -150,8 +164,8 @@ type RawAccount = {
 };
 
 /** Lists accounts visible to the token, so a wrong account id is easy to spot. */
-export async function listAccounts(): Promise<RawAccount[]> {
-  const raw = await get<RawAccount[]>(PROVISIONING_HOST, "/users/current/accounts");
+export async function listAccounts(signal?: AbortSignal): Promise<RawAccount[]> {
+  const raw = await get<RawAccount[]>(PROVISIONING_HOST, "/users/current/accounts", {}, signal);
   return Array.isArray(raw) ? raw : [];
 }
 
@@ -163,7 +177,7 @@ export async function listAccounts(): Promise<RawAccount[]> {
  * `accountIdMismatch` so it surfaces on Scanner Health. Read-only metadata
  * only — no credentials are read or returned.
  */
-export async function getAccountInfo(force = false): Promise<AccountInfo> {
+export async function getAccountInfo(force = false, signal?: AbortSignal): Promise<AccountInfo> {
   const { accountId, region } = env();
   if (!force && cachedAccount && Date.now() - cachedAccount.at < 10 * 60_000) {
     return cachedAccount.info;
@@ -177,7 +191,12 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
           "MetaApi account ids are UUIDs (8-4-4-4-12); a 32-character hex string is usually the MetaApi user id.",
       );
     }
-    const raw = await get<RawAccount>(PROVISIONING_HOST, `/users/current/accounts/${accountId}`);
+    const raw = await get<RawAccount>(
+      PROVISIONING_HOST,
+      `/users/current/accounts/${accountId}`,
+      {},
+      signal,
+    );
     const info: AccountInfo = {
       accountId,
       configuredAccountId: accountId,
@@ -193,7 +212,7 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
     return info;
   } catch (error) {
     const lookupError = error instanceof Error ? error.message : "account lookup failed";
-    const deployed = await listAccounts()
+    const deployed = await listAccounts(signal)
       .then((accounts) => accounts.filter((a) => (a._id ?? a.id) && a.state === "DEPLOYED"))
       .catch(() => []);
     if (deployed.length === 1) {
@@ -219,8 +238,8 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
 }
 
 
-async function account(): Promise<{ accountId: string; region: string }> {
-  const info = await getAccountInfo();
+async function account(signal?: AbortSignal): Promise<{ accountId: string; region: string }> {
+  const info = await getAccountInfo(false, signal);
   return { accountId: info.accountId, region: info.region };
 }
 
@@ -251,12 +270,13 @@ export async function getCandles(
   symbol: string,
   timeframe: Timeframe,
   limit = 200,
+  signal?: AbortSignal,
 ): Promise<Candle[]> {
-  const { accountId, region } = await account();
+  const { accountId, region } = await account(signal);
   const path = `/users/current/accounts/${accountId}/historical-market-data/symbols/${encodeURIComponent(
     symbol,
   )}/timeframes/${API_TIMEFRAME[timeframe]}/candles`;
-  const raw = await get<RawCandle[]>(marketDataHost(region), path, { limit: String(limit) });
+  const raw = await get<RawCandle[]>(marketDataHost(region), path, { limit: String(limit) }, signal);
   return raw.map((c) => ({
     time: new Date(c.time).toISOString(),
     open: Number(c.open),
