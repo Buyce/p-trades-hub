@@ -11,6 +11,8 @@ import {
 } from "@/lib/ptrades/queries";
 import { getPushPublicKey } from "@/lib/ptrades/push.functions";
 import { getAlertTestMode, setAlertTestMode } from "@/lib/ptrades/alert-test.functions";
+import { getBackfillConfig, setBackfillConfig } from "@/lib/ptrades/alert-backfill.functions";
+
 import {
   pushPermission,
   pushSupported,
