@@ -32,6 +32,7 @@ import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
 import {
   calculateExtensionR,
   distanceToEntryPoints,
+  extremeSinceArmed,
   isPriceNearEntry,
   targetAlreadyTouched,
 } from "./proximity.server";
@@ -388,7 +389,7 @@ async function evaluateWatch(
   // 2. Has the move already happened without us? That is a miss, not an alert.
   //    With no bar yet closed after arming there is nothing to judge, so the
   //    test is skipped rather than failed.
-  if (targetAlreadyTouched(direction, tp1, extremeSinceArmed)) {
+  if (targetAlreadyTouched(direction, tp1, extreme)) {
     await resolveWatch(
       admin,
       watch.id,
@@ -399,7 +400,7 @@ async function evaluateWatch(
         missed_window: {
           armed_at: watch.armed_at,
           bars_since_armed: barsSinceArmed.length,
-          extreme_since_armed: extremeSinceArmed,
+          extreme_since_armed: extreme,
           tp1,
         },
       },
