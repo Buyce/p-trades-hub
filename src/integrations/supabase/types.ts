@@ -683,6 +683,7 @@ export type Database = {
       }
       scanner_settings: {
         Row: {
+          alert_test_mode: boolean
           id: boolean
           max_daily_alerts: number
           min_rr: number
@@ -692,6 +693,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          alert_test_mode?: boolean
           id?: boolean
           max_daily_alerts?: number
           min_rr?: number
@@ -701,6 +703,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          alert_test_mode?: boolean
           id?: boolean
           max_daily_alerts?: number
           min_rr?: number
