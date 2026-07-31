@@ -126,11 +126,12 @@ async function syncInstrument(
   instrument: InstrumentRow,
   summary: SyncSummary,
   deadline: ReturnType<typeof createDeadline>,
+  timeframes: Timeframe[] = SYNC_TIMEFRAMES,
 ): Promise<void> {
   const resolved = await resolveSymbol(instrument);
   const brokerSymbol = resolved.broker;
 
-  for (const tf of SYNC_TIMEFRAMES) {
+  for (const tf of timeframes) {
     if (deadline.expired()) {
       summary.deadlineHit = true;
       return;
