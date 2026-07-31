@@ -782,6 +782,10 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     .eq("id", true)
     .maybeSingle();
   const shadowMode = settings?.shadow_mode ?? true;
+  // Delivery test mode: a sample alert goes out the moment a setup is ARMED,
+  // so the notification path can be proven without waiting for an M1 trigger.
+  // It changes nothing about detection, scoring or actionability.
+  const alertTestMode = (settings as { alert_test_mode?: boolean } | null)?.alert_test_mode === true;
   const activeRulebook = await loadActiveRulebook(admin);
   if (settings?.rulebook_version !== activeRulebook.version) {
     await safeHeartbeat(admin, {
