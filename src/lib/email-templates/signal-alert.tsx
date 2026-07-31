@@ -89,10 +89,28 @@ export const SignalAlertEmail = ({
   <Html lang="en" dir="ltr">
     <Head />
     <Preview>
-      Tier {grade} · {instrument} {direction} — {rrTp1} to TP1
+      {test ? "[TEST] " : ""}Tier {grade} · {instrument} {direction} — {rrTp1} to TP1
     </Preview>
     <Body style={main}>
       <Container style={container}>
+        {test ? (
+          <Text
+            style={{
+              ...text,
+              margin: "0 0 14px",
+              padding: "12px 14px",
+              fontSize: "13px",
+              fontWeight: 600,
+              color: "#92400e",
+              backgroundColor: "#fffbeb",
+              border: "1px solid #fcd34d",
+              borderRadius: "6px",
+            }}
+          >
+            DELIVERY TEST — this email proves your alert channels work. The setup below is real
+            and armed, but it has not been confirmed for entry. Do not trade it.
+          </Text>
+        ) : null}
         <Text
           style={{
             display: "inline-block",
