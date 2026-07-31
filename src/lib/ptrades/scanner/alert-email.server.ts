@@ -17,6 +17,8 @@ const SITE_URL = "https://getptrades.com";
 
 export type AlertEmailInput = {
   signalId: string;
+  /** Delivery test — labelled in the subject and body, never actionable. */
+  test?: boolean;
   /** Stored tier code — drives the subject line and the body copy. */
   tier: Tier | null;
   instrument: string;
