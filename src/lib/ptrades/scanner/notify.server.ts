@@ -24,6 +24,11 @@ const SITE_URL = "https://getptrades.com";
 
 export type QualifiedAlert = {
   shadowMode: boolean;
+  /**
+   * Delivery test. The payload is a real, stored setup, but it is clearly
+   * labelled as a test on every channel and is never treated as actionable.
+   */
+  test?: boolean;
   signalId: string;
   instrument: string;
   direction: string;
