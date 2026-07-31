@@ -141,24 +141,49 @@ export async function runPrecisionPass(
   const instruments = await loadInstruments(admin);
   const macroEvents = await loadMacroEvents(admin);
 
+  // Rulebooks armed under an older version are NOT discarded. A version bump
+  // is a governance event, not a market event, and killing live watches on one
+  // silently emptied the funnel. The watch continues under the exact rulebook
+  // it was armed with; it is only retired when that rulebook can no longer be
+  // loaded, because then its terms are genuinely unknown.
+  const legacyRulebooks = new Map<string, Rulebook | null>();
+  const rulebookForWatch = async (version: string | null): Promise<Rulebook | null> => {
+    if (version === null || version === rulebook.version) return rulebook;
+    if (!legacyRulebooks.has(version)) {
+      const { data } = await admin
+        .from("rulebook_versions")
+        .select("version, rules")
+        .eq("version", version)
+        .maybeSingle();
+      legacyRulebooks.set(
+        version,
+        data ? validateRulebook(data.rules ?? {}, data.version).rulebook : null,
+      );
+    }
+    return legacyRulebooks.get(version) ?? null;
+  };
+
   for (const watch of watches) {
     try {
       const watchRulebookVersion = versionBySignal.get(watch.signal_id) ?? null;
-      if (watchRulebookVersion !== rulebook.version) {
+      const watchRulebook = await rulebookForWatch(watchRulebookVersion);
+      if (watchRulebook === null) {
         await resolveWatch(
           admin,
           watch.id,
           "EXPIRED",
-          `Watch rulebook ${watchRulebookVersion ?? "unknown"} does not match active ${rulebook.version}.`,
+          `Watch rulebook ${watchRulebookVersion ?? "unknown"} could not be loaded; its terms are unknown.`,
+          watch.metadata,
         );
         await closeSignalLifecycle(admin, watch.signal_id, "EXPIRED");
         summary.resolved += 1;
         continue;
       }
+      if (watchRulebook.version !== rulebook.version) summary.legacyRulebook += 1;
       const outcome = await evaluateWatch(
         admin,
         watch,
-        rulebook,
+        watchRulebook,
         instruments,
         macroEvents,
         shadowMode,
@@ -167,6 +192,8 @@ export async function runPrecisionPass(
       if (outcome === "ENTRY_READY") summary.entryReady += 1;
       if (outcome === "RESOLVED") summary.resolved += 1;
       if (outcome === "QUOTE_ONLY") summary.quoteOnly += 1;
+      if (outcome === "NO_MICRO_DATA") summary.microDataMissing += 1;
+
     } catch (error) {
       await recordScannerError(admin, {
         runId: null,
