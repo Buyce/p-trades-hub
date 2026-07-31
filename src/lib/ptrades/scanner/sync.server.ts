@@ -32,7 +32,19 @@ type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["su
 
 export const SYNC_TIMEFRAMES: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
 
+/**
+ * Per-call broker budget. Measured production latency: intraday candle reads
+ * return in ~90-700ms, but D1/H4 history regularly takes 1.7-4.2s and has been
+ * observed at 4.2s, so a flat 5s cap was killing D1 syncs (EURUSD/1d) and
+ * leaving daily bias data days stale. Higher-timeframe reads get a wider
+ * budget; the pass deadline still bounds the whole run.
+ */
 const FETCH_TIMEOUT_MS = 5_000;
+const SLOW_TIMEFRAME_TIMEOUT_MS = 12_000;
+
+function fetchTimeoutFor(tf: Timeframe): number {
+  return tf === "1d" || tf === "4h" ? SLOW_TIMEFRAME_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+}
 /** One scheduled tick is a minute; stop well before the next one fires. */
 export const SYNC_BUDGET_MS = 40_000;
 export const SYNC_LOCK_TTL_SECONDS = 90;
@@ -109,7 +121,7 @@ async function syncInstrument(
     try {
       const raw = await withTimeout(
         marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
-        FETCH_TIMEOUT_MS,
+        fetchTimeoutFor(tf),
         `getCandles(${brokerSymbol}/${tf})`,
       );
       summary.fetched += 1;
