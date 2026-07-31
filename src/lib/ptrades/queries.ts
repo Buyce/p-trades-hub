@@ -60,7 +60,11 @@ export type {
   RulebookVersion,
   Profile,
   Notification,
+  InstrumentDiagnostics,
+  ReasonCode,
+  FeedStatus,
 } from "./repositories";
+
 
 import type { Trade } from "./repositories";
 import { utcTradingDay } from "./time";
