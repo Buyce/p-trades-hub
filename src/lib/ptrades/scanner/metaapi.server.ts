@@ -164,8 +164,8 @@ type RawAccount = {
 };
 
 /** Lists accounts visible to the token, so a wrong account id is easy to spot. */
-export async function listAccounts(): Promise<RawAccount[]> {
-  const raw = await get<RawAccount[]>(PROVISIONING_HOST, "/users/current/accounts");
+export async function listAccounts(signal?: AbortSignal): Promise<RawAccount[]> {
+  const raw = await get<RawAccount[]>(PROVISIONING_HOST, "/users/current/accounts", {}, signal);
   return Array.isArray(raw) ? raw : [];
 }
 
@@ -177,7 +177,7 @@ export async function listAccounts(): Promise<RawAccount[]> {
  * `accountIdMismatch` so it surfaces on Scanner Health. Read-only metadata
  * only — no credentials are read or returned.
  */
-export async function getAccountInfo(force = false): Promise<AccountInfo> {
+export async function getAccountInfo(force = false, signal?: AbortSignal): Promise<AccountInfo> {
   const { accountId, region } = env();
   if (!force && cachedAccount && Date.now() - cachedAccount.at < 10 * 60_000) {
     return cachedAccount.info;
@@ -191,7 +191,12 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
           "MetaApi account ids are UUIDs (8-4-4-4-12); a 32-character hex string is usually the MetaApi user id.",
       );
     }
-    const raw = await get<RawAccount>(PROVISIONING_HOST, `/users/current/accounts/${accountId}`);
+    const raw = await get<RawAccount>(
+      PROVISIONING_HOST,
+      `/users/current/accounts/${accountId}`,
+      {},
+      signal,
+    );
     const info: AccountInfo = {
       accountId,
       configuredAccountId: accountId,
@@ -207,7 +212,7 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
     return info;
   } catch (error) {
     const lookupError = error instanceof Error ? error.message : "account lookup failed";
-    const deployed = await listAccounts()
+    const deployed = await listAccounts(signal)
       .then((accounts) => accounts.filter((a) => (a._id ?? a.id) && a.state === "DEPLOYED"))
       .catch(() => []);
     if (deployed.length === 1) {
@@ -233,8 +238,8 @@ export async function getAccountInfo(force = false): Promise<AccountInfo> {
 }
 
 
-async function account(): Promise<{ accountId: string; region: string }> {
-  const info = await getAccountInfo();
+async function account(signal?: AbortSignal): Promise<{ accountId: string; region: string }> {
+  const info = await getAccountInfo(false, signal);
   return { accountId: info.accountId, region: info.region };
 }
 
@@ -267,7 +272,7 @@ export async function getCandles(
   limit = 200,
   signal?: AbortSignal,
 ): Promise<Candle[]> {
-  const { accountId, region } = await account();
+  const { accountId, region } = await account(signal);
   const path = `/users/current/accounts/${accountId}/historical-market-data/symbols/${encodeURIComponent(
     symbol,
   )}/timeframes/${API_TIMEFRAME[timeframe]}/candles`;

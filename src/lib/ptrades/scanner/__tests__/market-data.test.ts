@@ -90,4 +90,17 @@ describe("read-only mandate", () => {
     expect([...new Set(methods)]).toEqual(["GET"]);
     expect(source).toMatch(/assertReadOnly\(path\)/);
   });
+
+  it("context scans never import or call the live market-data provider", () => {
+    const source = readFileSync("src/lib/ptrades/scanner/run.server.ts", "utf8");
+    expect(source).not.toMatch(/from ["']\.\/market-data\.server["']/);
+    expect(source).not.toMatch(/resolveSymbol\(/);
+    expect(source).toMatch(/instrument\.broker_symbol/);
+  });
+
+  it("provider fetch receives the caller abort signal", () => {
+    const source = readFileSync("src/lib/ptrades/scanner/metaapi.server.ts", "utf8");
+    expect(source).toMatch(/signal:\s*signal \?\? AbortSignal\.timeout/);
+    expect(source).toMatch(/if \(signal\?\.aborted\)/);
+  });
 });

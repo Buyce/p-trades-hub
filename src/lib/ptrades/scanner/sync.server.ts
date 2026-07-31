@@ -109,6 +109,7 @@ async function syncInstrument(
   summary: SyncSummary,
   deadline: ReturnType<typeof createDeadline>,
   timeframes: Timeframe[] = SYNC_TIMEFRAMES,
+  maxFetchTimeoutMs?: number,
 ): Promise<void> {
   const brokerSymbol = instrument.broker_symbol;
   if (!brokerSymbol) {
@@ -136,7 +137,11 @@ async function syncInstrument(
     const fetchStartedAt = Date.now();
     try {
       const raw = await marketData().getCandles(brokerSymbol, tf, barsFor(tf), {
-        timeoutMs: Math.min(fetchTimeoutFor(tf), Math.max(1, deadline.remainingMs())),
+        timeoutMs: Math.min(
+          fetchTimeoutFor(tf),
+          maxFetchTimeoutMs ?? Number.POSITIVE_INFINITY,
+          Math.max(1, deadline.remainingMs()),
+        ),
       });
 
       summary.fetched += 1;
@@ -225,12 +230,21 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
   const slowTimeframes = SYNC_TIMEFRAMES.filter((tf) => !microTimeframes.includes(tf));
 
   summary.instruments = rows.length;
-  for (const instrument of rows) {
+  for (const [index, instrument] of rows.entries()) {
     if (deadline.expired()) {
       summary.deadlineHit = true;
       break;
     }
-    await syncInstrument(admin, instrument, summary, deadline, microTimeframes);
+    const remainingInstruments = rows.length - index;
+    const fairShareMs = Math.max(1_000, Math.floor(deadline.remainingMs() / remainingInstruments));
+    await syncInstrument(
+      admin,
+      instrument,
+      summary,
+      deadline,
+      microTimeframes,
+      fairShareMs,
+    );
   }
   await renewScanLock(admin, SYNC_LOCK_KEY, holder, SYNC_LOCK_TTL_SECONDS);
 
