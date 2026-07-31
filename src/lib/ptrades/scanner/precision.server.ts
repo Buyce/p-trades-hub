@@ -382,12 +382,8 @@ async function evaluateWatch(
   const barsSinceArmed = Number.isFinite(armedAtMs)
     ? m1.filter((c) => Date.parse(c.time) >= armedAtMs)
     : m1;
-  const extremeSinceArmed =
-    barsSinceArmed.length === 0
-      ? null
-      : direction === "LONG"
-        ? barsSinceArmed.reduce<number | null>((m, c) => (m === null || c.high > m ? c.high : m), null)
-        : barsSinceArmed.reduce<number | null>((m, c) => (m === null || c.low < m ? c.low : m), null);
+  const extreme = extremeSinceArmed(m1, direction, watch.armed_at);
+
 
   // 2. Has the move already happened without us? That is a miss, not an alert.
   //    With no bar yet closed after arming there is nothing to judge, so the
