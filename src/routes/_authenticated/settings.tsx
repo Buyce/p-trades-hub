@@ -11,6 +11,8 @@ import {
 } from "@/lib/ptrades/queries";
 import { getPushPublicKey } from "@/lib/ptrades/push.functions";
 import { getAlertTestMode, setAlertTestMode } from "@/lib/ptrades/alert-test.functions";
+import { getBackfillConfig, setBackfillConfig } from "@/lib/ptrades/alert-backfill.functions";
+
 import {
   pushPermission,
   pushSupported,
@@ -196,6 +198,36 @@ function Settings() {
     onError: (e: unknown) => toast.error(userMessageOf(e)),
   });
 
+  /* ---- staff: historical review (past x days) ---- */
+  const readBackfill = useServerFn(getBackfillConfig);
+  const writeBackfill = useServerFn(setBackfillConfig);
+  const { data: backfill } = useQuery({
+    queryKey: ["scanner", "backfillConfig"],
+    queryFn: () => readBackfill(),
+    enabled: isStaff,
+    retry: false,
+    refetchInterval: 60_000,
+  });
+  const saveBackfill = useMutation({
+    mutationFn: (input: {
+      days: number;
+      maxBarsPerTick: number;
+      budgetMs: number;
+      restart?: boolean;
+    }) => writeBackfill({ data: input }),
+    onSuccess: (_d, input) => {
+      queryClient.invalidateQueries({ queryKey: ["scanner", "backfillConfig"] });
+      toast.success(
+        input.days === 0
+          ? "Historical review switched off."
+          : `Reviewing the past ${input.days} day${input.days === 1 ? "" : "s"}.`,
+      );
+    },
+    onError: (e: unknown) => toast.error(userMessageOf(e)),
+  });
+
+
+
   async function signOut() {
     await queryClient.cancelQueries();
     queryClient.clear();
@@ -366,6 +398,99 @@ function Settings() {
           </div>
         </SectionCard>
       ) : null}
+
+      {isStaff ? (
+        <SectionCard title="Historical review">
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Re-grades stored history under the active rulebook so you can see how the current
+              rules would have scored the past few days. Journal-only: reviewed bars are written
+              as shadow candidates and never alert, arm or trade. History is kept for 14 days.
+            </p>
+
+            <div>
+              <Label>Days to review</Label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[0, 1, 3, 7, 14].map((d) => (
+                  <Button
+                    key={d}
+                    type="button"
+                    size="sm"
+                    variant={backfill?.days === d ? "default" : "outline"}
+                    disabled={saveBackfill.isPending}
+                    onClick={() =>
+                      saveBackfill.mutate({
+                        days: d,
+                        maxBarsPerTick: backfill?.maxBarsPerTick ?? 250,
+                        budgetMs: backfill?.budgetMs ?? 12000,
+                        restart: true,
+                      })
+                    }
+                  >
+                    {d === 0 ? "Off" : `${d}d`}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <Label>Throttle</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                How much work each minute may do. Higher finishes sooner; the review always
+                stands down for a tick when live sync or the precision pass is not reporting.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[
+                  { label: "Gentle", bars: 100, ms: 6000 },
+                  { label: "Balanced", bars: 250, ms: 12000 },
+                  { label: "Fast", bars: 600, ms: 25000 },
+                ].map((preset) => (
+                  <Button
+                    key={preset.label}
+                    type="button"
+                    size="sm"
+                    variant={backfill?.maxBarsPerTick === preset.bars ? "default" : "outline"}
+                    disabled={saveBackfill.isPending}
+                    onClick={() =>
+                      saveBackfill.mutate({
+                        days: backfill?.days ?? 0,
+                        maxBarsPerTick: preset.bars,
+                        budgetMs: preset.ms,
+                      })
+                    }
+                  >
+                    {preset.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <DataRow
+              label="Progress"
+              value={
+                !backfill || backfill.days === 0
+                  ? "Off"
+                  : backfill.cursor.completedAt
+                    ? `Completed ${new Date(backfill.cursor.completedAt).toLocaleString()}`
+                    : backfill.cursor.instrument
+                      ? `Reviewing ${backfill.cursor.instrument}`
+                      : "Queued — starts on the next minute"
+              }
+              mono={false}
+            />
+            <DataRow
+              label="Per minute"
+              value={
+                backfill
+                  ? `${backfill.maxBarsPerTick} bars max · ${Math.round(backfill.budgetMs / 1000)}s budget`
+                  : undefined
+              }
+              mono={false}
+            />
+          </div>
+        </SectionCard>
+      ) : null}
+
 
       <SectionCard title="Account">
         <DataRow label="Email" value={user?.email ?? undefined} />

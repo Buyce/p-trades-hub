@@ -684,6 +684,10 @@ export type Database = {
       scanner_settings: {
         Row: {
           alert_test_mode: boolean
+          backfill_budget_ms: number
+          backfill_cursor: Json
+          backfill_days: number
+          backfill_max_bars_per_tick: number
           id: boolean
           max_daily_alerts: number
           min_rr: number
@@ -694,6 +698,10 @@ export type Database = {
         }
         Insert: {
           alert_test_mode?: boolean
+          backfill_budget_ms?: number
+          backfill_cursor?: Json
+          backfill_days?: number
+          backfill_max_bars_per_tick?: number
           id?: boolean
           max_daily_alerts?: number
           min_rr?: number
@@ -704,6 +712,10 @@ export type Database = {
         }
         Update: {
           alert_test_mode?: boolean
+          backfill_budget_ms?: number
+          backfill_cursor?: Json
+          backfill_days?: number
+          backfill_max_bars_per_tick?: number
           id?: boolean
           max_daily_alerts?: number
           min_rr?: number

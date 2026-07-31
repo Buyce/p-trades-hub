@@ -28,6 +28,7 @@ import { Route as LovableEmailAuthPreviewRouteImport } from './routes/lovable/em
 import { Route as ApiPublicHooksSyncMarketDataRouteImport } from './routes/api/public/hooks/sync-market-data'
 import { Route as ApiPublicHooksScanPrecisionRouteImport } from './routes/api/public/hooks/scan-precision'
 import { Route as ApiPublicHooksScanContextRouteImport } from './routes/api/public/hooks/scan-context'
+import { Route as ApiPublicHooksBackfillScanRouteImport } from './routes/api/public/hooks/backfill-scan'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -131,6 +132,12 @@ const ApiPublicHooksScanContextRoute =
     path: '/api/public/hooks/scan-context',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksBackfillScanRoute =
+  ApiPublicHooksBackfillScanRouteImport.update({
+    id: '/api/public/hooks/backfill-scan',
+    path: '/api/public/hooks/backfill-scan',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -146,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/backfill-scan': typeof ApiPublicHooksBackfillScanRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
@@ -166,6 +174,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/backfill-scan': typeof ApiPublicHooksBackfillScanRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
@@ -188,6 +197,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
+  '/api/public/hooks/backfill-scan': typeof ApiPublicHooksBackfillScanRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
@@ -210,6 +220,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/hooks/backfill-scan'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
     | '/api/public/hooks/sync-market-data'
@@ -230,6 +241,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/watchlist'
     | '/signals/$signalId'
+    | '/api/public/hooks/backfill-scan'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
     | '/api/public/hooks/sync-market-data'
@@ -251,6 +263,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
+    | '/api/public/hooks/backfill-scan'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
     | '/api/public/hooks/sync-market-data'
@@ -263,6 +276,7 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  ApiPublicHooksBackfillScanRoute: typeof ApiPublicHooksBackfillScanRoute
   ApiPublicHooksScanContextRoute: typeof ApiPublicHooksScanContextRoute
   ApiPublicHooksScanPrecisionRoute: typeof ApiPublicHooksScanPrecisionRoute
   ApiPublicHooksSyncMarketDataRoute: typeof ApiPublicHooksSyncMarketDataRoute
@@ -405,6 +419,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksScanContextRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/backfill-scan': {
+      id: '/api/public/hooks/backfill-scan'
+      path: '/api/public/hooks/backfill-scan'
+      fullPath: '/api/public/hooks/backfill-scan'
+      preLoaderRoute: typeof ApiPublicHooksBackfillScanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -442,6 +463,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  ApiPublicHooksBackfillScanRoute: ApiPublicHooksBackfillScanRoute,
   ApiPublicHooksScanContextRoute: ApiPublicHooksScanContextRoute,
   ApiPublicHooksScanPrecisionRoute: ApiPublicHooksScanPrecisionRoute,
   ApiPublicHooksSyncMarketDataRoute: ApiPublicHooksSyncMarketDataRoute,
