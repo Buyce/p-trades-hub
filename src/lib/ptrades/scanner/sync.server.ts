@@ -47,7 +47,7 @@ const SLOW_TIMEFRAME_TIMEOUT_MS = 12_000;
  * gets its own budget and a single retry instead of sharing the generic
  * intraday cap that was silently timing out at 5s on XAUUSD.
  */
-const MICRO_TIMEFRAME_TIMEOUT_MS = 8_000;
+const MICRO_TIMEFRAME_TIMEOUT_MS = 10_000;
 const MICRO_RETRIES = 1;
 
 function fetchTimeoutFor(tf: Timeframe): number {
