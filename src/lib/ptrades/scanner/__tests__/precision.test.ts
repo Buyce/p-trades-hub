@@ -216,12 +216,20 @@ describe("micro trigger", () => {
     expect(result.retestCandleTime).not.toBeNull();
   });
 
-  it("stays unconfirmed when the retest never arrives", () => {
+  it("stays unconfirmed when a required retest never arrives", () => {
     const candles = longSequence().slice(0, -1);
-    const result = detectMicroTrigger({ candles, ...base });
+    const result = detectMicroTrigger({ candles, ...base, requireRetest: true });
     expect(result.triggered).toBe(true);
     expect(result.confirmed).toBe(false);
     expect(result.failures.join(" ")).toContain("retested");
+  });
+
+  it("confirms on the closed break alone when the retest is not required", () => {
+    const candles = longSequence().slice(0, -1);
+    const result = detectMicroTrigger({ candles, ...base, requireRetest: false });
+    expect(result.triggered).toBe(true);
+    expect(result.confirmed).toBe(true);
+    expect(result.retestCandleTime).toBeNull();
   });
 
   it("fails closed without a rejection at the armed area", () => {
