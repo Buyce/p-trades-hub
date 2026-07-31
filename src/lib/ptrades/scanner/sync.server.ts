@@ -121,7 +121,7 @@ async function syncInstrument(
     try {
       const raw = await withTimeout(
         marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
-        FETCH_TIMEOUT_MS,
+        fetchTimeoutFor(tf),
         `getCandles(${brokerSymbol}/${tf})`,
       );
       summary.fetched += 1;
