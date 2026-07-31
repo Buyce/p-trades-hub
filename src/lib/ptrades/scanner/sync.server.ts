@@ -62,8 +62,8 @@ function attemptsFor(tf: Timeframe): number {
 }
 
 /** One scheduled tick is a minute; stop well before the next one fires. */
-export const SYNC_BUDGET_MS = 40_000;
-export const SYNC_LOCK_TTL_SECONDS = 90;
+export const SYNC_BUDGET_MS = 35_000;
+export const SYNC_LOCK_TTL_SECONDS = 55;
 
 export function barsFor(tf: Timeframe): number {
   if (tf === "1d" || tf === "M1") return 120;
@@ -243,18 +243,31 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
     .order("sort_order");
 
   const rows = (instruments ?? []) as InstrumentRow[];
-  // A recovery pass can consume its full deadline before reaching the final
-  // symbols. Rotate the starting symbol every scheduled three-minute slot so
-  // stale feeds recover fairly instead of permanently favouring sort order.
-  const rotation = rows.length > 0 ? Math.floor(Date.now() / 180_000) % rows.length : 0;
+  // M1 is the execution timeframe: precision cannot trigger without it, so
+  // EVERY instrument gets its M1 refreshed on EVERY tick, concurrently, before
+  // anything slower is considered. One slow symbol can no longer starve the
+  // rest, which is what the old serial rotation did — five instruments on a
+  // rotating start meant a symbol's M1 could be a quarter of an hour old.
+  const microTimeframes: Timeframe[] = ["M1"];
+  const slowTimeframes = SYNC_TIMEFRAMES.filter((tf) => !microTimeframes.includes(tf));
+
+  summary.instruments = rows.length;
+  await Promise.all(
+    rows.map((instrument) => syncInstrument(admin, instrument, summary, deadline, microTimeframes)),
+  );
+  await renewScanLock(admin, SYNC_LOCK_KEY, holder, SYNC_LOCK_TTL_SECONDS);
+
+  // The slower frames change at most once an hour, so they keep the rotation:
+  // fair recovery without spending the tick's remaining budget on data that
+  // cannot have changed.
+  const rotation = rows.length > 0 ? Math.floor(Date.now() / 60_000) % rows.length : 0;
   const orderedRows = [...rows.slice(rotation), ...rows.slice(0, rotation)];
   for (const instrument of orderedRows) {
     if (deadline.expired()) {
       summary.deadlineHit = true;
       break;
     }
-    summary.instruments += 1;
-    await syncInstrument(admin, instrument, summary, deadline);
+    await syncInstrument(admin, instrument, summary, deadline, slowTimeframes);
     // Prove liveness so a healthy but slow pass is never evicted mid-flight.
     await renewScanLock(admin, SYNC_LOCK_KEY, holder, SYNC_LOCK_TTL_SECONDS);
   }
