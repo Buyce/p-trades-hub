@@ -782,6 +782,10 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     .eq("id", true)
     .maybeSingle();
   const shadowMode = settings?.shadow_mode ?? true;
+  // Delivery test mode: a sample alert goes out the moment a setup is ARMED,
+  // so the notification path can be proven without waiting for an M1 trigger.
+  // It changes nothing about detection, scoring or actionability.
+  const alertTestMode = (settings as { alert_test_mode?: boolean } | null)?.alert_test_mode === true;
   const activeRulebook = await loadActiveRulebook(admin);
   if (settings?.rulebook_version !== activeRulebook.version) {
     await safeHeartbeat(admin, {
@@ -878,7 +882,7 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   }
 
   try {
-    return await runScanLocked(admin, shadowMode, holder);
+    return await runScanLocked(admin, shadowMode, holder, alertTestMode);
   } catch (error) {
     // A thrown scan must still report liveness, otherwise a crashing scanner
     // and a stopped scanner look identical from the dashboard.
@@ -900,6 +904,7 @@ async function runScanLocked(
   admin: Admin,
   shadowMode: boolean,
   holder: string,
+  alertTestMode: boolean,
 ): Promise<ScanSummary> {
   const startedAtMs = Date.now();
   const { data: rulebookRow } = await admin
@@ -1051,7 +1056,48 @@ async function runScanLocked(
             score_input: precision.scoreInput,
           } as never,
         });
+
+        if (alertTestMode) {
+          // Best-effort and clearly labelled. A failure here must never stop
+          // a scan, and it never marks the signal actionable.
+          const { notifyQualifiedSignal } = await import("./notify.server");
+          const delivery = await notifyQualifiedSignal(admin, {
+            shadowMode: false,
+            test: true,
+            signalId,
+            instrument: result.candidate.instrument,
+            direction: result.candidate.direction,
+            grade: result.candidate.grade,
+            setupType: result.candidate.setup_type,
+            timeframe: result.candidate.timeframe,
+            entryZoneLow: result.candidate.entry_zone_low,
+            entryZoneHigh: result.candidate.entry_zone_high,
+            stopLoss: result.candidate.stop_loss,
+            targets: (result.candidate.targets ?? []) as number[],
+            rr: result.candidate.rr_tp1,
+            score: result.candidate.score,
+            reasons: result.candidate.reasons ?? [],
+          }).catch((error) => {
+            console.error(
+              "armed test alert failed",
+              error instanceof Error ? error.message : "unknown",
+            );
+            return null;
+          });
+          await admin.from("audit_log").insert({
+            actor_kind: "SYSTEM",
+            action: "ALERT_TEST_DELIVERY",
+            entity_type: "signal",
+            entity_id: signalId,
+            detail: {
+              instrument: result.candidate.instrument,
+              tier: result.candidate.grade,
+              delivery,
+            } as never,
+          });
+        }
       }
+
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "scan failed";
       await recordScannerError(admin, {

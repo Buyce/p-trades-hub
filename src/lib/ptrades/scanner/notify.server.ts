@@ -24,6 +24,11 @@ const SITE_URL = "https://getptrades.com";
 
 export type QualifiedAlert = {
   shadowMode: boolean;
+  /**
+   * Delivery test. The payload is a real, stored setup, but it is clearly
+   * labelled as a test on every channel and is never treated as actionable.
+   */
+  test?: boolean;
   signalId: string;
   instrument: string;
   direction: string;
@@ -69,10 +74,14 @@ export async function notifyQualifiedSignal(
   // The tier stored on the signal is the only tier ever shown or sent.
   const tier: Tier | null = isTier(alert.grade) ? alert.grade : null;
   const label = tierLabel(alert.grade);
-  const title = `${alert.instrument} ${alert.direction} — Tier ${label}`;
-  const body = alert.rr
+  const test = alert.test === true;
+  const title = `${test ? "[TEST] " : ""}${alert.instrument} ${alert.direction} — Tier ${label}`;
+  const rrText = alert.rr
     ? `Qualified setup with ${alert.rr.toFixed(2)}R to TP1. You place the trade manually.`
     : "Qualified setup. You place the trade manually.";
+  const body = test
+    ? `Delivery test on a real armed setup. Do NOT trade this alert. ${rrText}`
+    : rrText;
 
   const { error: insertError } = await admin.from("notifications").insert(
     profiles.map((p) => ({
@@ -97,12 +106,15 @@ export async function notifyQualifiedSignal(
     title,
     body,
     url: `${SITE_URL}/signals/${alert.signalId}`,
-    tag: `signal-${alert.signalId}`,
+    // Test alerts must never collapse into the real alert's notification slot.
+    tag: test ? `signal-test-${alert.signalId}` : `signal-${alert.signalId}`,
   }).catch(() => ({ sent: 0, pruned: 0 }));
+
 
   // Email
   const emailInput: AlertEmailInput = {
     signalId: alert.signalId,
+    test,
     tier,
     instrument: alert.instrument,
     direction: alert.direction,

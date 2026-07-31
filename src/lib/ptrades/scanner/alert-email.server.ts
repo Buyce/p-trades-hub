@@ -17,6 +17,8 @@ const SITE_URL = "https://getptrades.com";
 
 export type AlertEmailInput = {
   signalId: string;
+  /** Delivery test — labelled in the subject and body, never actionable. */
+  test?: boolean;
   /** Stored tier code — drives the subject line and the body copy. */
   tier: Tier | null;
   instrument: string;
@@ -54,15 +56,17 @@ export async function sendAlertEmail(
         to: recipient,
         from: `${SITE_NAME} <alerts@${FROM_DOMAIN}>`,
         sender_domain: FROM_DOMAIN,
-        subject: tierSubject(input.tier, input),
+        subject: `${input.test ? "[TEST] " : ""}${tierSubject(input.tier, input)}`,
         html,
         text,
         // App (transactional) sends must use purpose=transactional together
         // with an idempotency_key; anything else is rejected as an auth send.
         purpose: "transactional",
-        idempotency_key: input.tier
-          ? `signal-${input.tier.toLowerCase()}-${input.signalId}-${recipient}`
-          : `signal-${input.signalId}-${recipient}`,
+        idempotency_key: input.test
+          ? `signal-test-${input.signalId}-${recipient}`
+          : input.tier
+            ? `signal-${input.tier.toLowerCase()}-${input.signalId}-${recipient}`
+            : `signal-${input.signalId}-${recipient}`,
       },
       { apiKey, sendUrl: process.env.LOVABLE_SEND_URL },
     );
