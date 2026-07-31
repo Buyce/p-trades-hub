@@ -24,6 +24,8 @@ export {
   blockingGatesTodayQuery,
   instrumentCoverageQuery,
   executionFunnelQuery,
+  instrumentDiagnosticsQuery,
+
 
   lastPurgeQuery,
   RETENTION_WINDOWS,
