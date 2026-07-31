@@ -6,6 +6,8 @@ export * from "./signals.repo";
 export * from "./decisions.repo";
 export * from "./trades.repo";
 export * from "./health.repo";
+export * from "./diagnostics.repo";
+
 export * from "./rulebooks.repo";
 export * from "./profile.repo";
 export * from "./notifications.repo";

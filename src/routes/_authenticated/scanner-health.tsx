@@ -34,6 +34,8 @@ import {
   SectionCard,
   StatusPill,
 } from "@/components/ptrades/primitives";
+import { AvailabilityDiagnostics } from "@/components/ptrades/availability-diagnostics";
+
 
 export const Route = createFileRoute("/_authenticated/scanner-health")({
   head: () => ({
@@ -336,6 +338,14 @@ function ScannerHealth() {
             );
           })}
         </ul>
+      </SectionCard>
+
+      <SectionCard title="Why each instrument is unavailable">
+        <p className="mb-3 text-xs text-muted-foreground">
+          The exact reason code the scanner recorded per instrument, with the time it was last
+          true. Open a row for feed freshness, arming timeline and every gate rejection today.
+        </p>
+        <AvailabilityDiagnostics tz={tz} />
       </SectionCard>
 
 

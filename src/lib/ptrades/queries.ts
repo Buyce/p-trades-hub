@@ -24,6 +24,8 @@ export {
   blockingGatesTodayQuery,
   instrumentCoverageQuery,
   executionFunnelQuery,
+  instrumentDiagnosticsQuery,
+
 
   lastPurgeQuery,
   RETENTION_WINDOWS,
@@ -58,7 +60,11 @@ export type {
   RulebookVersion,
   Profile,
   Notification,
+  InstrumentDiagnostics,
+  ReasonCode,
+  FeedStatus,
 } from "./repositories";
+
 
 import type { Trade } from "./repositories";
 import { utcTradingDay } from "./time";
