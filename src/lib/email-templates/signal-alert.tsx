@@ -70,6 +70,7 @@ function Line({ label, value }: { label: string; value: string }) {
 export const SignalAlertEmail = ({
   siteName,
   signalUrl,
+  test,
   tier,
   instrument,
   direction,
