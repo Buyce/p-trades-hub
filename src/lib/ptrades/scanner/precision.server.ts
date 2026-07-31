@@ -15,6 +15,8 @@
 
 import type { GateResult, Rulebook } from "./types";
 import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL, precisionRulesFor } from "./types";
+import { validateRulebook } from "./rulebook-validate";
+
 import { marketData } from "./market-data.server";
 import { atr } from "./atr.server";
 import { dataAgeSeconds, normaliseCandles } from "./candles.server";
@@ -77,7 +79,16 @@ export type PrecisionSummary = {
   resolved: number;
   /** Watches evaluated from the live quote alone because no new M1 closed. */
   quoteOnly: number;
+  /** Watches still running under the rulebook they were armed with. */
+  legacyRulebook: number;
+  /**
+   * Watches that could not be judged at all because the stored M1 series was
+   * missing or too short. Distinct from "no trigger found": one is a data
+   * outage, the other is a market fact.
+   */
+  microDataMissing: number;
 };
+
 
 export type PrecisionPassOptions = {
   /** Overrides the stored scanner setting. Shadow mode never notifies. */
