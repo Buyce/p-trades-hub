@@ -121,7 +121,10 @@ export async function runPrecisionPass(
     entryReady: 0,
     resolved: 0,
     quoteOnly: 0,
+    legacyRulebook: 0,
+    microDataMissing: 0,
   };
+
   if (rulebook.precision?.enabled === false) return summary;
 
   // Delivery mode is read from the stored setting, never hardcoded.
