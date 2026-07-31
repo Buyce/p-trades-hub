@@ -123,6 +123,11 @@ function Watchlist() {
               const provisional = Boolean(best && !best.final_grade && !best.grade && tier);
               const shownScore = best ? (best.final_score ?? best.score ?? best.provisional_score) : null;
               const state = best?.lifecycle_state ?? null;
+              // The recorded reason this instrument is not alerting, shown with
+              // its own timestamp so a stalled feed is never mistaken for a
+              // quiet market.
+              const diag = diagnostics.find((d) => d.instrument === symbol);
+              const reason = diag?.primary ?? null;
               return (
                 <li key={symbol} className="flex items-center justify-between gap-3 py-3">
                   <div>
@@ -134,7 +139,18 @@ function Watchlist() {
                           ? `${lifecycleCopy(state)} · ${formatTime(best.signal_time_utc, tz)}`
                           : "No setup has formed today. The scanner is still watching."}
                     </p>
+                    {enabled && reason ? (
+                      <p className="num mt-0.5 text-[11px] text-muted-foreground">
+                        <span className="font-medium text-foreground">{reason.code}</span>
+                        {reason.at ? ` · since ${formatTime(reason.at, tz)}` : ""}
+                        {" · "}
+                        <Link to="/scanner-health" className="underline underline-offset-2">
+                          details
+                        </Link>
+                      </p>
+                    ) : null}
                   </div>
+
                   {best ? (
                     <Link
                       to="/signals/$signalId"
