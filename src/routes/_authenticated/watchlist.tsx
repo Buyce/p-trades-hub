@@ -1,6 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { instrumentsQuery, signalsTodayQuery } from "@/lib/ptrades/queries";
+import {
+  instrumentDiagnosticsQuery,
+  instrumentsQuery,
+  signalsTodayQuery,
+} from "@/lib/ptrades/queries";
+
 import { useTimezone } from "@/lib/ptrades/session";
 import { formatTime, score } from "@/lib/ptrades/format";
 import {
