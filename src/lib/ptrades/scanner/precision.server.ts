@@ -62,6 +62,7 @@ import {
 import { notifyQualifiedSignal } from "./notify.server";
 import { recordScannerError } from "./errors.server";
 import { executionPrice } from "./market-data.server";
+import { readCandles } from "./market-candles.server";
 import { minTierRr, scoreCandidate, tierFor } from "./scoring";
 import { isActionable, systemModeFor } from "../tiers-policy";
 
@@ -127,12 +128,33 @@ export async function runPrecisionPass(
   summary.watched = watches.length;
   if (watches.length === 0) return summary;
 
+  const signalIds = watches.map((watch) => watch.signal_id);
+  const { data: signalVersions } = await admin
+    .from("signals")
+    .select("id, rulebook_version")
+    .in("id", signalIds);
+  const versionBySignal = new Map(
+    (signalVersions ?? []).map((signal) => [signal.id, signal.rulebook_version]),
+  );
+
   summary.passes = 1;
   const instruments = await loadInstruments(admin);
   const macroEvents = await loadMacroEvents(admin);
 
   for (const watch of watches) {
     try {
+      const watchRulebookVersion = versionBySignal.get(watch.signal_id) ?? null;
+      if (watchRulebookVersion !== rulebook.version) {
+        await resolveWatch(
+          admin,
+          watch.id,
+          "EXPIRED",
+          `Watch rulebook ${watchRulebookVersion ?? "unknown"} does not match active ${rulebook.version}.`,
+        );
+        await closeSignalLifecycle(admin, watch.signal_id, "EXPIRED");
+        summary.resolved += 1;
+        continue;
+      }
       const outcome = await evaluateWatch(
         admin,
         watch,
@@ -234,8 +256,8 @@ async function evaluateWatch(
     return "QUOTE_ONLY";
   }
 
-  const raw = await marketData().getCandles(brokerSymbol, MICRO_TF, 120);
-  const { candles: m1 } = normaliseCandles(raw, MICRO_TF);
+  const storedM1 = await readCandles(admin, { brokerSymbol, timeframe: MICRO_TF, limit: 120 });
+  const { candles: m1 } = normaliseCandles(storedM1.candles, MICRO_TF);
   const lastClosedCandle = m1.at(-1) ?? null;
 
   const gates: GateResult[] = [];
@@ -264,10 +286,7 @@ async function evaluateWatch(
     return "RESOLVED";
   }
 
-  const quote =
-    liveQuote !== null
-      ? liveQuote.ask - liveQuote.bid
-      : await marketData().getSpread(brokerSymbol).catch(() => null);
+  const quote = liveQuote !== null ? liveQuote.ask - liveQuote.bid : null;
   const price =
     liveQuote !== null ? executionPrice(liveQuote, direction) : (lastClosedCandle?.close ?? null);
   const atrM1 = atr(m1, rulebook.atr_period, rulebook.atr_method);

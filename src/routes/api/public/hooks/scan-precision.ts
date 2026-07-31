@@ -34,17 +34,17 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
         const { loadActiveRulebook } = await import("@/lib/ptrades/scanner/run.server");
         const { runPrecisionPass } = await import("@/lib/ptrades/scanner/precision.server");
         const { safeHeartbeat } = await import("@/lib/ptrades/scanner/heartbeat.server");
-        const { acquireScanLock, releaseScanLock } = await import(
+        const { acquireScanLock, releaseScanLock, newLockHolder, PRECISION_LOCK_KEY } = await import(
           "@/lib/ptrades/scanner/lock.server"
         );
 
-        const LOCK_KEY = "precision-loop";
+        const holder = newLockHolder("precision");
         // Short TTL: one pass is seconds of work, so a lock older than this is
         // a crashed invocation and must not block the next tick.
         const locked = await acquireScanLock(supabaseAdmin, {
-          key: LOCK_KEY,
+          key: PRECISION_LOCK_KEY,
           ttlSeconds: 55,
-          holder: new Date().toISOString(),
+          holder,
         });
         if (!locked) {
           // Still alive — the previous pass simply had not finished. Silence
@@ -62,6 +62,16 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
         const startedAt = Date.now();
         try {
           const rulebook = await loadActiveRulebook(supabaseAdmin);
+          const { data: settings } = await supabaseAdmin
+            .from("scanner_settings")
+            .select("rulebook_version")
+            .eq("id", true)
+            .maybeSingle();
+          if (settings?.rulebook_version !== rulebook.version) {
+            throw new Error(
+              `Rulebook mismatch: settings=${settings?.rulebook_version ?? "none"}, active=${rulebook.version}`,
+            );
+          }
           const precision = await runPrecisionPass(supabaseAdmin, rulebook);
           const { checkExecutionStall } = await import(
             "@/lib/ptrades/scanner/watchdog.server"
@@ -94,7 +104,7 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
           });
           return Response.json({ ok: false, error: message }, { status: 500 });
         } finally {
-          await releaseScanLock(supabaseAdmin, LOCK_KEY);
+          await releaseScanLock(supabaseAdmin, PRECISION_LOCK_KEY, holder);
         }
       },
     },

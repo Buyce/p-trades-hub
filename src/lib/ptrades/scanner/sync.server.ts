@@ -30,7 +30,7 @@ import { safeHeartbeat } from "./heartbeat.server";
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
 
-export const SYNC_TIMEFRAMES: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
+export const SYNC_TIMEFRAMES: Timeframe[] = ["M1", "M5", "M15", "1h", "4h", "1d"];
 
 /**
  * Per-call broker budget. Measured production latency: intraday candle reads
@@ -40,17 +40,21 @@ export const SYNC_TIMEFRAMES: Timeframe[] = ["M5", "M15", "1h", "4h", "1d"];
  * budget; the pass deadline still bounds the whole run.
  */
 const FETCH_TIMEOUT_MS = 5_000;
+const MEDIUM_TIMEFRAME_TIMEOUT_MS = 8_000;
 const SLOW_TIMEFRAME_TIMEOUT_MS = 12_000;
 
 function fetchTimeoutFor(tf: Timeframe): number {
-  return tf === "1d" || tf === "4h" ? SLOW_TIMEFRAME_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+  if (tf === "1d" || tf === "4h") return SLOW_TIMEFRAME_TIMEOUT_MS;
+  if (tf === "M15" || tf === "1h") return MEDIUM_TIMEFRAME_TIMEOUT_MS;
+  return FETCH_TIMEOUT_MS;
 }
 /** One scheduled tick is a minute; stop well before the next one fires. */
 export const SYNC_BUDGET_MS = 40_000;
 export const SYNC_LOCK_TTL_SECONDS = 90;
 
 export function barsFor(tf: Timeframe): number {
-  return tf === "1d" ? 120 : 200;
+  if (tf === "1d" || tf === "M1") return 120;
+  return 200;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -92,6 +96,13 @@ export type SyncSummary = {
   skipped: number;
   stored: number;
   failures: Array<{ instrument: string; timeframe: string; error: string }>;
+  reads: Array<{
+    instrument: string;
+    timeframe: string;
+    status: "FETCHED" | "UP_TO_DATE" | "FAILED";
+    latencyMs: number;
+    ageSeconds: number | null;
+  }>;
   durationMs: number;
   deadlineHit: boolean;
 };
@@ -115,9 +126,11 @@ async function syncInstrument(
     const lastOpen = existing.candles.at(-1)?.time ?? null;
     if (!needsRefresh(lastOpen, tf)) {
       summary.skipped += 1;
+      summary.reads.push({ instrument: instrument.symbol, timeframe: TIMEFRAME_LABEL[tf], status: "UP_TO_DATE", latencyMs: 0, ageSeconds: existing.ageSeconds });
       continue;
     }
 
+    const fetchStartedAt = Date.now();
     try {
       const raw = await withTimeout(
         marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
@@ -145,6 +158,7 @@ async function syncInstrument(
         timeframe: tf,
         candles: normalised.candles as Candle[],
       });
+      summary.reads.push({ instrument: instrument.symbol, timeframe: TIMEFRAME_LABEL[tf], status: "FETCHED", latencyMs: Date.now() - fetchStartedAt, ageSeconds: 0 });
     } catch (error) {
       const message = error instanceof Error ? error.message : "fetch failed";
       summary.failures.push({
@@ -152,6 +166,7 @@ async function syncInstrument(
         timeframe: TIMEFRAME_LABEL[tf],
         error: message,
       });
+      summary.reads.push({ instrument: instrument.symbol, timeframe: TIMEFRAME_LABEL[tf], status: "FAILED", latencyMs: Date.now() - fetchStartedAt, ageSeconds: existing.ageSeconds });
       await recordScannerError(admin, {
         runId: null,
         instrument: instrument.symbol,
@@ -173,6 +188,7 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
     skipped: 0,
     stored: 0,
     failures: [],
+    reads: [],
     durationMs: 0,
     deadlineHit: false,
   };
@@ -199,7 +215,12 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
     .order("sort_order");
 
   const rows = (instruments ?? []) as InstrumentRow[];
-  for (const instrument of rows) {
+  // A recovery pass can consume its full deadline before reaching the final
+  // symbols. Rotate the starting symbol every scheduled three-minute slot so
+  // stale feeds recover fairly instead of permanently favouring sort order.
+  const rotation = rows.length > 0 ? Math.floor(Date.now() / 180_000) % rows.length : 0;
+  const orderedRows = [...rows.slice(rotation), ...rows.slice(0, rotation)];
+  for (const instrument of orderedRows) {
     if (deadline.expired()) {
       summary.deadlineHit = true;
       break;
@@ -224,6 +245,7 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
       timeframes_up_to_date: summary.skipped,
       candles_stored: summary.stored,
       failures: summary.failures.slice(0, 20),
+      reads: summary.reads,
       deadline_hit: summary.deadlineHit,
       duration_ms: summary.durationMs,
       completed_at: new Date().toISOString(),
