@@ -26,6 +26,8 @@ import type { Tier } from "@/lib/ptrades/tiers";
 export interface SignalAlertEmailProps {
   siteName: string;
   signalUrl: string;
+  /** Delivery test — renders a clear, non-actionable test notice. */
+  test?: boolean;
   /** Stored tier code. Null renders neutral, unlabelled copy. */
   tier: Tier | null;
   instrument: string;
