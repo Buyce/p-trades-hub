@@ -8,8 +8,6 @@ import {
   precisionRulesFor,
 } from "./types";
 
-import { marketData } from "./market-data.server";
-
 import { dataAgeSeconds, lastClosed, normaliseCandles, type CandleReject } from "./candles.server";
 import { isStoreFresh, readSeries } from "./market-candles.server";
 import { evaluateBiasPolicy, biasPolicyGate, type BiasDecision } from "./bias-policy.server";
@@ -30,7 +28,7 @@ import { detectSetupDetailed, type SetupResult } from "./setups.server";
 import { checkCandleSanity } from "./sanity.server";
 import { sessionAt } from "./sessions.server";
 import { currenciesFor, macroContextFor, type MacroEvent } from "./macro.server";
-import { resolveSymbol, roundToDigits, type InstrumentRow } from "./symbols.server";
+import { roundToDigits, type InstrumentRow } from "./symbols.server";
 import { entryAnchorForSetup } from "./entry-anchor.server";
 import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
 import { buildInvalidation, hasInvalidation } from "./invalidation.server";
@@ -40,9 +38,7 @@ import {
   acquireScanLock,
   createDeadline,
   newLockHolder,
-  readLock,
   releaseScanLock,
-  renewScanLock,
 } from "./lock.server";
 import { armedExpiry } from "./lifecycle.server";
 import {
@@ -227,7 +223,7 @@ type FetchedCandles = {
  * cleanup uses the same value, so a run can never be declared dead while it
  * still legitimately owns the lock.
  */
-export const SCAN_LOCK_TTL_SECONDS = 110;
+export const SCAN_LOCK_TTL_SECONDS = 55;
 
 /**
  * Hard runtime budget for a whole context scan. The run stops cleanly at the
@@ -345,21 +341,18 @@ async function evaluateInstrument(
       : rulebook.allowed_sessions;
   gates.push(sessionGate(session, allowedSessions));
 
-  // Symbol mapping: canonical name -> broker symbol.
-  const resolved = await resolveSymbol(instrument);
-  const symbol = resolved.broker;
-  if (resolved.failures?.length) {
-    // A silent fallback is how an instrument quietly stops being scanned.
+  // Context is provider-independent. The sync pass is solely responsible for
+  // validating and populating this configured broker symbol.
+  const symbol = instrument.broker_symbol;
+  if (!symbol) {
     await recordScannerError(admin, {
       runId,
       instrument: instrument.symbol,
       stage: "SYMBOL_RESOLUTION",
-      error: new AppError(
-        "UPSTREAM",
-        `Symbol resolution fell back to ${symbol} (${resolved.resolvedFrom})`,
-      ),
-      detail: { broker_symbol: symbol, failures: resolved.failures.slice(0, 10) },
+      error: new AppError("CONFIG", "No broker_symbol is configured for this instrument."),
     });
+    gates.push(missingData(false, { error: "Missing configured broker_symbol" }));
+    return { candidate: null, gates, macroContext: {} };
   }
 
   const feedBudget = instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds;
@@ -373,19 +366,19 @@ async function evaluateInstrument(
     candles = fetched.candles;
     dataSources = fetched.sources;
     dataAges = fetched.ages;
-    for (const entry of fetched.degraded) {
+    if (fetched.degraded.length > 0) {
       await recordScannerError(admin, {
         runId,
         instrument: instrument.symbol,
         stage: "MARKET_DATA",
-        error: new AppError(
-          "UPSTREAM",
-          `${TIMEFRAME_LABEL[entry.timeframe]} could not be served from the candle store`,
-        ),
+        error: new AppError("UPSTREAM", "Required candle series could not be served from the durable store"),
         detail: {
           broker_symbol: symbol,
-          store_state: entry.firstMessage,
-          fallback_result: entry.message,
+          degraded: fetched.degraded.map((entry) => ({
+            timeframe: TIMEFRAME_LABEL[entry.timeframe],
+            store_state: entry.firstMessage,
+            result: entry.message,
+          })),
         },
       });
     }
@@ -423,7 +416,7 @@ async function evaluateInstrument(
   gates.push(
     missingData(haveAll, {
       broker_symbol: symbol,
-      resolved_from: resolved.resolvedFrom,
+      resolved_from: "broker_symbol",
       data_sources: dataSources,
       store_age_seconds: dataAges,
       ...Object.fromEntries(REQUIRED.map((tf) => [TIMEFRAME_LABEL[tf], candles[tf].length])),
@@ -590,7 +583,7 @@ async function evaluateInstrument(
   // approximation of where price traded; the tradable zone is built from the
   // anchor outwards, narrow, asymmetric and always on the favourable side.
   const precisionRules = precisionRulesFor(rulebook, instrument.symbol);
-  const point = pointSizeFor(instrument.point_size ?? null, resolved.digits) ?? 0;
+  const point = pointSizeFor(instrument.point_size ?? null, instrument.digits) ?? 0;
   const anchor = entryAnchorForSetup(setup, entryCandles);
   const atrM5 = atr(candles["M5"], rulebook.atr_period, rulebook.atr_method) ?? 0;
   const spreadPoints =
@@ -616,11 +609,11 @@ async function evaluateInstrument(
         })
       : null;
 
-  const entryLow = roundToDigits(zone ? zone.entryLow : setup.entryLow, resolved.digits);
-  const entryHigh = roundToDigits(zone ? zone.entryHigh : setup.entryHigh, resolved.digits);
+  const entryLow = roundToDigits(zone ? zone.entryLow : setup.entryLow, instrument.digits);
+  const entryHigh = roundToDigits(zone ? zone.entryHigh : setup.entryHigh, instrument.digits);
   // The plan is priced at the preferred entry, never at the middle of a band.
   const entry =
-    roundToDigits(zone ? zone.preferredEntry : null, resolved.digits) ??
+    roundToDigits(zone ? zone.preferredEntry : null, instrument.digits) ??
     (entryLow !== null && entryHigh !== null ? (entryLow + entryHigh) / 2 : null);
 
   const invalidation = buildInvalidation({
@@ -628,7 +621,7 @@ async function evaluateInstrument(
     extreme: setup.extreme,
     level: setup.level,
     timeframe: TIMEFRAME_LABEL[ENTRY_TF],
-    digits: resolved.digits,
+    digits: instrument.digits,
   });
   gates.push(invalidationGate(hasInvalidation(invalidation), invalidation.condition));
 
@@ -638,7 +631,7 @@ async function evaluateInstrument(
         ? setup.extreme - atrValue * 0.2
         : setup.extreme + atrValue * 0.2
       : null,
-    resolved.digits,
+    instrument.digits,
   );
 
   // Bias eligibility, not blind alignment: reversal families (sweep, CHOCH)
@@ -672,7 +665,7 @@ async function evaluateInstrument(
           opposingLevels,
           atrValue,
           minTierRr(rulebook),
-        ).map((t) => roundToDigits(t, resolved.digits) as number)
+        ).map((t) => roundToDigits(t, instrument.digits) as number)
       : [];
   const rrRaw = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
   // Stored to two decimals so a displayed R:R always matches the stored one.
@@ -835,17 +828,6 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
     return empty("Scanning disabled");
   }
 
-  if (!marketData().isConfigured()) {
-    await safeHeartbeat(admin, {
-      source: "CONTEXT_SCANNER",
-      status: "ERROR",
-      metaapiConnected: false,
-      rulebookVersion: settings?.rulebook_version ?? null,
-      detail: { reason: "MetaApi is not configured." },
-    });
-    return { ...empty("MetaApi is not configured"), ok: false };
-  }
-
   // Overlap protection: a slow run must never race the next scheduled tick.
   // The holder is unique per invocation, so a slow predecessor can never
   // release the lock its successor now owns.
@@ -907,6 +889,7 @@ async function runScanLocked(
   alertTestMode: boolean,
 ): Promise<ScanSummary> {
   const startedAtMs = Date.now();
+  const deadline = createDeadline(SCAN_BUDGET_MS);
   const { data: rulebookRow } = await admin
     .from("rulebook_versions")
     .select("version, rules, status")
@@ -946,8 +929,14 @@ async function runScanLocked(
   const completedSymbols: string[] = [];
   const runRejections: Array<{ instrument: string; gate: string; reason: string }> = [];
   let errorMessage: string | null = null;
+  let deadlineHit = false;
 
   for (const instrument of rows) {
+    if (deadline.expired()) {
+      deadlineHit = true;
+      errorMessage = `Context deadline reached after ${completedSymbols.length}/${rows.length} instruments.`;
+      break;
+    }
     try {
       const result = await evaluateInstrument(admin, instrument, rulebook, macroEvents, runId);
       completedSymbols.push(instrument.symbol);
@@ -1111,7 +1100,7 @@ async function runScanLocked(
   }
 
   await finishRun(admin, runId, {
-    status: errorMessage ? "PARTIAL" : "SUCCESS",
+    status: errorMessage || deadlineHit ? "PARTIAL" : "SUCCESS",
     signals_emitted: qualifiedCount,
     rejections: runRejections,
     error_message: errorMessage,
@@ -1119,7 +1108,7 @@ async function runScanLocked(
 
   await safeHeartbeat(admin, {
     source: "CONTEXT_SCANNER",
-    status: errorMessage ? "DEGRADED" : "OK",
+    status: errorMessage || deadlineHit ? "DEGRADED" : "OK",
     metaapiConnected: null,
     rulebookVersion: rulebook.version,
     detail: {
@@ -1132,6 +1121,8 @@ async function runScanLocked(
       completed_symbols: completedSymbols,
       symbols_completed: completedSymbols.length,
       symbols_started: symbols.length,
+      pending_symbols: symbols.filter((symbol) => !completedSymbols.includes(symbol)),
+      deadline_hit: deadlineHit,
       duration_ms: Date.now() - startedAtMs,
       completed_at: new Date().toISOString(),
       lock_holder: holder,

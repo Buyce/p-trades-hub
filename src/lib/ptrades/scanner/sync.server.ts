@@ -4,7 +4,7 @@ import { marketData } from "./market-data.server";
 import { normaliseCandles } from "./candles.server";
 import { recordScannerError } from "./errors.server";
 import { AppError } from "../errors";
-import { resolveSymbol, type InstrumentRow } from "./symbols.server";
+import type { InstrumentRow } from "./symbols.server";
 import { readCandles, storeCandles } from "./market-candles.server";
 import { createDeadline, renewScanLock, SYNC_LOCK_KEY } from "./lock.server";
 import { safeHeartbeat } from "./heartbeat.server";
@@ -48,17 +48,12 @@ const SLOW_TIMEFRAME_TIMEOUT_MS = 12_000;
  * intraday cap that was silently timing out at 5s on XAUUSD.
  */
 const MICRO_TIMEFRAME_TIMEOUT_MS = 10_000;
-const MICRO_RETRIES = 1;
 
 function fetchTimeoutFor(tf: Timeframe): number {
   if (tf === "1d" || tf === "4h") return SLOW_TIMEFRAME_TIMEOUT_MS;
   if (tf === "M15" || tf === "1h") return MEDIUM_TIMEFRAME_TIMEOUT_MS;
   if (tf === "M1") return MICRO_TIMEFRAME_TIMEOUT_MS;
   return FETCH_TIMEOUT_MS;
-}
-
-function attemptsFor(tf: Timeframe): number {
-  return tf === "M1" ? 1 + MICRO_RETRIES : 1;
 }
 
 /** One scheduled tick is a minute; stop well before the next one fires. */
@@ -68,19 +63,6 @@ export const SYNC_LOCK_TTL_SECONDS = 55;
 export function barsFor(tf: Timeframe): number {
   if (tf === "1d" || tf === "M1") return 120;
   return 200;
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  let timeoutId: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-  });
-  return Promise.race([
-    promise.finally(() => {
-      if (timeoutId !== undefined) clearTimeout(timeoutId);
-    }),
-    timeout,
-  ]);
 }
 
 /**
@@ -128,8 +110,15 @@ async function syncInstrument(
   deadline: ReturnType<typeof createDeadline>,
   timeframes: Timeframe[] = SYNC_TIMEFRAMES,
 ): Promise<void> {
-  const resolved = await resolveSymbol(instrument);
-  const brokerSymbol = resolved.broker;
+  const brokerSymbol = instrument.broker_symbol;
+  if (!brokerSymbol) {
+    summary.failures.push({
+      instrument: instrument.symbol,
+      timeframe: timeframes.map((tf) => TIMEFRAME_LABEL[tf]).join(","),
+      error: "No configured broker_symbol; provider lookup is disabled in scheduled passes.",
+    });
+    return;
+  }
 
   for (const tf of timeframes) {
     if (deadline.expired()) {
@@ -145,25 +134,10 @@ async function syncInstrument(
     }
 
     const fetchStartedAt = Date.now();
-    const attempts = attemptsFor(tf);
     try {
-      let raw: Awaited<ReturnType<ReturnType<typeof marketData>["getCandles"]>> | null = null;
-      let lastError: unknown = null;
-      for (let attempt = 1; attempt <= attempts; attempt += 1) {
-        if (attempt > 1 && deadline.expired()) break;
-        try {
-          raw = await withTimeout(
-            marketData().getCandles(brokerSymbol, tf, barsFor(tf)),
-            fetchTimeoutFor(tf),
-            `getCandles(${brokerSymbol}/${tf}) attempt ${attempt}`,
-          );
-          lastError = null;
-          break;
-        } catch (error) {
-          lastError = error;
-        }
-      }
-      if (raw === null) throw lastError ?? new Error("fetch failed");
+      const raw = await marketData().getCandles(brokerSymbol, tf, barsFor(tf), {
+        timeoutMs: Math.min(fetchTimeoutFor(tf), Math.max(1, deadline.remainingMs())),
+      });
 
       summary.fetched += 1;
       const normalised = normaliseCandles(raw, tf);
@@ -244,17 +218,20 @@ export async function runMarketDataSync(admin: Admin, holder: string): Promise<S
 
   const rows = (instruments ?? []) as InstrumentRow[];
   // M1 is the execution timeframe: precision cannot trigger without it, so
-  // EVERY instrument gets its M1 refreshed on EVERY tick, concurrently, before
-  // anything slower is considered. One slow symbol can no longer starve the
-  // rest, which is what the old serial rotation did — five instruments on a
-  // rotating start meant a symbol's M1 could be a quarter of an hour old.
+  // EVERY instrument gets one bounded M1 attempt before anything slower is
+  // considered. Provider history reads are serialized, so launching these via
+  // Promise.all only built a queue of abandoned requests after caller timeouts.
   const microTimeframes: Timeframe[] = ["M1"];
   const slowTimeframes = SYNC_TIMEFRAMES.filter((tf) => !microTimeframes.includes(tf));
 
   summary.instruments = rows.length;
-  await Promise.all(
-    rows.map((instrument) => syncInstrument(admin, instrument, summary, deadline, microTimeframes)),
-  );
+  for (const instrument of rows) {
+    if (deadline.expired()) {
+      summary.deadlineHit = true;
+      break;
+    }
+    await syncInstrument(admin, instrument, summary, deadline, microTimeframes);
+  }
   await renewScanLock(admin, SYNC_LOCK_KEY, holder, SYNC_LOCK_TTL_SECONDS);
 
   // The slower frames change at most once an hour, so they keep the rotation:

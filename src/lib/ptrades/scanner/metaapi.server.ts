@@ -59,8 +59,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * request in a scan is queued and issued one at a time with a short gap.
  */
 let queue: Promise<unknown> = Promise.resolve();
-function serialize<T>(task: () => Promise<T>): Promise<T> {
-  const next = queue.then(task, task);
+function serialize<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const run = () => {
+    if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+    return task();
+  };
+  const next = queue.then(run, run);
   queue = next.then(
     () => sleep(120),
     () => sleep(120),
@@ -68,7 +72,12 @@ function serialize<T>(task: () => Promise<T>): Promise<T> {
   return next;
 }
 
-async function request<T>(host: string, path: string, query: Record<string, string>): Promise<T> {
+async function request<T>(
+  host: string,
+  path: string,
+  query: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<T> {
   const { token } = env();
   const url = new URL(`https://${host}${path}`);
   for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
@@ -76,7 +85,7 @@ async function request<T>(host: string, path: string, query: Record<string, stri
   const response = await fetch(url, {
     method: "GET",
     headers: { "auth-token": token, Accept: "application/json" },
-    signal: AbortSignal.timeout(15_000),
+    signal: signal ?? AbortSignal.timeout(15_000),
   });
 
   if (!response.ok) {
@@ -88,13 +97,18 @@ async function request<T>(host: string, path: string, query: Record<string, stri
   return (await response.json()) as T;
 }
 
-async function get<T>(host: string, path: string, query: Record<string, string> = {}): Promise<T> {
+async function get<T>(
+  host: string,
+  path: string,
+  query: Record<string, string> = {},
+  signal?: AbortSignal,
+): Promise<T> {
   assertReadOnly(path);
   return serialize(async () => {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        return await request<T>(host, path, query);
+        return await request<T>(host, path, query, signal);
       } catch (error) {
         lastError = error;
         const status = (error as { status?: number }).status;
@@ -103,7 +117,7 @@ async function get<T>(host: string, path: string, query: Record<string, string> 
       }
     }
     throw lastError;
-  });
+  }, signal);
 }
 
 
@@ -251,12 +265,13 @@ export async function getCandles(
   symbol: string,
   timeframe: Timeframe,
   limit = 200,
+  signal?: AbortSignal,
 ): Promise<Candle[]> {
   const { accountId, region } = await account();
   const path = `/users/current/accounts/${accountId}/historical-market-data/symbols/${encodeURIComponent(
     symbol,
   )}/timeframes/${API_TIMEFRAME[timeframe]}/candles`;
-  const raw = await get<RawCandle[]>(marketDataHost(region), path, { limit: String(limit) });
+  const raw = await get<RawCandle[]>(marketDataHost(region), path, { limit: String(limit) }, signal);
   return raw.map((c) => ({
     time: new Date(c.time).toISOString(),
     open: Number(c.open),
