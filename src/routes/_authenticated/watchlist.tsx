@@ -42,6 +42,32 @@ function readSymbols(payload: unknown): { enabled: string[]; disabled: string[] 
   return null;
 }
 
+/**
+ * Plain-language description of where a signal sits in its lifecycle, so a
+ * watchlist row explains what the terminal is doing instead of showing a bare
+ * state code or an empty value.
+ */
+function lifecycleCopy(state: string | null): string {
+  switch (state) {
+    case "DETECTED":
+      return "Setup detected, checking execution timing";
+    case "ARMED":
+      return "Armed, waiting for the entry trigger";
+    case "MICRO_TRIGGERED":
+      return "Trigger fired, confirming the entry";
+    case "ENTRY_READY":
+      return "Entry ready";
+    case "MISSED":
+      return "Price left the entry before it confirmed";
+    case "INVALIDATED":
+      return "Invalidated";
+    case "EXPIRED":
+      return "Expired before entry";
+    default:
+      return "Recorded";
+  }
+}
+
 function Watchlist() {
   const tz = useTimezone();
   const { data: instruments = [], isPending } = useQuery(instrumentsQuery());
