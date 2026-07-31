@@ -44,7 +44,7 @@ const MEDIUM_TIMEFRAME_TIMEOUT_MS = 8_000;
 const SLOW_TIMEFRAME_TIMEOUT_MS = 12_000;
 
 function fetchTimeoutFor(tf: Timeframe): number {
-  return tf === "1d" || tf === "4h" ? SLOW_TIMEFRAME_TIMEOUT_MS : FETCH_TIMEOUT_MS;
+  if (tf === "1d" || tf === "4h") return SLOW_TIMEFRAME_TIMEOUT_MS;
   if (tf === "M15" || tf === "1h") return MEDIUM_TIMEFRAME_TIMEOUT_MS;
   return FETCH_TIMEOUT_MS;
 }
