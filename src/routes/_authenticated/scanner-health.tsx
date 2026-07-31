@@ -34,6 +34,8 @@ import {
   SectionCard,
   StatusPill,
 } from "@/components/ptrades/primitives";
+import { AvailabilityDiagnostics } from "@/components/ptrades/availability-diagnostics";
+
 
 export const Route = createFileRoute("/_authenticated/scanner-health")({
   head: () => ({
