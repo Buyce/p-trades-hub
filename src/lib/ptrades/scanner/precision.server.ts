@@ -611,7 +611,7 @@ async function evaluateWatch(
       displacementAtr:
         typeof scoreInput.displacement_atr === "number" ? scoreInput.displacement_atr : null,
       sweepFound: scoreInput.sweep_found === true,
-      retestFound: trigger.confirmed,
+      retestFound: trigger.retestCandleTime !== null,
       spreadRatio: quote !== null && atrM1 ? quote / atrM1 : null,
       lateDistanceAtr:
         price !== null && preferredEntry !== null && atrM1
@@ -685,7 +685,7 @@ async function evaluateWatch(
     zone_width_points: zoneWidthPoints,
     trigger_summary: trigger.summary,
     trigger_timeframe: TIMEFRAME_LABEL[MICRO_TF],
-    trigger_candle_time: trigger.retestCandleTime,
+    trigger_candle_time: trigger.retestCandleTime ?? trigger.bosCandleTime,
     trigger_level: trigger.brokenLevel,
     metadata: {
       ...meta,
