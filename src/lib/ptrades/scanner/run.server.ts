@@ -19,7 +19,6 @@ import { AppError } from "../errors";
 import { atr } from "./atr.server";
 import { higherTimeframeBias } from "./bias.server";
 import { checkLateEntry } from "./late-entry.server";
-import { fingerprint } from "./fingerprint.server";
 import { rulebookChecksum } from "./rulebook.server";
 import { minTierRr, scoreCandidate } from "./scoring.server";
 import { rewardToRisk, structuralTargets } from "./risk.server";
@@ -30,7 +29,11 @@ import { sessionAt } from "./sessions.server";
 import { currenciesFor, macroContextFor, type MacroEvent } from "./macro.server";
 import { roundToDigits, type InstrumentRow } from "./symbols.server";
 import { entryAnchorForSetup } from "./entry-anchor.server";
-import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
+import {
+  buildArmingZone,
+  buildExecutionZone,
+  calculateAdaptiveZoneWidthPoints,
+} from "./entry-zone.server";
 import { buildInvalidation, hasInvalidation } from "./invalidation.server";
 import { pointSizeFor, priceDistanceToPoints } from "./pips.server";
 import {
@@ -57,7 +60,6 @@ import {
 import {
   closeStaleRuns,
   cacheCandle,
-
   fingerprintExistsToday,
   finishRun,
   openPrecisionWatch,
@@ -169,7 +171,6 @@ export function inspectRulebook(row: { version: string; rules: unknown } | null)
   return validateRulebook(row?.rules ?? {}, row?.version ?? DEFAULT_RULEBOOK.version);
 }
 
-
 async function loadMacroEvents(admin: Admin): Promise<MacroEvent[]> {
   const now = Date.now();
   const from = new Date(now - 6 * 3600_000).toISOString();
@@ -205,7 +206,6 @@ function scanTargets(
     fallbackMultiples: [2, 3, 4],
   }).map((v) => Number(v.toFixed(6)));
 }
-
 
 type FetchedCandles = {
   candles: Record<Timeframe, Candle[]>;
@@ -293,9 +293,6 @@ async function fetchTimeframes(
   };
 }
 
-
-
-
 type Evaluation = {
   candidate: Candidate | null;
   gates: GateResult[];
@@ -307,6 +304,8 @@ type Evaluation = {
     zoneWidthPoints: number;
     anchorSource: string | null;
     structuralLevel: number | null;
+    armingZoneLow: number | null;
+    armingZoneHigh: number | null;
     invalidation: { price: number | null; condition: string | null; timeframe: string | null };
     armedExpiryMinutes: number;
     /** Structural score inputs, fixed at arming and re-used at ENTRY_READY. */
@@ -315,9 +314,10 @@ type Evaluation = {
       d1_aligned: boolean;
       displacement_atr: number | null;
       sweep_found: boolean;
+      setup_type: SetupResult["setupType"];
+      structure_type: SetupResult["structureType"];
       macro_aligned: boolean;
     };
-
   };
 };
 
@@ -371,7 +371,10 @@ async function evaluateInstrument(
         runId,
         instrument: instrument.symbol,
         stage: "MARKET_DATA",
-        error: new AppError("UPSTREAM", "Required candle series could not be served from the durable store"),
+        error: new AppError(
+          "UPSTREAM",
+          "Required candle series could not be served from the durable store",
+        ),
         detail: {
           broker_symbol: symbol,
           degraded: fetched.degraded.map((entry) => ({
@@ -394,7 +397,6 @@ async function evaluateInstrument(
         detail: { broker_symbol: symbol, rejects: entry.rejects.slice(0, 20) },
       });
     }
-
   } catch (error) {
     await recordScannerError(admin, {
       runId,
@@ -459,7 +461,12 @@ async function evaluateInstrument(
     now.getTime(),
     rulebook.macro_lookahead_minutes,
   );
-  gates.push(newsLockout(macro.locked, macro.events.map((e) => e.title)));
+  gates.push(
+    newsLockout(
+      macro.locked,
+      macro.events.map((e) => e.title),
+    ),
+  );
 
   const atrValue = atr(entryCandles, rulebook.atr_period, rulebook.atr_method);
   const { bias, d1 } = higherTimeframeBias(candles["4h"], candles["1d"], rulebook.swing_lookback);
@@ -475,7 +482,17 @@ async function evaluateInstrument(
     },
     // Armability is evaluated for EVERY family before one is selected, so a
     // non-armable sweep partial can never mask an armable break/retest.
-    (candidate) => isArmableSetup(candidate, rulebook, instrument.symbol),
+    {
+      isArmable: (candidate) => isArmableSetup(candidate, rulebook, instrument.symbol),
+      isBiasEligible: (candidate) =>
+        evaluateBiasPolicy({
+          setup: candidate,
+          direction: candidate.direction,
+          bias: bias as Bias,
+          d1: d1 as Bias,
+          rulebook,
+        }).passed,
+    },
   );
   const setup: SetupResult = detection.selected ?? {
     found: false,
@@ -494,7 +511,6 @@ async function evaluateInstrument(
     detail: {},
   };
 
-
   // Detection telemetry. Without it a "no setup" rejection says only that
   // nothing formed; with it we can see which stage of which family stopped,
   // and whether the inputs themselves were degraded. Reporting only.
@@ -512,13 +528,14 @@ async function evaluateInstrument(
   }));
   const detectionDetail = {
     ...setup.detail,
-    stage: !setup.sweepFound && setup.structureType === null
-      ? "NO_STRUCTURE_EVENT"
-      : setup.displacementAtr === null || setup.displacementAtr < armingThreshold
-        ? "NO_DISPLACEMENT"
-        : !setup.retestFound
-          ? "ARMED_AWAITING_M1_EXECUTION"
-          : "COMPLETE",
+    stage:
+      !setup.sweepFound && setup.structureType === null
+        ? "NO_STRUCTURE_EVENT"
+        : setup.displacementAtr === null || setup.displacementAtr < armingThreshold
+          ? "NO_DISPLACEMENT"
+          : !setup.retestFound
+            ? "ARMED_AWAITING_M1_EXECUTION"
+            : "COMPLETE",
     armable: armableSetup,
     selected_from: detection.selectedFrom,
     best_family: setup.setupType,
@@ -546,9 +563,7 @@ async function evaluateInstrument(
   // single NO_SETUP row now carries the diagnosis.
   if (!armableSetup) return { candidate: null, gates, macroContext: {} };
 
-
-  const direction: "LONG" | "SHORT" =
-    setup.direction ?? (bias === "SHORT" ? "SHORT" : "LONG");
+  const direction: "LONG" | "SHORT" = setup.direction ?? (bias === "SHORT" ? "SHORT" : "LONG");
 
   gates.push({
     code: "NO_SWEEP",
@@ -586,8 +601,7 @@ async function evaluateInstrument(
   const point = pointSizeFor(instrument.point_size ?? null, instrument.digits) ?? 0;
   const anchor = entryAnchorForSetup(setup, entryCandles);
   const atrM5 = atr(candles["M5"], rulebook.atr_period, rulebook.atr_method) ?? 0;
-  const spreadPoints =
-    point > 0 && spread !== null ? priceDistanceToPoints(spread, point) : 0;
+  const spreadPoints = point > 0 && spread !== null ? priceDistanceToPoints(spread, point) : 0;
   const zoneWidthPoints = calculateAdaptiveZoneWidthPoints({
     spreadPoints,
     atrM1: 0,
@@ -615,6 +629,18 @@ async function evaluateInstrument(
   const entry =
     roundToDigits(zone ? zone.preferredEntry : null, instrument.digits) ??
     (entryLow !== null && entryHigh !== null ? (entryLow + entryHigh) / 2 : null);
+  const armingZone =
+    setup.level !== null && atrValue !== null
+      ? buildArmingZone({
+          direction,
+          structuralLevel: setup.level,
+          atr: atrValue,
+          detectedLow: setup.entryLow,
+          detectedHigh: setup.entryHigh,
+        })
+      : null;
+  const armingZoneLow = roundToDigits(armingZone?.armingLow ?? null, instrument.digits);
+  const armingZoneHigh = roundToDigits(armingZone?.armingHigh ?? null, instrument.digits);
 
   const invalidation = buildInvalidation({
     direction,
@@ -658,14 +684,9 @@ async function evaluateInstrument(
 
   const targets =
     entry !== null && stop !== null
-      ? scanTargets(
-          entry,
-          stop,
-          direction,
-          opposingLevels,
-          atrValue,
-          minTierRr(rulebook),
-        ).map((t) => roundToDigits(t, instrument.digits) as number)
+      ? scanTargets(entry, stop, direction, opposingLevels, atrValue, minTierRr(rulebook)).map(
+          (t) => roundToDigits(t, instrument.digits) as number,
+        )
       : [];
   const rrRaw = targets.length > 0 ? rewardToRisk(entry, stop, targets[0]) : null;
   // Stored to two decimals so a displayed R:R always matches the stored one.
@@ -677,26 +698,29 @@ async function evaluateInstrument(
     atrValue,
     rulebook.late_entry_max_atr_from_entry,
   );
-  const print = fingerprint({
+  const print = structuralIdeaId({
     instrument: instrument.symbol,
     direction,
-    setupType: setup.setupType,
-    timeframe: TIMEFRAME_LABEL[ENTRY_TF],
-    tradingDayUtc: tradingDayUtc(),
-    entry,
-    stop,
+    level: setup.level,
     atr: atrValue,
+    tradingDayUtc: tradingDayUtc(),
   });
   gates.push(duplicate(await fingerprintExistsToday(admin, print), print));
 
   const spreadRatio = spread !== null && atrValue ? spread / atrValue : null;
-  const { score, grade: scoreGrade, components } = scoreCandidate(
+  const {
+    score,
+    grade: scoreGrade,
+    components,
+  } = scoreCandidate(
     {
       rr,
-      biasAligned: bias === direction,
+      setupType: setup.setupType,
+      structureType: setup.structureType,
+      biasAligned: biasDecision.aligned,
       d1Aligned: d1 === direction,
       displacementAtr: setup.displacementAtr,
-      sweepFound: setup.sweepFound || setup.structureType !== null,
+      sweepFound: setup.sweepFound,
       retestFound: setup.retestFound,
       spreadRatio,
       lateDistanceAtr: late.distanceAtr,
@@ -747,13 +771,17 @@ async function evaluateInstrument(
       zoneWidthPoints,
       anchorSource: anchor.source,
       structuralLevel: setup.level,
+      armingZoneLow,
+      armingZoneHigh,
       invalidation,
       armedExpiryMinutes: precisionRules.armedExpiryMinutes,
       scoreInput: {
         bias_aligned: biasDecision.aligned,
         d1_aligned: d1 === direction,
         displacement_atr: setup.displacementAtr,
-        sweep_found: setup.sweepFound || setup.structureType !== null,
+        sweep_found: setup.sweepFound,
+        setup_type: setup.setupType,
+        structure_type: setup.structureType,
         macro_aligned: macro.aligned,
       },
     },
@@ -778,7 +806,8 @@ export async function runScan(admin: Admin): Promise<ScanSummary> {
   // Delivery test mode: a sample alert goes out the moment a setup is ARMED,
   // so the notification path can be proven without waiting for an M1 trigger.
   // It changes nothing about detection, scoring or actionability.
-  const alertTestMode = (settings as { alert_test_mode?: boolean } | null)?.alert_test_mode === true;
+  const alertTestMode =
+    (settings as { alert_test_mode?: boolean } | null)?.alert_test_mode === true;
   const activeRulebook = await loadActiveRulebook(admin);
   if (settings?.rulebook_version !== activeRulebook.version) {
     await safeHeartbeat(admin, {
@@ -923,7 +952,7 @@ async function runScanLocked(
 
   let candidates = 0;
   let qualifiedCount = 0;
-  let actionable = 0;
+  const actionable = 0;
   let armed = 0;
   let rejectionCount = 0;
   const completedSymbols: string[] = [];
@@ -1023,12 +1052,18 @@ async function runScanLocked(
           entry_anchor: precision.preferredEntry,
           anchor_source: precision.anchorSource,
           preferred_entry: precision.preferredEntry,
-          entry_zone_low: result.candidate.entry_zone_low,
-          entry_zone_high: result.candidate.entry_zone_high,
+          arming_zone_low: precision.armingZoneLow,
+          arming_zone_high: precision.armingZoneHigh,
+          // The final narrow execution zone does not exist until M1 breaks a
+          // level. The context band remains on the signal as a provisional
+          // plan, but is never mistaken for the M1 trigger area.
+          entry_zone_low: null,
+          entry_zone_high: null,
           zone_width_points: precision.zoneWidthPoints,
           stop_loss: result.candidate.stop_loss,
           targets: result.candidate.targets as never,
           structural_level: precision.structuralLevel,
+          structural_idea_id: result.candidate.fingerprint,
           invalidation_price: precision.invalidation.price,
           invalidation_condition: precision.invalidation.condition,
           invalidation_timeframe: precision.invalidation.timeframe,
@@ -1086,7 +1121,6 @@ async function runScanLocked(
           });
         }
       }
-
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : "scan failed";
       await recordScannerError(admin, {

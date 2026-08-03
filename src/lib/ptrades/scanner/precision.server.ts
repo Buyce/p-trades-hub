@@ -14,16 +14,14 @@
  */
 
 import type { GateResult, Rulebook } from "./types";
+import type { SetupType } from "./setups.server";
 import { DEFAULT_RULEBOOK, TIMEFRAME_LABEL, precisionRulesFor } from "./types";
 import { validateRulebook } from "./rulebook-validate";
 
 import { marketData } from "./market-data.server";
 import { atr } from "./atr.server";
 import { dataAgeSeconds, normaliseCandles } from "./candles.server";
-import {
-  detectNewMicroTrigger,
-  detectPersistedTriggerRetest,
-} from "./micro-trigger.server";
+import { detectNewMicroTrigger, detectPersistedTriggerRetest } from "./micro-trigger.server";
 import { microEntryAnchor } from "./entry-anchor.server";
 import { buildExecutionZone, calculateAdaptiveZoneWidthPoints } from "./entry-zone.server";
 import { isInvalidated } from "./invalidation.server";
@@ -62,7 +60,6 @@ import {
   updateWatch,
   type PrecisionWatchRow,
 } from "./persist.server";
-import { notifyQualifiedSignal } from "./notify.server";
 import { recordScannerError } from "./errors.server";
 import { executionPrice } from "./market-data.server";
 import { readCandles } from "./market-candles.server";
@@ -89,7 +86,6 @@ export type PrecisionSummary = {
    */
   microDataMissing: number;
 };
-
 
 export type PrecisionPassOptions = {
   /** Overrides the stored scanner setting. Shadow mode never notifies. */
@@ -208,7 +204,6 @@ export async function runPrecisionPass(
       if (outcome === "RESOLVED") summary.resolved += 1;
       if (outcome === "QUOTE_ONLY") summary.quoteOnly += 1;
       if (outcome === "NO_MICRO_DATA") summary.microDataMissing += 1;
-
     } catch (error) {
       await recordScannerError(admin, {
         runId: null,
@@ -223,13 +218,7 @@ export async function runPrecisionPass(
   return summary;
 }
 
-type WatchOutcome =
-  | "WAITING"
-  | "ENTRY_READY"
-  | "RESOLVED"
-  | "QUOTE_ONLY"
-  | "NO_MICRO_DATA";
-
+type WatchOutcome = "WAITING" | "ENTRY_READY" | "RESOLVED" | "QUOTE_ONLY" | "NO_MICRO_DATA";
 
 async function evaluateWatch(
   admin: Admin,
@@ -245,8 +234,7 @@ async function evaluateWatch(
   // Expiry is checked before anything is fetched: a dead watch costs nothing.
   if (isExpired(watch.expires_at, nowMs)) {
     const last = ((watch.metadata ?? {}) as Record<string, unknown>).last_check as
-      | Record<string, unknown>
-      | undefined;
+      Record<string, unknown> | undefined;
     // An expiry with no record of how close it came cannot be calibrated, so
     // the final observation is carried into the resolution itself.
     await resolveWatch(
@@ -285,7 +273,6 @@ async function evaluateWatch(
     return "RESOLVED";
   }
 
-
   const resolved = await resolveSymbol(instrument);
   const brokerSymbol = watch.broker_symbol ?? resolved.broker;
   const point = pointSizeFor(instrument.point_size ?? null, resolved.digits) ?? 0;
@@ -293,7 +280,9 @@ async function evaluateWatch(
 
   // Live two-sided price. Always cheap, always fetched: it is the only input
   // that changes between M1 closes.
-  const liveQuote = await marketData().getQuote(brokerSymbol).catch(() => null);
+  const liveQuote = await marketData()
+    .getQuote(brokerSymbol)
+    .catch(() => null);
   const targets = Array.isArray(watch.targets) ? (watch.targets as number[]) : [];
   const tp1 = targets[0] ?? null;
 
@@ -305,8 +294,7 @@ async function evaluateWatch(
     watch.last_m1_candle_time !== null &&
     new Date(watch.last_m1_candle_time).getTime() >= new Date(newestClosed).getTime();
   const previousCheck = ((watch.metadata ?? {}) as Record<string, unknown>).last_check as
-    | { micro_confirmed?: boolean }
-    | undefined;
+    { micro_confirmed?: boolean } | undefined;
   // A confirmed trigger may promote on price alone, so never short-circuit it.
   const quoteOnly = alreadyAnalysed && previousCheck?.micro_confirmed !== true;
 
@@ -385,30 +373,22 @@ async function evaluateWatch(
     : m1;
   const extreme = extremeSinceArmed(m1, direction, watch.armed_at);
 
-
   // 2. Has the move already happened without us? That is a miss, not an alert.
   //    With no bar yet closed after arming there is nothing to judge, so the
   //    test is skipped rather than failed.
   if (targetAlreadyTouched(direction, tp1, extreme)) {
-    await resolveWatch(
-      admin,
-      watch.id,
-      "MISSED",
-      "TP1 was reached before an entry formed.",
-      {
-        ...((watch.metadata ?? {}) as Record<string, unknown>),
-        missed_window: {
-          armed_at: watch.armed_at,
-          bars_since_armed: barsSinceArmed.length,
-          extreme_since_armed: extreme,
-          tp1,
-        },
+    await resolveWatch(admin, watch.id, "MISSED", "TP1 was reached before an entry formed.", {
+      ...((watch.metadata ?? {}) as Record<string, unknown>),
+      missed_window: {
+        armed_at: watch.armed_at,
+        bars_since_armed: barsSinceArmed.length,
+        extreme_since_armed: extreme,
+        tp1,
       },
-    );
+    });
     await closeSignalLifecycle(admin, watch.signal_id, "MISSED");
     return "RESOLVED";
   }
-
 
   const quote = liveQuote !== null ? liveQuote.ask - liveQuote.bid : null;
   const price =
@@ -426,14 +406,21 @@ async function evaluateWatch(
     nowMs,
     rulebook.macro_lookahead_minutes,
   );
-  gates.push(newsLockout(macro.locked, macro.events.map((e) => e.title)));
+  gates.push(
+    newsLockout(
+      macro.locked,
+      macro.events.map((e) => e.title),
+    ),
+  );
   gates.push(
     staleData(
       dataAgeSeconds(m1, MICRO_TF),
       instrument.max_data_age_seconds ?? rulebook.max_data_age_seconds,
     ),
   );
-  gates.push(spreadGate(quote, atrM1, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null));
+  gates.push(
+    spreadGate(quote, atrM1, rulebook.max_spread_atr_ratio, instrument.max_spread ?? null),
+  );
   gates.push(invalidationGate(watch.invalidation_price !== null, watch.invalidation_condition));
 
   // 4. The micro trigger.
@@ -465,12 +452,11 @@ async function evaluateWatch(
     : detectNewMicroTrigger({
         candles: m1,
         direction,
-        zoneLow: watch.entry_zone_low ?? watch.preferred_entry ?? 0,
-        zoneHigh: watch.entry_zone_high ?? watch.preferred_entry ?? 0,
+        zoneLow: watch.arming_zone_low ?? watch.entry_zone_low ?? watch.preferred_entry ?? 0,
+        zoneHigh: watch.arming_zone_high ?? watch.entry_zone_high ?? watch.preferred_entry ?? 0,
         atrM1,
         displacementMinAtr:
-          rulebook.precision?.displacement_m1_min_atr ??
-          Math.min(1, rulebook.displacement_min_atr),
+          rulebook.precision?.displacement_m1_min_atr ?? Math.min(1, rulebook.displacement_min_atr),
         retestWithinBars: triggerBars,
         requireRetest,
       });
@@ -480,11 +466,13 @@ async function evaluateWatch(
   gates.push(microRetest(trigger.retestCandleTime !== null, trigger.brokenLevel, requireRetest));
 
   // 5. Re-price the plan from the micro level once the trigger exists.
-  const anchor = microEntryAnchor(trigger.brokenLevel, trigger.bosCandleTime, {
-    anchor: watch.preferred_entry,
-    source: (watch.anchor_source as never) ?? null,
-    sourceCandleTime: null,
-  });
+  const anchor = trigger.triggered
+    ? microEntryAnchor(trigger.brokenLevel, trigger.bosCandleTime, {
+        anchor: watch.preferred_entry,
+        source: (watch.anchor_source as never) ?? null,
+        sourceCandleTime: null,
+      })
+    : { anchor: null, source: null, sourceCandleTime: null };
   const zoneWidthPoints = calculateAdaptiveZoneWidthPoints({
     spreadPoints: quote !== null && point > 0 ? priceDistanceToPoints(quote, point) : 0,
     atrM1: atrM1 ?? 0,
@@ -566,9 +554,7 @@ async function evaluateWatch(
       triggered_at: trigger.triggered ? (watch.triggered_at ?? checkedAt) : null,
       retest_deadline: trigger.triggered
         ? (watch.retest_deadline ??
-          new Date(
-            nowMs + (rulebook.precision?.trigger_expiry_bars ?? 3) * 60_000,
-          ).toISOString())
+          new Date(nowMs + (rulebook.precision?.trigger_expiry_bars ?? 3) * 60_000).toISOString())
         : null,
       metadata: {
         ...(watch.metadata as Record<string, unknown>),
@@ -593,7 +579,6 @@ async function evaluateWatch(
           trigger_failures: trigger.failures,
         },
       } as never,
-
     });
     return "WAITING";
   }
@@ -603,9 +588,19 @@ async function evaluateWatch(
   //    claimed or rationed here. A+, A, B and C are all allowed to alert.
   const meta = (watch.metadata ?? {}) as Record<string, unknown>;
   const scoreInput = (meta.score_input ?? {}) as Record<string, unknown>;
+  const storedSetupType = scoreInput.setup_type ?? meta.setup_type;
+  const setupType: SetupType =
+    storedSetupType === "PULLBACK_CONTINUATION" || storedSetupType === "BREAK_RETEST"
+      ? storedSetupType
+      : "SWEEP_DISPLACEMENT_RETEST";
+  const storedStructureType = scoreInput.structure_type;
+  const structureType =
+    storedStructureType === "BOS" || storedStructureType === "CHOCH" ? storedStructureType : null;
   const finalScore = scoreCandidate(
     {
       rr,
+      setupType,
+      structureType,
       biasAligned: scoreInput.bias_aligned === true,
       d1Aligned: scoreInput.d1_aligned === true,
       displacementAtr:
@@ -643,13 +638,23 @@ async function evaluateWatch(
     return "WAITING";
   }
 
-  const reasons = [
-    ...trigger.reasons,
-    ...gates.filter((g) => g.passed).map((g) => g.reason),
-  ];
+  const reasons = [...trigger.reasons, ...gates.filter((g) => g.passed).map((g) => g.reason)];
   const expiresAtUtc = armedExpiry(new Date(nowMs), rulebook.signal_expiry_minutes);
 
-  // Idempotent: only the first pass to flip the signal actionable notifies.
+  // Prove alert eligibility before changing durable state. The database
+  // transition below atomically creates an outbox row; once the signal is
+  // ENTRY_READY there must always be a retryable delivery record.
+  const actionable = isActionable({
+    grade: finalTier,
+    lifecycleState: "ENTRY_READY",
+    hardGateFailures: [],
+    systemMode: systemModeFor(shadowMode),
+    notificationAlreadySent: false,
+  });
+  if (!actionable) return "WAITING";
+
+  // Idempotent: only the first pass flips the signal actionable. A database
+  // trigger inserts the notification outbox event in the same transaction.
   const promoted = await markSignalEntryReady(admin, watch.signal_id, {
     preferredEntry,
     entryLow: zone ? roundToDigits(zone.entryLow, resolved.digits) : null,
@@ -672,6 +677,11 @@ async function evaluateWatch(
     finalScoreComponents: finalScore.components,
   });
 
+  // If the signal transition (including the database outbox trigger) failed,
+  // keep the watch open. Resolving the watch first would make a transient
+  // database failure permanently lose the alert.
+  if (!promoted) return "WAITING";
+
   await updateWatch(admin, watch.id, {
     state: "ENTRY_READY",
     entry_ready_at: checkedAt,
@@ -693,36 +703,6 @@ async function evaluateWatch(
       final_grade: finalTier,
       final_score: finalScore.score,
     } as never,
-  });
-
-  if (!promoted) return "WAITING";
-
-  // The one actionable test in the system. Fails closed on shadow mode, a
-  // pre-ENTRY_READY state, an unknown tier or any outstanding gate.
-  const actionable = isActionable({
-    grade: finalTier,
-    lifecycleState: "ENTRY_READY",
-    hardGateFailures: [],
-    systemMode: systemModeFor(shadowMode),
-    notificationAlreadySent: false,
-  });
-  if (!actionable) return "ENTRY_READY";
-
-  await notifyQualifiedSignal(admin, {
-    shadowMode,
-    signalId: watch.signal_id,
-    instrument: watch.symbol,
-    direction,
-    grade: finalTier,
-    setupType: (meta.setup_type as string) ?? null,
-    timeframe: TIMEFRAME_LABEL[MICRO_TF],
-    entryZoneLow: zone ? roundToDigits(zone.entryLow, resolved.digits) : null,
-    entryZoneHigh: zone ? roundToDigits(zone.entryHigh, resolved.digits) : null,
-    stopLoss: watch.stop_loss,
-    targets,
-    rr: rr === null ? null : Number(rr.toFixed(3)),
-    score: finalScore.score,
-    reasons,
   });
 
   return "ENTRY_READY";
