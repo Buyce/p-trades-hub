@@ -118,27 +118,71 @@ export function detectMicroTrigger(input: MicroTriggerInput): MicroTriggerResult
     return empty(direction, ["M1 ATR unavailable, so displacement cannot be measured."]);
   }
 
-  const reasons: string[] = [];
-  const failures: string[] = [];
   const start = Math.max(swingLookback, candles.length - window);
 
   const highs = swingHighs(candles, swingLookback);
   const lows = swingLows(candles, swingLookback);
 
-  // 1. Rejection at the armed zone, searched newest-first so the most recent
-  //    attempt at the level is the one being evaluated.
-  let rejectionIndex = -1;
+  // Evaluate every rejection inside the window. The newest wick is not always
+  // the best sequence: a fresh, incomplete rejection used to mask an older
+  // rejection that had already completed displacement, BOS and retest.
+  const rejectionIndices: number[] = [];
   for (let i = candles.length - 1; i >= start; i -= 1) {
     if (touchesZone(candles[i], zoneLow, zoneHigh) && isRejection(candles[i], direction)) {
-      rejectionIndex = i;
-      break;
+      rejectionIndices.push(i);
     }
   }
-  if (rejectionIndex < 0) {
-    failures.push("No closed M1 rejection candle at the armed entry area.");
-    return { ...empty(direction, failures), reasons };
+  if (rejectionIndices.length === 0) {
+    return empty(direction, ["No closed M1 rejection candle at the armed entry area."]);
   }
-  reasons.push(`M1 rejection at ${candles[rejectionIndex].time}.`);
+
+  const attempts = rejectionIndices.map((rejectionIndex) =>
+    evaluateRejectionSequence({
+      candles,
+      direction,
+      atrM1,
+      displacementMinAtr,
+      retestWithinBars,
+      requireRetest,
+      highs,
+      lows,
+      rejectionIndex,
+    }),
+  );
+
+  // Newest complete sequence wins. If none is complete, preserve the newest
+  // persisted trigger; otherwise return the newest rejection diagnostic.
+  return (
+    attempts.find((result) => result.confirmed) ??
+    attempts.find((result) => result.triggered) ??
+    attempts[0]
+  );
+}
+
+function evaluateRejectionSequence(input: {
+  candles: Candle[];
+  direction: MicroDirection;
+  atrM1: number;
+  displacementMinAtr: number;
+  retestWithinBars: number;
+  requireRetest: boolean;
+  highs: ReturnType<typeof swingHighs>;
+  lows: ReturnType<typeof swingLows>;
+  rejectionIndex: number;
+}): MicroTriggerResult {
+  const {
+    candles,
+    direction,
+    atrM1,
+    displacementMinAtr,
+    retestWithinBars,
+    requireRetest,
+    highs,
+    lows,
+    rejectionIndex,
+  } = input;
+  const reasons = [`M1 rejection at ${candles[rejectionIndex].time}.`];
+  const failures: string[] = [];
 
   // 2. Displacement away from the zone, on or after the rejection.
   let displacementIndex = -1;

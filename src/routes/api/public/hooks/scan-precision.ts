@@ -34,9 +34,8 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
         const { loadActiveRulebook } = await import("@/lib/ptrades/scanner/run.server");
         const { runPrecisionPass } = await import("@/lib/ptrades/scanner/precision.server");
         const { safeHeartbeat } = await import("@/lib/ptrades/scanner/heartbeat.server");
-        const { acquireScanLock, releaseScanLock, newLockHolder, PRECISION_LOCK_KEY } = await import(
-          "@/lib/ptrades/scanner/lock.server"
-        );
+        const { acquireScanLock, releaseScanLock, newLockHolder, PRECISION_LOCK_KEY } =
+          await import("@/lib/ptrades/scanner/lock.server");
 
         const holder = newLockHolder("precision");
         // Short TTL: one pass is seconds of work, so a lock older than this is
@@ -73,21 +72,19 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
             );
           }
           const precision = await runPrecisionPass(supabaseAdmin, rulebook);
-          const { checkExecutionStall } = await import(
-            "@/lib/ptrades/scanner/watchdog.server"
-          );
+          const { drainNotificationOutbox } =
+            await import("@/lib/ptrades/scanner/notification-outbox.server");
+          const delivery = await drainNotificationOutbox(supabaseAdmin);
+          const { checkExecutionStall } = await import("@/lib/ptrades/scanner/watchdog.server");
           const watchdog = await checkExecutionStall(supabaseAdmin).catch(() => null);
           // Scheduler progress: a job that times out, errors every tick, or is
           // blocked by a lock nobody released must page us, not sit quiet.
-          const { checkJobProgress } = await import(
-            "@/lib/ptrades/scanner/job-watchdog.server"
-          );
+          const { checkJobProgress } = await import("@/lib/ptrades/scanner/job-watchdog.server");
           const jobs = await checkJobProgress(supabaseAdmin).catch(() => null);
           // Delivery readiness is reported every pass so a dead channel is
           // visible before a signal needs it, not after one is missed.
-          const { verifyNotificationChannels } = await import(
-            "@/lib/ptrades/scanner/notify.server"
-          );
+          const { verifyNotificationChannels } =
+            await import("@/lib/ptrades/scanner/notify.server");
           const channels = await verifyNotificationChannels(supabaseAdmin).catch(() => null);
 
           await safeHeartbeat(supabaseAdmin, {
@@ -96,23 +93,19 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
             // that could not be judged because its M1 series was missing is a
             // data outage and must never read as a quiet market.
             status:
-              precision.watched === 0
-                ? "IDLE"
-                : precision.microDataMissing > 0
-                  ? "DEGRADED"
-                  : "OK",
+              precision.watched === 0 ? "IDLE" : precision.microDataMissing > 0 ? "DEGRADED" : "OK",
             metaapiConnected: null,
             rulebookVersion: rulebook.version ?? null,
             detail: {
               ...precision,
+              delivery,
               channels,
               scheduler: jobs ? { faults: jobs.faults, alerted: jobs.alerted.length } : null,
               duration_ms: Date.now() - startedAt,
             },
           });
 
-          return Response.json({ ok: true, precision, watchdog, jobs, channels });
-
+          return Response.json({ ok: true, precision, delivery, watchdog, jobs, channels });
         } catch (error) {
           const message = error instanceof Error ? error.message : "precision pass failed";
           console.error("scan-precision failed", message);

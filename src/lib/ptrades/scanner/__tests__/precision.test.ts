@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildArmingZone,
   buildExecutionZone,
   calculateAdaptiveZoneWidthPoints,
 } from "../entry-zone.server";
@@ -26,11 +27,28 @@ const widthInput = {
 };
 
 describe("execution zone", () => {
+  it("keeps the broad structural arming area separate from final execution", () => {
+    const detected = buildArmingZone({
+      direction: "LONG",
+      structuralLevel: 1.1,
+      atr: 0.01,
+      detectedLow: 1.097,
+      detectedHigh: 1.102,
+    });
+    expect(detected).toEqual({ armingLow: 1.097, armingHigh: 1.102 });
+
+    const derived = buildArmingZone({
+      direction: "SHORT",
+      structuralLevel: 1.1,
+      atr: 0.01,
+    });
+    expect(derived.armingLow).toBeCloseTo(1.0975, 10);
+    expect(derived.armingHigh).toBeCloseTo(1.10125, 10);
+  });
+
   it("never falls below the instrument floor or above its ceiling", () => {
     expect(calculateAdaptiveZoneWidthPoints(widthInput)).toBe(4);
-    expect(
-      calculateAdaptiveZoneWidthPoints({ ...widthInput, spreadPoints: 50 }),
-    ).toBe(10);
+    expect(calculateAdaptiveZoneWidthPoints({ ...widthInput, spreadPoints: 50 })).toBe(10);
   });
 
   it("absorbs the spread when the spread is the binding constraint", () => {
@@ -247,5 +265,24 @@ describe("micro trigger", () => {
     const result = detectMicroTrigger({ candles: longSequence(), ...base, atrM1: null });
     expect(result.confirmed).toBe(false);
     expect(result.failures[0]).toContain("ATR");
+  });
+
+  it("does not let a newer incomplete rejection mask an older complete sequence", () => {
+    const candles = longSequence();
+    const lastTime = Date.parse(candles.at(-1)!.time);
+    candles.push({
+      time: new Date(lastTime + 60_000).toISOString(),
+      open: 1.1002,
+      high: 1.1005,
+      low: 1.0985,
+      close: 1.1002,
+      volume: 1,
+    });
+
+    const result = detectMicroTrigger({ candles, ...base, requireRetest: true });
+
+    expect(result.triggered).toBe(true);
+    expect(result.confirmed).toBe(true);
+    expect(result.retestCandleTime).toBe(longSequence().at(-1)!.time);
   });
 });

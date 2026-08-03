@@ -175,6 +175,7 @@ export async function promoteToSignal(
     .upsert(
       {
         external_id: candidate.fingerprint,
+        structural_idea_id: candidate.fingerprint,
         candidate_id: meta.candidateId,
         fingerprint: candidate.fingerprint,
         instrument: candidate.instrument,
@@ -216,7 +217,6 @@ export async function promoteToSignal(
     )
     .select("id")
     .maybeSingle();
-
 
   if (error) {
     console.error("signal upsert failed", error.message, { entry });
@@ -260,7 +260,14 @@ export async function cacheCandle(
   admin: Admin,
   instrument: string,
   timeframe: string,
-  candle: { time: string; open: number; high: number; low: number; close: number; volume: number | null },
+  candle: {
+    time: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number | null;
+  },
 ) {
   const { error } = await admin.from("candles_cache").upsert(
     {
@@ -305,8 +312,7 @@ export async function fingerprintExistsToday(
  * waiting for its execution moment. One open watch per signal.        *
  * ------------------------------------------------------------------ */
 
-export type PrecisionWatchRow =
-  Database["public"]["Tables"]["precision_watches"]["Row"];
+export type PrecisionWatchRow = Database["public"]["Tables"]["precision_watches"]["Row"];
 
 export async function openPrecisionWatch(
   admin: Admin,
@@ -369,7 +375,6 @@ export async function resolveWatch(
     metadata: { ...prior, resolution: reason, resolved_state: state } as never,
   });
 }
-
 
 /** Mirrors a watch's terminal state onto its signal. */
 export async function closeSignalLifecycle(

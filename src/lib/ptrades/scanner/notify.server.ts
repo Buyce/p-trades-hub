@@ -1,6 +1,6 @@
 /**
- * Alert delivery for a qualified signal. Three channels, all best-effort:
- *   1. In-app notification row (always written — it is the record of the alert)
+ * Alert delivery for a qualified signal. Three channels:
+ *   1. In-app notification row (durable and idempotent — the alert record)
  *   2. Browser push, per device, when the user has push enabled
  *   3. Email, when the user has email alerts enabled
  *
@@ -66,10 +66,8 @@ export async function notifyQualifiedSignal(
     .from("profiles")
     .select("id, email_alerts_enabled, push_alerts_enabled, alert_tiers_email, alert_tiers_push");
 
-  if (error || !profiles?.length) {
-    if (error) console.error("notification recipients lookup failed", error.message);
-    return { sent: 0, push: 0, emails: 0, suppressed: false };
-  }
+  if (error) throw new Error(`Notification recipient lookup failed: ${error.message}`);
+  if (!profiles?.length) throw new Error("No notification recipients are configured.");
 
   // The tier stored on the signal is the only tier ever shown or sent.
   const tier: Tier | null = isTier(alert.grade) ? alert.grade : null;
@@ -83,15 +81,19 @@ export async function notifyQualifiedSignal(
     ? `Delivery test on a real armed setup. Do NOT trade this alert. ${rrText}`
     : rrText;
 
-  const { error: insertError } = await admin.from("notifications").insert(
-    profiles.map((p) => ({
-      user_id: p.id,
-      signal_id: alert.signalId,
-      title,
-      body,
-    })),
-  );
-  if (insertError) console.error("notification insert failed", insertError.message);
+  const rows = profiles.map((p) => ({
+    user_id: p.id,
+    // Delivery tests must never occupy the real signal's idempotency slot.
+    signal_id: test ? null : alert.signalId,
+    title,
+    body,
+  }));
+  const { error: insertError } = test
+    ? await admin.from("notifications").insert(rows)
+    : await admin
+        .from("notifications")
+        .upsert(rows, { onConflict: "user_id,signal_id", ignoreDuplicates: true });
+  if (insertError) throw new Error(`Notification insert failed: ${insertError.message}`);
 
   // Push
   const pushUsers = profiles
@@ -108,8 +110,7 @@ export async function notifyQualifiedSignal(
     url: `${SITE_URL}/signals/${alert.signalId}`,
     // Test alerts must never collapse into the real alert's notification slot.
     tag: test ? `signal-test-${alert.signalId}` : `signal-${alert.signalId}`,
-  }).catch(() => ({ sent: 0, pruned: 0 }));
-
+  });
 
   // Email
   const emailInput: AlertEmailInput = {
@@ -148,6 +149,18 @@ export async function notifyQualifiedSignal(
         emailError instanceof Error ? emailError.message : "unknown",
       );
     }
+  }
+
+  const failures: string[] = [];
+  if (push.failed > 0) failures.push(`${push.failed} push delivery attempt(s) failed`);
+  if (emails < emailRecipients.length) {
+    failures.push(`${emailRecipients.length - emails} email delivery attempt(s) failed`);
+  }
+  if (failures.length > 0) {
+    // The in-app row is already idempotently persisted. Throwing here leaves
+    // the outbox retryable; email uses a stable idempotency key and browser
+    // push uses a stable tag, so a retry does not create duplicate alerts.
+    throw new Error(failures.join("; "));
   }
 
   return { sent: profiles.length, push: push.sent, emails, suppressed: false };
@@ -192,7 +205,8 @@ export async function verifyNotificationChannels(admin: Admin): Promise<ChannelR
   const subs = subscriptions ?? 0;
 
   const transport = Boolean(process.env.LOVABLE_API_KEY);
-  if (!transport) problems.push("Email transport is not configured, so no alert email can be sent.");
+  if (!transport)
+    problems.push("Email transport is not configured, so no alert email can be sent.");
   if (pushEnabled.length > 0 && subs === 0) {
     problems.push("Push is enabled but no device subscription is registered.");
   }
@@ -216,7 +230,11 @@ export async function verifyNotificationChannels(admin: Admin): Promise<ChannelR
     // The in-app row is always written, so the terminal is live whenever a
     // recipient exists at all.
     terminal: rows.length > 0,
-    push: { enabled: pushEnabled.length, subscriptions: subs, ready: pushEnabled.length > 0 && subs > 0 },
+    push: {
+      enabled: pushEnabled.length,
+      subscriptions: subs,
+      ready: pushEnabled.length > 0 && subs > 0,
+    },
     email: { enabled: emailEnabled.length, transport, ready: emailEnabled.length > 0 && transport },
     tiersCovered,
     problems,

@@ -1,7 +1,8 @@
 /**
  * Web push delivery. Uses WebCrypto only, so it runs in the worker runtime.
- * Sending is best-effort: a failing device never blocks a scan or another
- * delivery channel. Dead endpoints (404/410) are pruned.
+ * Sending is isolated from the scanner by the durable outbox. A failing device
+ * never blocks market analysis, but retryable failures are reported to the
+ * delivery worker. Dead endpoints (404/410) are pruned.
  */
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
@@ -21,17 +22,19 @@ export async function sendPushToUsers(
   admin: Admin,
   userIds: string[],
   payload: PushPayload,
-): Promise<{ sent: number; pruned: number }> {
-  if (!pushConfigured() || userIds.length === 0) return { sent: 0, pruned: 0 };
+): Promise<{ sent: number; pruned: number; failed: number }> {
+  if (!pushConfigured() || userIds.length === 0) return { sent: 0, pruned: 0, failed: 0 };
 
   const { data: subs, error } = await admin
     .from("push_subscriptions")
     .select("id, endpoint, p256dh, auth")
     .in("user_id", userIds);
 
-  if (error || !subs?.length) {
-    if (error) console.error("push subscription lookup failed", error.message);
-    return { sent: 0, pruned: 0 };
+  if (error) {
+    throw new Error(`Push subscription lookup failed: ${error.message}`);
+  }
+  if (!subs?.length) {
+    return { sent: 0, pruned: 0, failed: 0 };
   }
 
   const { ApplicationServerKeys, generatePushHTTPRequest } = await import("webpush-webcrypto");
@@ -42,6 +45,7 @@ export async function sendPushToUsers(
   const contact = (process.env.VAPID_SUBJECT ?? "mailto:noreply@localhost").replace(/^mailto:/, "");
 
   let sent = 0;
+  let failed = 0;
   const dead: string[] = [];
 
   await Promise.all(
@@ -71,10 +75,12 @@ export async function sendPushToUsers(
         }
         if (!response.ok) {
           console.error("push send failed", response.status);
+          failed += 1;
           return;
         }
         sent += 1;
       } catch (pushError) {
+        failed += 1;
         console.error(
           "push send threw",
           pushError instanceof Error ? pushError.message : "unknown",
@@ -87,5 +93,5 @@ export async function sendPushToUsers(
     await admin.from("push_subscriptions").delete().in("id", dead);
   }
 
-  return { sent, pruned: dead.length };
+  return { sent, pruned: dead.length, failed };
 }

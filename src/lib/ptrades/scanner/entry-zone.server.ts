@@ -58,6 +58,51 @@ export type ExecutionZone = {
   zoneWidthPoints: number;
 };
 
+export type ArmingZone = {
+  armingLow: number;
+  armingHigh: number;
+};
+
+/**
+ * Broad structural area in which M1 is allowed to search for a trigger.
+ *
+ * This deliberately mirrors the M15 retest detector's asymmetric tolerance.
+ * It is not the final execution zone: the narrow, spread-aware zone is built
+ * only after M1 breaks a level. Keeping the two concepts separate prevents a
+ * valid rejection from being discarded merely because its wick missed a
+ * provisional sub-pip execution band.
+ */
+export function buildArmingZone(params: {
+  direction: "LONG" | "SHORT";
+  structuralLevel: number;
+  atr: number;
+  detectedLow?: number | null;
+  detectedHigh?: number | null;
+}): ArmingZone {
+  if (
+    params.detectedLow !== null &&
+    params.detectedLow !== undefined &&
+    params.detectedHigh !== null &&
+    params.detectedHigh !== undefined
+  ) {
+    return {
+      armingLow: Math.min(params.detectedLow, params.detectedHigh),
+      armingHigh: Math.max(params.detectedLow, params.detectedHigh),
+    };
+  }
+
+  const tolerance = Math.max(0, params.atr) * 0.25;
+  return params.direction === "LONG"
+    ? {
+        armingLow: params.structuralLevel - tolerance * 0.5,
+        armingHigh: params.structuralLevel + tolerance,
+      }
+    : {
+        armingLow: params.structuralLevel - tolerance,
+        armingHigh: params.structuralLevel + tolerance * 0.5,
+      };
+}
+
 /**
  * Asymmetric execution zone around the anchor.
  *

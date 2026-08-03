@@ -29,6 +29,7 @@ import { Route as ApiPublicHooksSyncMarketDataRouteImport } from './routes/api/p
 import { Route as ApiPublicHooksScanPrecisionRouteImport } from './routes/api/public/hooks/scan-precision'
 import { Route as ApiPublicHooksScanContextRouteImport } from './routes/api/public/hooks/scan-context'
 import { Route as ApiPublicHooksBackfillScanRouteImport } from './routes/api/public/hooks/backfill-scan'
+import { Route as ApiPublicHooksDeliverAlertsRouteImport } from './routes/api/public/hooks/deliver-alerts'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -138,6 +139,12 @@ const ApiPublicHooksBackfillScanRoute =
     path: '/api/public/hooks/backfill-scan',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiPublicHooksDeliverAlertsRoute =
+  ApiPublicHooksDeliverAlertsRouteImport.update({
+    id: '/api/public/hooks/deliver-alerts',
+    path: '/api/public/hooks/deliver-alerts',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -154,6 +161,7 @@ export interface FileRoutesByFullPath {
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/backfill-scan': typeof ApiPublicHooksBackfillScanRoute
+  '/api/public/hooks/deliver-alerts': typeof ApiPublicHooksDeliverAlertsRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
@@ -175,6 +183,7 @@ export interface FileRoutesByTo {
   '/watchlist': typeof AuthenticatedWatchlistRoute
   '/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/backfill-scan': typeof ApiPublicHooksBackfillScanRoute
+  '/api/public/hooks/deliver-alerts': typeof ApiPublicHooksDeliverAlertsRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
@@ -198,6 +207,7 @@ export interface FileRoutesById {
   '/_authenticated/watchlist': typeof AuthenticatedWatchlistRoute
   '/_authenticated/signals/$signalId': typeof AuthenticatedSignalsSignalIdRoute
   '/api/public/hooks/backfill-scan': typeof ApiPublicHooksBackfillScanRoute
+  '/api/public/hooks/deliver-alerts': typeof ApiPublicHooksDeliverAlertsRoute
   '/api/public/hooks/scan-context': typeof ApiPublicHooksScanContextRoute
   '/api/public/hooks/scan-precision': typeof ApiPublicHooksScanPrecisionRoute
   '/api/public/hooks/sync-market-data': typeof ApiPublicHooksSyncMarketDataRoute
@@ -221,6 +231,7 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/signals/$signalId'
     | '/api/public/hooks/backfill-scan'
+    | '/api/public/hooks/deliver-alerts'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
     | '/api/public/hooks/sync-market-data'
@@ -242,6 +253,7 @@ export interface FileRouteTypes {
     | '/watchlist'
     | '/signals/$signalId'
     | '/api/public/hooks/backfill-scan'
+    | '/api/public/hooks/deliver-alerts'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
     | '/api/public/hooks/sync-market-data'
@@ -264,6 +276,7 @@ export interface FileRouteTypes {
     | '/_authenticated/watchlist'
     | '/_authenticated/signals/$signalId'
     | '/api/public/hooks/backfill-scan'
+    | '/api/public/hooks/deliver-alerts'
     | '/api/public/hooks/scan-context'
     | '/api/public/hooks/scan-precision'
     | '/api/public/hooks/sync-market-data'
@@ -277,6 +290,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   ApiPublicHooksBackfillScanRoute: typeof ApiPublicHooksBackfillScanRoute
+  ApiPublicHooksDeliverAlertsRoute: typeof ApiPublicHooksDeliverAlertsRoute
   ApiPublicHooksScanContextRoute: typeof ApiPublicHooksScanContextRoute
   ApiPublicHooksScanPrecisionRoute: typeof ApiPublicHooksScanPrecisionRoute
   ApiPublicHooksSyncMarketDataRoute: typeof ApiPublicHooksSyncMarketDataRoute
@@ -426,6 +440,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiPublicHooksBackfillScanRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/hooks/deliver-alerts': {
+      id: '/api/public/hooks/deliver-alerts'
+      path: '/api/public/hooks/deliver-alerts'
+      fullPath: '/api/public/hooks/deliver-alerts'
+      preLoaderRoute: typeof ApiPublicHooksDeliverAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -464,6 +485,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   ApiPublicHooksBackfillScanRoute: ApiPublicHooksBackfillScanRoute,
+  ApiPublicHooksDeliverAlertsRoute: ApiPublicHooksDeliverAlertsRoute,
   ApiPublicHooksScanContextRoute: ApiPublicHooksScanContextRoute,
   ApiPublicHooksScanPrecisionRoute: ApiPublicHooksScanPrecisionRoute,
   ApiPublicHooksSyncMarketDataRoute: ApiPublicHooksSyncMarketDataRoute,
