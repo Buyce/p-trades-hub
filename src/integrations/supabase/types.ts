@@ -293,6 +293,51 @@ export type Database = {
         }
         Relationships: []
       }
+      notification_outbox: {
+        Row: {
+          attempts: number
+          available_at: string
+          created_at: string
+          id: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          payload: Json
+          sent_at: string | null
+          signal_id: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          available_at?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          payload: Json
+          sent_at?: string | null
+          signal_id: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          available_at?: string
+          created_at?: string
+          id?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          payload?: Json
+          sent_at?: string | null
+          signal_id?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       notifications: {
         Row: {
           body: string | null
@@ -335,6 +380,8 @@ export type Database = {
         Row: {
           anchor_source: string | null
           armed_at: string
+          arming_zone_high: number | null
+          arming_zone_low: number | null
           broker_symbol: string | null
           check_count: number
           created_at: string
@@ -374,6 +421,8 @@ export type Database = {
         Insert: {
           anchor_source?: string | null
           armed_at?: string
+          arming_zone_high?: number | null
+          arming_zone_low?: number | null
           broker_symbol?: string | null
           check_count?: number
           created_at?: string
@@ -413,6 +462,8 @@ export type Database = {
         Update: {
           anchor_source?: string | null
           armed_at?: string
+          arming_zone_high?: number | null
+          arming_zone_low?: number | null
           broker_symbol?: string | null
           check_count?: number
           created_at?: string
