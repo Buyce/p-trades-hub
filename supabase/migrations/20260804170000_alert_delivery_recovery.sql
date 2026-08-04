@@ -1,26 +1,11 @@
--- Alert-pipeline reliability -------------------------------------------------
--- This migration changes no trading threshold. It makes the existing
--- context -> precision -> ENTRY_READY -> notification flow explicit,
--- retryable and reproducible across environments.
+-- Alert-delivery recovery ---------------------------------------------------
+-- Reliability only: no setup, score, reward/risk or timing threshold changes.
+--
+-- This migration is intentionally idempotent. It repairs deployments where
+-- the application code reached production but the outbox trigger or pg_cron
+-- job did not, and safely queues any still-live ENTRY_READY signal that was
+-- stranded during that interval.
 
--- 1. Do not confuse the broad structural trigger area with the final narrow
--- execution zone created after the M1 break.
-ALTER TABLE public.precision_watches
-  ADD COLUMN IF NOT EXISTS arming_zone_low numeric,
-  ADD COLUMN IF NOT EXISTS arming_zone_high numeric;
-
-UPDATE public.precision_watches
-   SET arming_zone_low = COALESCE(arming_zone_low, entry_zone_low),
-       arming_zone_high = COALESCE(arming_zone_high, entry_zone_high)
- WHERE arming_zone_low IS NULL OR arming_zone_high IS NULL;
-
-COMMENT ON COLUMN public.precision_watches.arming_zone_low IS
-  'Lower edge of the broad M15 structural area in which M1 may search for a trigger.';
-COMMENT ON COLUMN public.precision_watches.arming_zone_high IS
-  'Upper edge of the broad M15 structural area in which M1 may search for a trigger.';
-
--- 2. Durable notification outbox. The signal transition and event insert are
--- committed together; delivery can then retry without losing the alert.
 CREATE TABLE IF NOT EXISTS public.notification_outbox (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   signal_id uuid NOT NULL REFERENCES public.signals(id) ON DELETE CASCADE,
@@ -46,22 +31,6 @@ ALTER TABLE public.notification_outbox ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.notification_outbox FROM anon, authenticated;
 GRANT ALL ON public.notification_outbox TO service_role;
 
--- Existing test messages must not occupy the idempotency slot for the real
--- actionable signal.
-UPDATE public.notifications
-   SET signal_id = NULL
- WHERE signal_id IS NOT NULL AND title LIKE '[TEST] %';
-
-DELETE FROM public.notifications duplicate
-USING public.notifications keeper
-WHERE duplicate.user_id = keeper.user_id
-  AND duplicate.signal_id = keeper.signal_id
-  AND duplicate.signal_id IS NOT NULL
-  AND duplicate.id > keeper.id;
-
-CREATE UNIQUE INDEX IF NOT EXISTS notifications_user_signal_idx
-  ON public.notifications (user_id, signal_id);
-
 CREATE OR REPLACE FUNCTION public.enqueue_entry_ready_notification()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -85,7 +54,7 @@ BEGIN
           'signalId', NEW.id,
           'instrument', NEW.instrument,
           'direction', NEW.direction,
-          'grade', NEW.grade,
+          'grade', COALESCE(NEW.final_grade, NEW.grade),
           'setupType', NEW.setup_type,
           'timeframe', COALESCE(NEW.trigger_timeframe, NEW.timeframe),
           'entryZoneLow', NEW.entry_zone_low,
@@ -93,7 +62,7 @@ BEGIN
           'stopLoss', NEW.stop_loss,
           'targets', COALESCE(NEW.targets, '[]'::jsonb),
           'rr', NEW.rr_tp1,
-          'score', NEW.score,
+          'score', COALESCE(NEW.final_score, NEW.score),
           'reasons', COALESCE(NEW.reasons, '[]'::jsonb)
         )
       )
@@ -111,25 +80,41 @@ CREATE TRIGGER enqueue_entry_ready_notification
 AFTER INSERT OR UPDATE OF is_actionable, lifecycle_state ON public.signals
 FOR EACH ROW EXECUTE FUNCTION public.enqueue_entry_ready_notification();
 
--- 3. One rulebook authority. This aligns the setting to the currently active
--- immutable row; it does not alter a strategy value.
-UPDATE public.scanner_settings settings
-   SET rulebook_version = active.version,
-       updated_at = now()
-  FROM LATERAL (
-    SELECT version
-      FROM public.rulebook_versions
-     WHERE is_active = true
-     ORDER BY effective_from DESC, created_at DESC
-     LIMIT 1
-  ) active
- WHERE settings.id = true
-   AND settings.rulebook_version IS DISTINCT FROM active.version;
+-- Recover only current, still-actionable alerts. Expired history is not queued
+-- and users who already have an in-app notification are not notified twice.
+INSERT INTO public.notification_outbox (signal_id, payload)
+SELECT
+  signal.id,
+  jsonb_build_object(
+    'shadowMode', signal.shadow_mode,
+    'signalId', signal.id,
+    'instrument', signal.instrument,
+    'direction', signal.direction,
+    'grade', COALESCE(signal.final_grade, signal.grade),
+    'setupType', signal.setup_type,
+    'timeframe', COALESCE(signal.trigger_timeframe, signal.timeframe),
+    'entryZoneLow', signal.entry_zone_low,
+    'entryZoneHigh', signal.entry_zone_high,
+    'stopLoss', signal.stop_loss,
+    'targets', COALESCE(signal.targets, '[]'::jsonb),
+    'rr', signal.rr_tp1,
+    'score', COALESCE(signal.final_score, signal.score),
+    'reasons', COALESCE(signal.reasons, '[]'::jsonb)
+  )
+FROM public.signals signal
+WHERE signal.is_actionable IS TRUE
+  AND signal.lifecycle_state = 'ENTRY_READY'
+  AND signal.shadow_mode IS FALSE
+  AND (signal.expires_at_utc IS NULL OR signal.expires_at_utc > now())
+  AND NOT EXISTS (
+    SELECT 1
+    FROM public.notifications notification
+    WHERE notification.signal_id = signal.id
+  )
+ON CONFLICT (signal_id) DO NOTHING;
 
--- 4. Reproducible scheduler. M1 data and precision now run every minute;
--- context remains the heavier three-minute job. pg_cron has one-minute
--- granularity, so quote-only checks run once per minute without long-lived
--- request loops or overlapping locks.
+-- Never allow duplicate job names to survive a restore/replay. Unscheduling by
+-- job id is safe even when a named job is absent (cron.unschedule(name) is not).
 DO $block$
 DECLARE
   existing record;
@@ -185,9 +170,6 @@ SELECT cron.schedule(
   $$
 );
 
--- Delivery has its own job so an ENTRY_READY event is retried even if the
--- precision route is locked or temporarily failing. Delivery must remain
--- isolated: an email, push or outbox fault must not poison M1 execution.
 SELECT cron.schedule(
   'ptrades-deliver-alerts',
   '* * * * *',
@@ -199,3 +181,5 @@ SELECT cron.schedule(
   );
   $$
 );
+
+NOTIFY pgrst, 'reload schema';

@@ -76,19 +76,16 @@ function Dashboard() {
   const queryClient = useQueryClient();
   const terminalTiers = parseTiers(profile?.alert_tiers_terminal, DEFAULT_TERMINAL_TIERS);
   const saveTiers = useMutation({
-    mutationFn: (next: Tier[]) =>
-      updateAlertPreferences({ userId: user?.id, terminalTiers: next }),
+    mutationFn: (next: Tier[]) => updateAlertPreferences({ userId: user?.id, terminalTiers: next }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["profile"] }),
   });
 
   // Terminal filtering is display-only: it hides rows, it never re-tiers them.
-  const visibleSignals = signals.filter(
-    (s) => isTier(s.grade) && terminalTiers.includes(s.grade),
-  );
+  const visibleSignals = signals.filter((s) => isTier(s.grade) && terminalTiers.includes(s.grade));
 
   const actionable = signals.filter((s) => s.is_actionable);
   const alertsToday = actionable.length;
-  const latestQualified = signals.find((s) => s.grade === "A_PLUS" || s.grade === "A") ?? null;
+  const latestQualified = actionable.find((s) => s.grade === "A_PLUS" || s.grade === "A") ?? null;
   const openTrades = trades.filter((t) => t.status === "OPEN");
   const weekly = expectancy(tradesSince(trades, Date.now() - 7 * 86_400_000));
 
@@ -96,6 +93,8 @@ function Dashboard() {
   // stored row: a stale "OK" is an offline scanner, not a healthy one.
   const contextBeat = components?.CONTEXT_SCANNER ?? null;
   const precisionBeat = components?.PRECISION_SCANNER ?? null;
+  const syncBeat = components?.MARKET_DATA_SYNC ?? null;
+  const deliveryBeat = components?.ALERT_DELIVERY ?? null;
   // A fresh SKIPPED heartbeat is not a healthy context scanner: liveness also
   // requires a recently COMPLETED scan.
   const contextRuntime = contextRuntimeHealth({
@@ -105,7 +104,15 @@ function Dashboard() {
   });
   const contextHealth = contextRuntime.health;
   const precisionHealth = heartbeatHealth(precisionBeat?.received_at);
-  const newest = [contextBeat?.received_at, precisionBeat?.received_at, heartbeat?.received_at]
+  const syncHealth = heartbeatHealth(syncBeat?.received_at);
+  const deliveryHealth = heartbeatHealth(deliveryBeat?.received_at);
+  const newest = [
+    syncBeat?.received_at,
+    contextBeat?.received_at,
+    precisionBeat?.received_at,
+    deliveryBeat?.received_at,
+    heartbeat?.received_at,
+  ]
     .filter((v): v is string => Boolean(v))
     .sort()
     .at(-1);
@@ -114,8 +121,10 @@ function Dashboard() {
   // The scanner records the broker server on every heartbeat, so the feed name
   // is available even when the direct MetaApi account lookup is unavailable.
   const heartbeatServer =
-    ((contextBeat ?? heartbeat)?.detail as { account?: { server?: string | null } } | null | undefined)
-      ?.account?.server ?? null;
+    (
+      (contextBeat ?? heartbeat)?.detail as
+        { account?: { server?: string | null } } | null | undefined
+    )?.account?.server ?? null;
 
   return (
     <div className="space-y-4">
@@ -128,10 +137,20 @@ function Dashboard() {
         title="Market data link"
         action={
           <StatusPill state={heartbeatPillState(overallHealth)}>
-            {newest ? `${heartbeatLabel(overallHealth)} · ${relativeFromNow(newest)}` : "No heartbeat"}
+            {newest
+              ? `${heartbeatLabel(overallHealth)} · ${relativeFromNow(newest)}`
+              : "No heartbeat"}
           </StatusPill>
         }
       >
+        <DataRow
+          label="Candle sync"
+          value={
+            syncBeat
+              ? `${heartbeatLabel(syncHealth)} · ${field(syncBeat.status)} · ${relativeFromNow(syncBeat.received_at)}`
+              : "Not reporting"
+          }
+        />
         <DataRow
           label="Context scan"
           value={
@@ -162,6 +181,14 @@ function Dashboard() {
           }
         />
         <DataRow
+          label="Alert delivery"
+          value={
+            deliveryBeat
+              ? `${heartbeatLabel(deliveryHealth)} · ${field(deliveryBeat.status)} · ${relativeFromNow(deliveryBeat.received_at)}`
+              : "Not reporting"
+          }
+        />
+        <DataRow
           label="MT5 connection"
           value={
             link?.configured
@@ -176,10 +203,7 @@ function Dashboard() {
           }
         />
         <DataRow label="Broker feed" value={field(link?.server ?? heartbeatServer)} />
-        <DataRow
-          label="Last heartbeat"
-          value={newest ? formatTime(newest, tz) : undefined}
-        />
+        <DataRow label="Last heartbeat" value={newest ? formatTime(newest, tz) : undefined} />
         <DataRow
           label="Active rulebook"
           value={rulebook ? field(rulebook.version) : field(heartbeat?.rulebook_version)}
@@ -201,23 +225,27 @@ function Dashboard() {
           hint="Closed trades, last 7 days"
           tone={weekly === null ? "neutral" : weekly >= 0 ? "positive" : "negative"}
         />
-        <StatTile label="Signals scanned today" value={signals.length} hint="All grades" />
+        <StatTile
+          label="Signal records today"
+          value={signals.length}
+          hint="Armed and entry-ready"
+        />
       </div>
 
       {actionable.length === 0 && (
         <SectionCard title="Today's state">
           <div className="rounded-md border border-border bg-surface px-4 py-6 text-center">
-            <p className="text-sm font-semibold text-foreground">No qualified setup right now</p>
+            <p className="text-sm font-semibold text-foreground">No entry-ready alert right now</p>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              A no-trade day is a valid, successful outcome. The scanner alerts whenever a setup
-              meets every rulebook condition for its tier — there is no daily alert limit.
-
+              Records below may still be armed and waiting for their closed-M1 trigger and retest.
+              An in-app, push and email alert is created only when precision promotes one to
+              ENTRY_READY. There is no daily alert limit.
             </p>
           </div>
         </SectionCard>
       )}
 
-      <SectionCard title="Latest A / A+ signal">
+      <SectionCard title="Latest A / A+ alert">
         {latestQualified ? (
           <Link
             to="/signals/$signalId"
@@ -229,7 +257,11 @@ function Dashboard() {
                 <span className="num text-base font-semibold">{latestQualified.instrument}</span>
                 <DirectionTag direction={latestQualified.direction} />
               </div>
-              <GradeBadge grade={latestQualified.grade} signalId={latestQualified.id} surface="dashboard-latest" />
+              <GradeBadge
+                grade={latestQualified.grade}
+                signalId={latestQualified.id}
+                surface="dashboard-latest"
+              />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
               <div>
@@ -257,8 +289,8 @@ function Dashboard() {
           </Link>
         ) : (
           <EmptyState
-            title="No A or A+ signal today"
-            description="B-grade records are journal-only and never become alerts."
+            title="No A or A+ entry-ready alert today"
+            description="B and C records shown below are provisional until precision confirms their M1 execution and promotes them to ENTRY_READY."
           />
         )}
       </SectionCard>
@@ -276,7 +308,9 @@ function Dashboard() {
         </div>
         {visibleSignals.length === 0 ? (
           <EmptyState
-            title={signals.length === 0 ? "Nothing recorded yet" : "No signals in the selected tiers"}
+            title={
+              signals.length === 0 ? "Nothing recorded yet" : "No signals in the selected tiers"
+            }
             description={
               signals.length === 0
                 ? "Signals appear here once the scanner reports a run for this UTC day."
@@ -298,6 +332,9 @@ function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="num text-xs text-muted-foreground">{score(s.score)}</span>
+                    <StatusPill state={s.is_actionable ? "ok" : "idle"}>
+                      {s.is_actionable ? "Alert" : "Armed"}
+                    </StatusPill>
                     <GradeBadge grade={s.grade} signalId={s.id} surface="dashboard-terminal" />
                   </div>
                 </Link>

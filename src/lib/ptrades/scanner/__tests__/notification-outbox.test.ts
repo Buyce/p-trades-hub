@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseOutboxAlert } from "../notification-outbox.server";
+import { outboxHeartbeatStatus, parseOutboxAlert } from "../notification-outbox.server";
 
 describe("notification outbox payload", () => {
   it("reconstructs the exact actionable alert written by the database trigger", () => {
@@ -32,5 +32,40 @@ describe("notification outbox payload", () => {
 
   it("fails closed when a durable event is malformed", () => {
     expect(() => parseOutboxAlert({ signalId: "id-without-an-instrument" })).toThrow("instrument");
+  });
+});
+
+describe("notification outbox health", () => {
+  const summary = (overrides: Partial<Parameters<typeof outboxHeartbeatStatus>[0]> = {}) => ({
+    claimed: 0,
+    sent: 0,
+    retried: 0,
+    deadLetter: 0,
+    errors: [],
+    ...overrides,
+  });
+
+  it("is idle when there is no delivery work", () => {
+    expect(outboxHeartbeatStatus(summary())).toBe("IDLE");
+  });
+
+  it("is healthy after a successful delivery", () => {
+    expect(outboxHeartbeatStatus(summary({ claimed: 1, sent: 1 }))).toBe("OK");
+  });
+
+  it("surfaces retryable channel failures without poisoning precision", () => {
+    expect(
+      outboxHeartbeatStatus(
+        summary({ claimed: 1, retried: 1, errors: ["signal: email transport missing"] }),
+      ),
+    ).toBe("DEGRADED");
+  });
+
+  it("is degraded when a configured channel is structurally unavailable", () => {
+    expect(outboxHeartbeatStatus(summary(), 1)).toBe("DEGRADED");
+  });
+
+  it("surfaces dead-letter events as a hard delivery error", () => {
+    expect(outboxHeartbeatStatus(summary({ claimed: 1, deadLetter: 1 }))).toBe("ERROR");
   });
 });

@@ -3,7 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 /**
  * Precision job — the fast half of the pipeline. Polls the armed watches on
  * closed M1 candles and the live quote. This is the ONLY place a signal
- * becomes actionable and the only place an alert is delivered.
+ * becomes actionable. Alert delivery is handled by the independent
+ * deliver-alerts job so a mail/push/outbox fault can never stop M1 execution.
  *
  * It runs on its own schedule so a slow context scan can never starve
  * execution timing, and it takes its own lock so two ticks cannot overlap.
@@ -72,21 +73,12 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
             );
           }
           const precision = await runPrecisionPass(supabaseAdmin, rulebook);
-          const { drainNotificationOutbox } =
-            await import("@/lib/ptrades/scanner/notification-outbox.server");
-          const delivery = await drainNotificationOutbox(supabaseAdmin);
           const { checkExecutionStall } = await import("@/lib/ptrades/scanner/watchdog.server");
           const watchdog = await checkExecutionStall(supabaseAdmin).catch(() => null);
           // Scheduler progress: a job that times out, errors every tick, or is
           // blocked by a lock nobody released must page us, not sit quiet.
           const { checkJobProgress } = await import("@/lib/ptrades/scanner/job-watchdog.server");
           const jobs = await checkJobProgress(supabaseAdmin).catch(() => null);
-          // Delivery readiness is reported every pass so a dead channel is
-          // visible before a signal needs it, not after one is missed.
-          const { verifyNotificationChannels } =
-            await import("@/lib/ptrades/scanner/notify.server");
-          const channels = await verifyNotificationChannels(supabaseAdmin).catch(() => null);
-
           await safeHeartbeat(supabaseAdmin, {
             source: "PRECISION_SCANNER",
             // No open watches is a healthy idle scanner, not a fault. A watch
@@ -98,14 +90,12 @@ export const Route = createFileRoute("/api/public/hooks/scan-precision")({
             rulebookVersion: rulebook.version ?? null,
             detail: {
               ...precision,
-              delivery,
-              channels,
               scheduler: jobs ? { faults: jobs.faults, alerted: jobs.alerted.length } : null,
               duration_ms: Date.now() - startedAt,
             },
           });
 
-          return Response.json({ ok: true, precision, delivery, watchdog, jobs, channels });
+          return Response.json({ ok: true, precision, watchdog, jobs });
         } catch (error) {
           const message = error instanceof Error ? error.message : "precision pass failed";
           console.error("scan-precision failed", message);

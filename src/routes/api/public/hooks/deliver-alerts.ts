@@ -30,21 +30,24 @@ export const Route = createFileRoute("/api/public/hooks/deliver-alerts")({
         }
 
         const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-        const { drainNotificationOutbox } =
+        const { drainNotificationOutbox, outboxHeartbeatStatus } =
           await import("@/lib/ptrades/scanner/notification-outbox.server");
         const { safeHeartbeat } = await import("@/lib/ptrades/scanner/heartbeat.server");
         const startedAt = Date.now();
 
         try {
+          const { verifyNotificationChannels } =
+            await import("@/lib/ptrades/scanner/notify.server");
+          const channels = await verifyNotificationChannels(supabaseAdmin);
           const delivery = await drainNotificationOutbox(supabaseAdmin);
           await safeHeartbeat(supabaseAdmin, {
             source: "ALERT_DELIVERY",
-            status: delivery.deadLetter > 0 ? "DEGRADED" : delivery.claimed === 0 ? "IDLE" : "OK",
+            status: outboxHeartbeatStatus(delivery, channels.problems.length),
             metaapiConnected: null,
             rulebookVersion: null,
-            detail: { ...delivery, duration_ms: Date.now() - startedAt },
+            detail: { ...delivery, channels, duration_ms: Date.now() - startedAt },
           });
-          return Response.json({ ok: true, delivery });
+          return Response.json({ ok: true, delivery, channels });
         } catch (error) {
           const message = error instanceof Error ? error.message : "alert delivery failed";
           console.error("deliver-alerts failed", message);

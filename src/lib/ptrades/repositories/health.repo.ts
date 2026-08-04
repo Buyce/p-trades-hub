@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 import type { Tables } from "@/integrations/supabase/types";
-import { HEARTBEAT_SOURCES } from "@/lib/ptrades/heartbeat-health";
+import { COMPONENT_HEARTBEAT_SOURCES } from "@/lib/ptrades/heartbeat-health";
 import { db, unwrap, unwrapList } from "./client";
 
 /** Repository for system health, scanner runs, instruments and macro events. */
@@ -55,7 +55,7 @@ export const componentHeartbeatsQuery = () =>
         db
           .from("system_heartbeats")
           .select("*")
-          .in("source", [...HEARTBEAT_SOURCES])
+          .in("source", [...COMPONENT_HEARTBEAT_SOURCES])
           .order("received_at", { ascending: false })
           .limit(50),
         { repo: "health.componentHeartbeats" },
@@ -174,8 +174,6 @@ export const instrumentCoverageQuery = () =>
     },
   });
 
-
-
 /**
  * "Why nothing alerted today", per instrument: the gate that blocked a setup
  * most often on the current UTC trading day. Reporting only — it summarises
@@ -196,7 +194,10 @@ export const blockingGatesTodayQuery = () =>
         { repo: "health.blockingGatesToday" },
       );
 
-      const byInstrument = new Map<string, { total: number; gates: Map<string, { count: number; reason: string }> }>();
+      const byInstrument = new Map<
+        string,
+        { total: number; gates: Map<string, { count: number; reason: string }> }
+      >();
       for (const row of rows) {
         const entry = byInstrument.get(row.instrument) ?? { total: 0, gates: new Map() };
         entry.total += 1;
@@ -208,8 +209,16 @@ export const blockingGatesTodayQuery = () =>
 
       return [...byInstrument.entries()]
         .map(([instrument, entry]) => {
-          const [gate, detail] = [...entry.gates.entries()].sort((a, b) => b[1].count - a[1].count)[0];
-          return { instrument, gate, reason: detail.reason, count: detail.count, total: entry.total };
+          const [gate, detail] = [...entry.gates.entries()].sort(
+            (a, b) => b[1].count - a[1].count,
+          )[0];
+          return {
+            instrument,
+            gate,
+            reason: detail.reason,
+            count: detail.count,
+            total: entry.total,
+          };
         })
         .sort((a, b) => b.count - a.count);
     },
@@ -299,10 +308,9 @@ export const executionFunnelQuery = () =>
             .limit(1000),
           { repo: "health.funnel.watches" },
         ),
-        unwrapList(
-          db.from("notifications").select("id").gte("created_at", dayStart).limit(1000),
-          { repo: "health.funnel.alerts" },
-        ),
+        unwrapList(db.from("notifications").select("id").gte("created_at", dayStart).limit(1000), {
+          repo: "health.funnel.alerts",
+        }),
       ]);
 
       const armed = watches.length;
@@ -341,7 +349,6 @@ export const executionFunnelQuery = () =>
       };
     },
   });
-
 
 export type ContextRuntimeSnapshot = {
   latestAttemptAt: string | null;
