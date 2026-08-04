@@ -16,15 +16,24 @@ export const HEARTBEAT_SOURCES = [
 
 export type HeartbeatSource = (typeof HEARTBEAT_SOURCES)[number];
 
+/**
+ * Components displayed by the cockpit. Alert delivery deliberately is not a
+ * scanner job: keeping it out of HEARTBEAT_SOURCES prevents the scanner lock
+ * watchdog from treating the outbox worker as a market-analysis process.
+ */
+export const COMPONENT_HEARTBEAT_SOURCES = [...HEARTBEAT_SOURCES, "ALERT_DELIVERY"] as const;
+
+export type ComponentHeartbeatSource = (typeof COMPONENT_HEARTBEAT_SOURCES)[number];
+
 export const HEARTBEAT_SOURCE_LABEL: Record<string, string> = {
   MARKET_DATA_SYNC: "Market data sync (candle store)",
   CONTEXT_SCANNER: "Context scan (M15 detection)",
   PRECISION_SCANNER: "Precision pass (M1 execution)",
+  ALERT_DELIVERY: "Alert delivery (in-app, push and email)",
   "cloud-scanner": "Legacy combined scanner",
 };
 
-
-/** Both components are scheduled once a minute. */
+/** Runtime components are scheduled once a minute. */
 export const HEARTBEAT_HEALTHY_MS = 2 * 60_000;
 export const HEARTBEAT_DEGRADED_MS = 5 * 60_000;
 

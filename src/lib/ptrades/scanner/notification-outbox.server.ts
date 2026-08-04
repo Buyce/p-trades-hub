@@ -12,6 +12,25 @@ export type OutboxDeliverySummary = {
   errors: string[];
 };
 
+export type OutboxHeartbeatStatus = "OK" | "DEGRADED" | "ERROR" | "IDLE";
+
+/**
+ * Delivery health is independent from precision health. A retry is already a
+ * degraded delivery outcome, while a dead-letter is a hard error that needs
+ * operator action. This keeps a fresh but failing worker from appearing OK.
+ */
+export function outboxHeartbeatStatus(
+  summary: OutboxDeliverySummary,
+  channelProblems = 0,
+): OutboxHeartbeatStatus {
+  if (summary.deadLetter > 0) return "ERROR";
+  if (summary.retried > 0 || summary.errors.length > 0 || channelProblems > 0) {
+    return "DEGRADED";
+  }
+  if (summary.claimed === 0) return "IDLE";
+  return "OK";
+}
+
 const MAX_ATTEMPTS = 8;
 
 function object(value: Json): Record<string, Json> {

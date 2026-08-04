@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { detectPersistedTriggerRetest } from "../micro-trigger.server";
 import { lastClosedM1Time } from "../precision.server";
 import {
+  COMPONENT_HEARTBEAT_SOURCES,
+  HEARTBEAT_SOURCES,
   heartbeatHealth,
   heartbeatLabel,
   heartbeatPillState,
@@ -38,6 +40,11 @@ describe("heartbeat freshness", () => {
   it("reports unknown, never healthy, when nothing has been received", () => {
     expect(heartbeatHealth(null, now)).toBe("UNKNOWN");
     expect(heartbeatHealth("not-a-date", now)).toBe("UNKNOWN");
+  });
+
+  it("observes delivery without treating it as a scanner job", () => {
+    expect(COMPONENT_HEARTBEAT_SOURCES).toContain("ALERT_DELIVERY");
+    expect(HEARTBEAT_SOURCES).not.toContain("ALERT_DELIVERY");
   });
 });
 
@@ -80,10 +87,7 @@ describe("persisted trigger retest", () => {
   });
 
   it("stays unconfirmed while price never returns to the level, when the retest is required", () => {
-    const away = [
-      candles[0],
-      candle("2026-07-28T16:51:00.000Z", 100.8, 101.5, 100.75, 101.4),
-    ];
+    const away = [candles[0], candle("2026-07-28T16:51:00.000Z", 100.8, 101.5, 100.75, 101.4)];
     const result = detectPersistedTriggerRetest({
       candles: away,
       trigger,
@@ -95,10 +99,7 @@ describe("persisted trigger retest", () => {
   });
 
   it("confirms on the break alone when the rulebook does not require a retest", () => {
-    const away = [
-      candles[0],
-      candle("2026-07-28T16:51:00.000Z", 100.8, 101.5, 100.75, 101.4),
-    ];
+    const away = [candles[0], candle("2026-07-28T16:51:00.000Z", 100.8, 101.5, 100.75, 101.4)];
     const result = detectPersistedTriggerRetest({
       candles: away,
       trigger,
@@ -120,10 +121,7 @@ describe("persisted trigger retest", () => {
   });
 
   it("does not confirm a candle that closes back through the level", () => {
-    const broke = [
-      candles[0],
-      candle("2026-07-28T16:51:00.000Z", 100.8, 100.9, 99.4, 99.5),
-    ];
+    const broke = [candles[0], candle("2026-07-28T16:51:00.000Z", 100.8, 100.9, 99.4, 99.5)];
     const result = detectPersistedTriggerRetest({
       candles: broke,
       trigger,

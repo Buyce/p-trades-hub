@@ -15,7 +15,7 @@ import {
   tierLabel,
   type Tier,
 } from "../tiers";
-import { sendPushToUsers } from "./push.server";
+import { pushConfigured, sendPushToUsers } from "./push.server";
 import { sendAlertEmail, type AlertEmailInput } from "./alert-email.server";
 
 type Admin = Awaited<typeof import("@/integrations/supabase/client.server")>["supabaseAdmin"];
@@ -104,13 +104,16 @@ export async function notifyQualifiedSignal(
         parseTiers(p.alert_tiers_push, DEFAULT_PUSH_TIERS).includes(tier),
     )
     .map((p) => p.id);
-  const push = await sendPushToUsers(admin, pushUsers, {
-    title,
-    body,
-    url: `${SITE_URL}/signals/${alert.signalId}`,
-    // Test alerts must never collapse into the real alert's notification slot.
-    tag: test ? `signal-test-${alert.signalId}` : `signal-${alert.signalId}`,
-  });
+  const hasPushTransport = pushConfigured();
+  const push = hasPushTransport
+    ? await sendPushToUsers(admin, pushUsers, {
+        title,
+        body,
+        url: `${SITE_URL}/signals/${alert.signalId}`,
+        // Test alerts must never collapse into the real alert's notification slot.
+        tag: test ? `signal-test-${alert.signalId}` : `signal-${alert.signalId}`,
+      })
+    : { sent: 0, pruned: 0, failed: 0 };
 
   // Email
   const emailInput: AlertEmailInput = {
@@ -152,6 +155,18 @@ export async function notifyQualifiedSignal(
   }
 
   const failures: string[] = [];
+  if (pushUsers.length > 0 && !hasPushTransport) {
+    failures.push("Push delivery is enabled but VAPID keys are not configured");
+  }
+  if (
+    pushUsers.length > 0 &&
+    hasPushTransport &&
+    push.sent === 0 &&
+    push.pruned === 0 &&
+    push.failed === 0
+  ) {
+    failures.push("Push delivery is enabled but no active device subscription was found");
+  }
   if (push.failed > 0) failures.push(`${push.failed} push delivery attempt(s) failed`);
   if (emails < emailRecipients.length) {
     failures.push(`${emailRecipients.length - emails} email delivery attempt(s) failed`);
@@ -180,7 +195,7 @@ export async function notifyQualifiedSignal(
 export type ChannelReadiness = {
   recipients: number;
   terminal: boolean;
-  push: { enabled: number; subscriptions: number; ready: boolean };
+  push: { enabled: number; subscriptions: number; transport: boolean; ready: boolean };
   email: { enabled: number; transport: boolean; ready: boolean };
   tiersCovered: Tier[];
   problems: string[];
@@ -199,14 +214,21 @@ export async function verifyNotificationChannels(admin: Admin): Promise<ChannelR
   const pushEnabled = rows.filter((p) => p.push_alerts_enabled !== false);
   const emailEnabled = rows.filter((p) => p.email_alerts_enabled);
 
-  const { count: subscriptions } = await admin
+  const { count: subscriptions, error: subscriptionError } = await admin
     .from("push_subscriptions")
     .select("id", { count: "exact", head: true });
+  if (subscriptionError) {
+    problems.push(`Push subscription lookup failed: ${subscriptionError.message}`);
+  }
   const subs = subscriptions ?? 0;
 
-  const transport = Boolean(process.env.LOVABLE_API_KEY);
-  if (!transport)
+  const emailTransport = Boolean(process.env.LOVABLE_API_KEY);
+  const pushTransport = pushConfigured();
+  if (emailEnabled.length > 0 && !emailTransport)
     problems.push("Email transport is not configured, so no alert email can be sent.");
+  if (pushEnabled.length > 0 && !pushTransport) {
+    problems.push("Push is enabled but VAPID keys are not configured.");
+  }
   if (pushEnabled.length > 0 && subs === 0) {
     problems.push("Push is enabled but no device subscription is registered.");
   }
@@ -233,9 +255,14 @@ export async function verifyNotificationChannels(admin: Admin): Promise<ChannelR
     push: {
       enabled: pushEnabled.length,
       subscriptions: subs,
-      ready: pushEnabled.length > 0 && subs > 0,
+      transport: pushTransport,
+      ready: pushEnabled.length > 0 && subs > 0 && pushTransport,
     },
-    email: { enabled: emailEnabled.length, transport, ready: emailEnabled.length > 0 && transport },
+    email: {
+      enabled: emailEnabled.length,
+      transport: emailTransport,
+      ready: emailEnabled.length > 0 && emailTransport,
+    },
     tiersCovered,
     problems,
   };
