@@ -16,8 +16,13 @@ const SITE_URL = "https://getptrades.com"
 
 // The SDK handler owns verification, dispatch, and retry semantics; this file
 // owns only the email decisions: subjects, templates, and per-type props.
-const handler = createAuthEmailHandler({
-  apiKey: process.env.LOVABLE_API_KEY!,
+// Built lazily: env vars are injected at request time, so creating the handler
+// at module scope crashes the whole route tree when the key is not yet present.
+let handlerInstance: ((request: Request) => Promise<Response>) | undefined
+
+const createHandler = () =>
+  createAuthEmailHandler({
+    apiKey: process.env.LOVABLE_API_KEY!,
   from: `${SITE_NAME} <noreply@${FROM_DOMAIN}>`,
   senderDomain: SENDER_DOMAIN,
   sendUrl: process.env.LOVABLE_SEND_URL,
@@ -74,12 +79,18 @@ const handler = createAuthEmailHandler({
         React.createElement(ReauthenticationEmail, { token: data.token ?? '' }),
     },
   },
-})
+  })
 
 export const Route = createFileRoute("/lovable/email/auth/webhook")({
   server: {
     handlers: {
-      POST: ({ request }) => handler(request),
+      POST: ({ request }) => {
+        if (!process.env.LOVABLE_API_KEY) {
+          return Response.json({ error: 'Server configuration error' }, { status: 500 })
+        }
+        handlerInstance ??= createHandler()
+        return handlerInstance(request)
+      },
     },
   },
 })

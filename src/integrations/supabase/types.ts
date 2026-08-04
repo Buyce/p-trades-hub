@@ -293,44 +293,6 @@ export type Database = {
         }
         Relationships: []
       }
-      notifications: {
-        Row: {
-          body: string | null
-          created_at: string
-          id: string
-          read_at: string | null
-          signal_id: string | null
-          title: string
-          user_id: string
-        }
-        Insert: {
-          body?: string | null
-          created_at?: string
-          id?: string
-          read_at?: string | null
-          signal_id?: string | null
-          title: string
-          user_id: string
-        }
-        Update: {
-          body?: string | null
-          created_at?: string
-          id?: string
-          read_at?: string | null
-          signal_id?: string | null
-          title?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "notifications_signal_id_fkey"
-            columns: ["signal_id"]
-            isOneToOne: false
-            referencedRelation: "signals"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       notification_outbox: {
         Row: {
           attempts: number
@@ -374,11 +336,41 @@ export type Database = {
           status?: string
           updated_at?: string
         }
+        Relationships: []
+      }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          read_at: string | null
+          signal_id: string | null
+          title: string
+          user_id: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          signal_id?: string | null
+          title: string
+          user_id: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          read_at?: string | null
+          signal_id?: string | null
+          title?: string
+          user_id?: string
+        }
         Relationships: [
           {
-            foreignKeyName: "notification_outbox_signal_id_fkey"
+            foreignKeyName: "notifications_signal_id_fkey"
             columns: ["signal_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "signals"
             referencedColumns: ["id"]
           },
@@ -387,9 +379,9 @@ export type Database = {
       precision_watches: {
         Row: {
           anchor_source: string | null
+          armed_at: string
           arming_zone_high: number | null
           arming_zone_low: number | null
-          armed_at: string
           broker_symbol: string | null
           check_count: number
           created_at: string
@@ -428,9 +420,9 @@ export type Database = {
         }
         Insert: {
           anchor_source?: string | null
+          armed_at?: string
           arming_zone_high?: number | null
           arming_zone_low?: number | null
-          armed_at?: string
           broker_symbol?: string | null
           check_count?: number
           created_at?: string
@@ -469,9 +461,9 @@ export type Database = {
         }
         Update: {
           anchor_source?: string | null
+          armed_at?: string
           arming_zone_high?: number | null
           arming_zone_low?: number | null
-          armed_at?: string
           broker_symbol?: string | null
           check_count?: number
           created_at?: string
