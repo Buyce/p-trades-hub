@@ -79,12 +79,18 @@ const createHandler = () =>
         React.createElement(ReauthenticationEmail, { token: data.token ?? '' }),
     },
   },
-})
+  })
 
 export const Route = createFileRoute("/lovable/email/auth/webhook")({
   server: {
     handlers: {
-      POST: ({ request }) => handler(request),
+      POST: ({ request }) => {
+        if (!process.env.LOVABLE_API_KEY) {
+          return Response.json({ error: 'Server configuration error' }, { status: 500 })
+        }
+        handlerInstance ??= createHandler()
+        return handlerInstance(request)
+      },
     },
   },
 })
