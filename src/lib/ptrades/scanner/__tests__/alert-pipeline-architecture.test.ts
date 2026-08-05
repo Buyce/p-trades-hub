@@ -20,12 +20,32 @@ describe("alert pipeline architecture", () => {
   });
 
   it("recovers stranded live alerts and schedules all four jobs", () => {
-    const migration = source("supabase/migrations/20260804170000_alert_delivery_recovery.sql");
+    const migration = source("supabase/migrations/20260805120000_runtime_pipeline_recovery.sql");
+    expect(migration).toContain("enqueue_entry_ready_notification");
+    expect(migration).toContain("CREATE TRIGGER enqueue_entry_ready_notification");
     expect(migration).toContain("signal.lifecycle_state = 'ENTRY_READY'");
     expect(migration).toContain("NOT EXISTS");
     expect(migration).toContain("ptrades-sync-market-data");
     expect(migration).toContain("ptrades-scan-context");
     expect(migration).toContain("ptrades-scan-precision");
     expect(migration).toContain("ptrades-deliver-alerts");
+  });
+
+  it("reconstructs the runtime schedule from an existing authenticated job", () => {
+    const migration = source("supabase/migrations/20260805120000_runtime_pipeline_recovery.sql");
+    expect(migration).toContain("template_command");
+    expect(migration).toContain("job.active IS TRUE");
+    expect(migration).toContain("regexp_replace");
+    expect(migration).toContain("RAISE EXCEPTION");
+    expect(migration).not.toContain("project--");
+    expect(migration).not.toContain("sb_publishable_");
+  });
+
+  it("fails context health when every symbol has stale or missing candles", () => {
+    const contextScanner = source("src/lib/ptrades/scanner/run.server.ts");
+    expect(contextScanner).toContain("DATA_AVAILABILITY_GATES");
+    expect(contextScanner).toContain("data_unavailable_symbols");
+    expect(contextScanner).toContain("fresh_symbols");
+    expect(contextScanner).toContain('status: runDegraded ? "DEGRADED" : "OK"');
   });
 });

@@ -3,9 +3,9 @@
  * liveness the same way the scanner reports it, and a browser cannot import
  * a *.server module.
  *
- * Liveness is derived from AGE, never from the status word on the last stored
- * row. A thirteen-minute-old "OK" is an offline scanner, and showing it as OK
- * is how a dead runtime stayed invisible.
+ * Liveness is derived from both AGE and the component's reported outcome. A
+ * thirteen-minute-old "OK" is offline, while a fresh "ERROR" is failed rather
+ * than live. Both dimensions are required to avoid false-green dashboards.
  */
 
 export const HEARTBEAT_SOURCES = [
@@ -51,6 +51,36 @@ export function heartbeatHealth(
   return "OFFLINE";
 }
 
+/**
+ * Health of one scheduled component. Timestamp freshness proves that the
+ * scheduler called the worker; the outcome proves that the worker succeeded.
+ */
+export function componentHeartbeatHealth(
+  receivedAt: string | null | undefined,
+  status: string | null | undefined,
+  nowMs: number = Date.now(),
+): HeartbeatHealth {
+  const freshness = heartbeatHealth(receivedAt, nowMs);
+  if (freshness === "OFFLINE" || freshness === "UNKNOWN") return freshness;
+
+  const outcome = status?.trim().toUpperCase();
+  if (outcome === "ERROR") return "OFFLINE";
+  if (outcome === "DEGRADED" || outcome === "SKIPPED") return "DEGRADED";
+  if (outcome === "OK" || outcome === "IDLE") return freshness;
+
+  // A fresh row with no recognised outcome only proves invocation, not work.
+  return "DEGRADED";
+}
+
+/** The cockpit is live only when every required runtime component is live. */
+export function aggregateHeartbeatHealth(components: HeartbeatHealth[]): HeartbeatHealth {
+  if (components.length === 0) return "UNKNOWN";
+  if (components.some((health) => health === "OFFLINE")) return "OFFLINE";
+  if (components.some((health) => health === "UNKNOWN")) return "UNKNOWN";
+  if (components.some((health) => health === "DEGRADED")) return "DEGRADED";
+  return "HEALTHY";
+}
+
 export function heartbeatPillState(health: HeartbeatHealth): "ok" | "warn" | "down" | "idle" {
   if (health === "HEALTHY") return "ok";
   if (health === "DEGRADED") return "warn";
@@ -85,6 +115,7 @@ export type ContextRuntime = {
 export function contextRuntimeHealth(
   input: {
     latestAt: string | null | undefined;
+    latestStatus?: string | null;
     /** Newest-first statuses for the context scanner. */
     recentStatuses?: string[];
     lastSuccessAt?: string | null;
@@ -104,6 +135,27 @@ export function contextRuntimeHealth(
     return {
       health: base,
       reason: base === "OFFLINE" ? "No context heartbeat." : "No heartbeat recorded.",
+      skipStreak,
+      lastSuccessAt,
+      lastSuccessAgeMs,
+    };
+  }
+
+  const latestStatus = input.latestStatus?.trim().toUpperCase();
+  if (latestStatus === "ERROR") {
+    return {
+      health: "OFFLINE",
+      reason: "The latest context scan failed.",
+      skipStreak,
+      lastSuccessAt,
+      lastSuccessAgeMs,
+    };
+  }
+
+  if (latestStatus === "DEGRADED") {
+    return {
+      health: "DEGRADED",
+      reason: "The latest context scan completed with degraded data or runtime health.",
       skipStreak,
       lastSuccessAt,
       lastSuccessAgeMs,

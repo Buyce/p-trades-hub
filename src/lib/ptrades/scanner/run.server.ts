@@ -88,6 +88,8 @@ const EXECUTION_ONLY_GATES = new Set<GateCode>([
   "TIER_NOT_MET",
 ]);
 
+const DATA_AVAILABILITY_GATES = new Set<GateCode>(["MISSING_DATA", "STALE_DATA"]);
+
 export function armingFailedGates(gates: GateResult[]): GateResult[] {
   return gates.filter((g) => !g.passed && !EXECUTION_ONLY_GATES.has(g.code));
 }
@@ -956,6 +958,12 @@ async function runScanLocked(
   let armed = 0;
   let rejectionCount = 0;
   const completedSymbols: string[] = [];
+  const dataUnavailableSymbols = new Set<string>();
+  const dataAvailabilityFailures: Array<{
+    instrument: string;
+    gate: GateCode;
+    reason: string;
+  }> = [];
   const runRejections: Array<{ instrument: string; gate: string; reason: string }> = [];
   let errorMessage: string | null = null;
   let deadlineHit = false;
@@ -969,6 +977,16 @@ async function runScanLocked(
     try {
       const result = await evaluateInstrument(admin, instrument, rulebook, macroEvents, runId);
       completedSymbols.push(instrument.symbol);
+      for (const failure of result.gates.filter(
+        (candidate) => !candidate.passed && DATA_AVAILABILITY_GATES.has(candidate.code),
+      )) {
+        dataUnavailableSymbols.add(instrument.symbol);
+        dataAvailabilityFailures.push({
+          instrument: instrument.symbol,
+          gate: failure.code,
+          reason: failure.reason,
+        });
+      }
       const failed = armingFailedGates(result.gates);
       rejectionCount += failed.length;
       for (const f of failed) {
@@ -1133,16 +1151,23 @@ async function runScanLocked(
     }
   }
 
+  const dataAvailabilityMessage =
+    dataUnavailableSymbols.size > 0
+      ? `Durable candle data unavailable for ${[...dataUnavailableSymbols].join(", ")}.`
+      : null;
+  const runDegraded = Boolean(errorMessage) || deadlineHit || dataUnavailableSymbols.size > 0;
+  const finalErrorMessage = errorMessage ?? dataAvailabilityMessage;
+
   await finishRun(admin, runId, {
-    status: errorMessage || deadlineHit ? "PARTIAL" : "SUCCESS",
+    status: runDegraded ? "PARTIAL" : "SUCCESS",
     signals_emitted: qualifiedCount,
     rejections: runRejections,
-    error_message: errorMessage,
+    error_message: finalErrorMessage,
   });
 
   await safeHeartbeat(admin, {
     source: "CONTEXT_SCANNER",
-    status: errorMessage || deadlineHit ? "DEGRADED" : "OK",
+    status: runDegraded ? "DEGRADED" : "OK",
     metaapiConnected: null,
     rulebookVersion: rulebook.version,
     detail: {
@@ -1164,6 +1189,9 @@ async function runScanLocked(
       qualified: qualifiedCount,
       armed,
       rejections: rejectionCount,
+      fresh_symbols: completedSymbols.filter((symbol) => !dataUnavailableSymbols.has(symbol)),
+      data_unavailable_symbols: [...dataUnavailableSymbols],
+      data_availability_failures: dataAvailabilityFailures,
       macro_events: macroEvents.length,
       market_data_source: "DURABLE_STORE",
     },
@@ -1178,6 +1206,6 @@ async function runScanLocked(
     actionable,
     armed,
     rejections: rejectionCount,
-    message: errorMessage ?? undefined,
+    message: finalErrorMessage ?? undefined,
   };
 }
