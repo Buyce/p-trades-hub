@@ -18,8 +18,9 @@ import { updateAlertPreferences } from "@/lib/ptrades/queries";
 import { TierToggle } from "@/components/ptrades/tier-toggle";
 import { DEFAULT_TERMINAL_TIERS, parseTiers, isTier, type Tier } from "@/lib/ptrades/tiers";
 import {
+  aggregateHeartbeatHealth,
+  componentHeartbeatHealth,
   contextRuntimeHealth,
-  heartbeatHealth,
   heartbeatLabel,
   heartbeatPillState,
 } from "@/lib/ptrades/heartbeat-health";
@@ -99,24 +100,42 @@ function Dashboard() {
   // requires a recently COMPLETED scan.
   const contextRuntime = contextRuntimeHealth({
     latestAt: contextBeat?.received_at,
+    latestStatus: contextBeat?.status,
     recentStatuses: contextSnapshot?.recentStatuses,
     lastSuccessAt: contextSnapshot?.lastSuccessAt,
   });
   const contextHealth = contextRuntime.health;
-  const precisionHealth = heartbeatHealth(precisionBeat?.received_at);
-  const syncHealth = heartbeatHealth(syncBeat?.received_at);
-  const deliveryHealth = heartbeatHealth(deliveryBeat?.received_at);
+  const precisionHealth = componentHeartbeatHealth(
+    precisionBeat?.received_at,
+    precisionBeat?.status,
+  );
+  const syncHealth = componentHeartbeatHealth(syncBeat?.received_at, syncBeat?.status);
+  const deliveryHealth = componentHeartbeatHealth(deliveryBeat?.received_at, deliveryBeat?.status);
   const newest = [
     syncBeat?.received_at,
     contextBeat?.received_at,
     precisionBeat?.received_at,
     deliveryBeat?.received_at,
-    heartbeat?.received_at,
   ]
     .filter((v): v is string => Boolean(v))
     .sort()
     .at(-1);
-  const overallHealth = heartbeatHealth(newest);
+  const overallHealth = aggregateHeartbeatHealth([
+    syncHealth,
+    contextHealth,
+    precisionHealth,
+    deliveryHealth,
+  ]);
+  const overallLabel =
+    overallHealth === "HEALTHY"
+      ? newest
+        ? `Live · ${relativeFromNow(newest)}`
+        : "Live"
+      : overallHealth === "DEGRADED"
+        ? "Pipeline degraded"
+        : overallHealth === "OFFLINE"
+          ? "Pipeline offline"
+          : "Pipeline incomplete";
 
   // The scanner records the broker server on every heartbeat, so the feed name
   // is available even when the direct MetaApi account lookup is unavailable.
@@ -135,13 +154,7 @@ function Dashboard() {
 
       <SectionCard
         title="Market data link"
-        action={
-          <StatusPill state={heartbeatPillState(overallHealth)}>
-            {newest
-              ? `${heartbeatLabel(overallHealth)} · ${relativeFromNow(newest)}`
-              : "No heartbeat"}
-          </StatusPill>
-        }
+        action={<StatusPill state={heartbeatPillState(overallHealth)}>{overallLabel}</StatusPill>}
       >
         <DataRow
           label="Candle sync"

@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { detectPersistedTriggerRetest } from "../micro-trigger.server";
 import { lastClosedM1Time } from "../precision.server";
 import {
+  aggregateHeartbeatHealth,
   COMPONENT_HEARTBEAT_SOURCES,
+  componentHeartbeatHealth,
+  contextRuntimeHealth,
   HEARTBEAT_SOURCES,
   heartbeatHealth,
   heartbeatLabel,
@@ -45,6 +48,38 @@ describe("heartbeat freshness", () => {
   it("observes delivery without treating it as a scanner job", () => {
     expect(COMPONENT_HEARTBEAT_SOURCES).toContain("ALERT_DELIVERY");
     expect(HEARTBEAT_SOURCES).not.toContain("ALERT_DELIVERY");
+  });
+
+  it("fails a fresh heartbeat closed when the worker reports an error", () => {
+    expect(componentHeartbeatHealth("2026-07-28T16:59:50.000Z", "ERROR", now)).toBe("OFFLINE");
+  });
+
+  it("preserves degraded worker outcomes even while the scheduler is current", () => {
+    expect(componentHeartbeatHealth("2026-07-28T16:59:50.000Z", "DEGRADED", now)).toBe("DEGRADED");
+    expect(componentHeartbeatHealth("2026-07-28T16:59:50.000Z", "OK", now)).toBe("HEALTHY");
+  });
+
+  it("calls the whole pipeline live only when every required worker is healthy", () => {
+    expect(aggregateHeartbeatHealth(["HEALTHY", "HEALTHY", "HEALTHY", "HEALTHY"])).toBe("HEALTHY");
+    expect(aggregateHeartbeatHealth(["HEALTHY", "UNKNOWN", "HEALTHY", "HEALTHY"])).toBe("UNKNOWN");
+    expect(aggregateHeartbeatHealth(["HEALTHY", "DEGRADED", "HEALTHY", "HEALTHY"])).toBe(
+      "DEGRADED",
+    );
+    expect(aggregateHeartbeatHealth(["HEALTHY", "OFFLINE", "HEALTHY", "HEALTHY"])).toBe("OFFLINE");
+  });
+
+  it("surfaces a completed but data-degraded context scan", () => {
+    const runtime = contextRuntimeHealth(
+      {
+        latestAt: "2026-07-28T16:59:50.000Z",
+        latestStatus: "DEGRADED",
+        recentStatuses: ["DEGRADED", "OK"],
+        lastSuccessAt: "2026-07-28T16:59:50.000Z",
+      },
+      now,
+    );
+    expect(runtime.health).toBe("DEGRADED");
+    expect(runtime.reason).toContain("degraded data");
   });
 });
 
