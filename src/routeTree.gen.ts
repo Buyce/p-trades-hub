@@ -9,35 +9,31 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
-import { Route as AuthRouteImport } from './routes/auth'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as AuthenticatedAdminInvitesRouteImport } from './routes/_authenticated/admin-invites'
-import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
-import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
-import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
-import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenticated/performance'
-import { Route as AuthenticatedRulebookRouteImport } from './routes/_authenticated/rulebook'
-import { Route as AuthenticatedScannerHealthRouteImport } from './routes/_authenticated/scanner-health'
-import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedWatchlistRouteImport } from './routes/_authenticated/watchlist'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated/settings'
+import { Route as AuthenticatedScannerHealthRouteImport } from './routes/_authenticated/scanner-health'
+import { Route as AuthenticatedRulebookRouteImport } from './routes/_authenticated/rulebook'
+import { Route as AuthenticatedPerformanceRouteImport } from './routes/_authenticated/performance'
+import { Route as AuthenticatedNotificationsRouteImport } from './routes/_authenticated/notifications'
+import { Route as AuthenticatedJournalRouteImport } from './routes/_authenticated/journal'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
+import { Route as AuthenticatedAdminInvitesRouteImport } from './routes/_authenticated/admin-invites'
 import { Route as AuthenticatedSignalsSignalIdRouteImport } from './routes/_authenticated/signals.$signalId'
-import { Route as ApiPublicHooksBackfillScanRouteImport } from './routes/api/public/hooks/backfill-scan'
-import { Route as ApiPublicHooksDeliverAlertsRouteImport } from './routes/api/public/hooks/deliver-alerts'
-import { Route as ApiPublicHooksScanContextRouteImport } from './routes/api/public/hooks/scan-context'
-import { Route as ApiPublicHooksScanPrecisionRouteImport } from './routes/api/public/hooks/scan-precision'
-import { Route as ApiPublicHooksSyncMarketDataRouteImport } from './routes/api/public/hooks/sync-market-data'
-import { Route as LovableEmailAuthPreviewRouteImport } from './routes/lovable/email/auth/preview'
 import { Route as LovableEmailAuthWebhookRouteImport } from './routes/lovable/email/auth/webhook'
+import { Route as LovableEmailAuthPreviewRouteImport } from './routes/lovable/email/auth/preview'
+import { Route as ApiPublicHooksSyncMarketDataRouteImport } from './routes/api/public/hooks/sync-market-data'
+import { Route as ApiPublicHooksScanPrecisionRouteImport } from './routes/api/public/hooks/scan-precision'
+import { Route as ApiPublicHooksScanContextRouteImport } from './routes/api/public/hooks/scan-context'
+import { Route as ApiPublicHooksDeliverAlertsRouteImport } from './routes/api/public/hooks/deliver-alerts'
+import { Route as ApiPublicHooksBackfillScanRouteImport } from './routes/api/public/hooks/backfill-scan'
 
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
-  id: '/_authenticated',
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -45,42 +41,23 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedAdminInvitesRoute =
-  AuthenticatedAdminInvitesRouteImport.update({
-    id: '/admin-invites',
-    path: '/admin-invites',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedWatchlistRoute = AuthenticatedWatchlistRouteImport.update({
+  id: '/watchlist',
+  path: '/watchlist',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedJournalRoute = AuthenticatedJournalRouteImport.update({
-  id: '/journal',
-  path: '/journal',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
-const AuthenticatedNotificationsRoute =
-  AuthenticatedNotificationsRouteImport.update({
-    id: '/notifications',
-    path: '/notifications',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedPerformanceRoute =
-  AuthenticatedPerformanceRouteImport.update({
-    id: '/performance',
-    path: '/performance',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const AuthenticatedRulebookRoute = AuthenticatedRulebookRouteImport.update({
-  id: '/rulebook',
-  path: '/rulebook',
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedScannerHealthRoute =
@@ -89,38 +66,59 @@ const AuthenticatedScannerHealthRoute =
     path: '/scanner-health',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
+const AuthenticatedRulebookRoute = AuthenticatedRulebookRouteImport.update({
+  id: '/rulebook',
+  path: '/rulebook',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedWatchlistRoute = AuthenticatedWatchlistRouteImport.update({
-  id: '/watchlist',
-  path: '/watchlist',
+const AuthenticatedPerformanceRoute =
+  AuthenticatedPerformanceRouteImport.update({
+    id: '/performance',
+    path: '/performance',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedNotificationsRoute =
+  AuthenticatedNotificationsRouteImport.update({
+    id: '/notifications',
+    path: '/notifications',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedJournalRoute = AuthenticatedJournalRouteImport.update({
+  id: '/journal',
+  path: '/journal',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAdminInvitesRoute =
+  AuthenticatedAdminInvitesRouteImport.update({
+    id: '/admin-invites',
+    path: '/admin-invites',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSignalsSignalIdRoute =
   AuthenticatedSignalsSignalIdRouteImport.update({
     id: '/signals/$signalId',
     path: '/signals/$signalId',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
-const ApiPublicHooksBackfillScanRoute =
-  ApiPublicHooksBackfillScanRouteImport.update({
-    id: '/api/public/hooks/backfill-scan',
-    path: '/api/public/hooks/backfill-scan',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicHooksDeliverAlertsRoute =
-  ApiPublicHooksDeliverAlertsRouteImport.update({
-    id: '/api/public/hooks/deliver-alerts',
-    path: '/api/public/hooks/deliver-alerts',
-    getParentRoute: () => rootRouteImport,
-  } as any)
-const ApiPublicHooksScanContextRoute =
-  ApiPublicHooksScanContextRouteImport.update({
-    id: '/api/public/hooks/scan-context',
-    path: '/api/public/hooks/scan-context',
+const LovableEmailAuthWebhookRoute = LovableEmailAuthWebhookRouteImport.update({
+  id: '/lovable/email/auth/webhook',
+  path: '/lovable/email/auth/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const LovableEmailAuthPreviewRoute = LovableEmailAuthPreviewRouteImport.update({
+  id: '/lovable/email/auth/preview',
+  path: '/lovable/email/auth/preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicHooksSyncMarketDataRoute =
+  ApiPublicHooksSyncMarketDataRouteImport.update({
+    id: '/api/public/hooks/sync-market-data',
+    path: '/api/public/hooks/sync-market-data',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiPublicHooksScanPrecisionRoute =
@@ -129,22 +127,24 @@ const ApiPublicHooksScanPrecisionRoute =
     path: '/api/public/hooks/scan-precision',
     getParentRoute: () => rootRouteImport,
   } as any)
-const ApiPublicHooksSyncMarketDataRoute =
-  ApiPublicHooksSyncMarketDataRouteImport.update({
-    id: '/api/public/hooks/sync-market-data',
-    path: '/api/public/hooks/sync-market-data',
+const ApiPublicHooksScanContextRoute =
+  ApiPublicHooksScanContextRouteImport.update({
+    id: '/api/public/hooks/scan-context',
+    path: '/api/public/hooks/scan-context',
     getParentRoute: () => rootRouteImport,
   } as any)
-const LovableEmailAuthPreviewRoute = LovableEmailAuthPreviewRouteImport.update({
-  id: '/lovable/email/auth/preview',
-  path: '/lovable/email/auth/preview',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LovableEmailAuthWebhookRoute = LovableEmailAuthWebhookRouteImport.update({
-  id: '/lovable/email/auth/webhook',
-  path: '/lovable/email/auth/webhook',
-  getParentRoute: () => rootRouteImport,
-} as any)
+const ApiPublicHooksDeliverAlertsRoute =
+  ApiPublicHooksDeliverAlertsRouteImport.update({
+    id: '/api/public/hooks/deliver-alerts',
+    path: '/api/public/hooks/deliver-alerts',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiPublicHooksBackfillScanRoute =
+  ApiPublicHooksBackfillScanRouteImport.update({
+    id: '/api/public/hooks/backfill-scan',
+    path: '/api/public/hooks/backfill-scan',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -300,18 +300,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -321,60 +314,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/admin-invites': {
-      id: '/_authenticated/admin-invites'
-      path: '/admin-invites'
-      fullPath: '/admin-invites'
-      preLoaderRoute: typeof AuthenticatedAdminInvitesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/dashboard': {
-      id: '/_authenticated/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/journal': {
-      id: '/_authenticated/journal'
-      path: '/journal'
-      fullPath: '/journal'
-      preLoaderRoute: typeof AuthenticatedJournalRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/notifications': {
-      id: '/_authenticated/notifications'
-      path: '/notifications'
-      fullPath: '/notifications'
-      preLoaderRoute: typeof AuthenticatedNotificationsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/performance': {
-      id: '/_authenticated/performance'
-      path: '/performance'
-      fullPath: '/performance'
-      preLoaderRoute: typeof AuthenticatedPerformanceRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/rulebook': {
-      id: '/_authenticated/rulebook'
-      path: '/rulebook'
-      fullPath: '/rulebook'
-      preLoaderRoute: typeof AuthenticatedRulebookRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/scanner-health': {
-      id: '/_authenticated/scanner-health'
-      path: '/scanner-health'
-      fullPath: '/scanner-health'
-      preLoaderRoute: typeof AuthenticatedScannerHealthRouteImport
+    '/_authenticated/watchlist': {
+      id: '/_authenticated/watchlist'
+      path: '/watchlist'
+      fullPath: '/watchlist'
+      preLoaderRoute: typeof AuthenticatedWatchlistRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/settings': {
@@ -384,11 +342,53 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/watchlist': {
-      id: '/_authenticated/watchlist'
-      path: '/watchlist'
-      fullPath: '/watchlist'
-      preLoaderRoute: typeof AuthenticatedWatchlistRouteImport
+    '/_authenticated/scanner-health': {
+      id: '/_authenticated/scanner-health'
+      path: '/scanner-health'
+      fullPath: '/scanner-health'
+      preLoaderRoute: typeof AuthenticatedScannerHealthRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/rulebook': {
+      id: '/_authenticated/rulebook'
+      path: '/rulebook'
+      fullPath: '/rulebook'
+      preLoaderRoute: typeof AuthenticatedRulebookRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/performance': {
+      id: '/_authenticated/performance'
+      path: '/performance'
+      fullPath: '/performance'
+      preLoaderRoute: typeof AuthenticatedPerformanceRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/notifications': {
+      id: '/_authenticated/notifications'
+      path: '/notifications'
+      fullPath: '/notifications'
+      preLoaderRoute: typeof AuthenticatedNotificationsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/journal': {
+      id: '/_authenticated/journal'
+      path: '/journal'
+      fullPath: '/journal'
+      preLoaderRoute: typeof AuthenticatedJournalRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/admin-invites': {
+      id: '/_authenticated/admin-invites'
+      path: '/admin-invites'
+      fullPath: '/admin-invites'
+      preLoaderRoute: typeof AuthenticatedAdminInvitesRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/signals/$signalId': {
@@ -398,39 +398,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSignalsSignalIdRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/api/public/hooks/backfill-scan': {
-      id: '/api/public/hooks/backfill-scan'
-      path: '/api/public/hooks/backfill-scan'
-      fullPath: '/api/public/hooks/backfill-scan'
-      preLoaderRoute: typeof ApiPublicHooksBackfillScanRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/hooks/deliver-alerts': {
-      id: '/api/public/hooks/deliver-alerts'
-      path: '/api/public/hooks/deliver-alerts'
-      fullPath: '/api/public/hooks/deliver-alerts'
-      preLoaderRoute: typeof ApiPublicHooksDeliverAlertsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/hooks/scan-context': {
-      id: '/api/public/hooks/scan-context'
-      path: '/api/public/hooks/scan-context'
-      fullPath: '/api/public/hooks/scan-context'
-      preLoaderRoute: typeof ApiPublicHooksScanContextRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/hooks/scan-precision': {
-      id: '/api/public/hooks/scan-precision'
-      path: '/api/public/hooks/scan-precision'
-      fullPath: '/api/public/hooks/scan-precision'
-      preLoaderRoute: typeof ApiPublicHooksScanPrecisionRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/public/hooks/sync-market-data': {
-      id: '/api/public/hooks/sync-market-data'
-      path: '/api/public/hooks/sync-market-data'
-      fullPath: '/api/public/hooks/sync-market-data'
-      preLoaderRoute: typeof ApiPublicHooksSyncMarketDataRouteImport
+    '/lovable/email/auth/webhook': {
+      id: '/lovable/email/auth/webhook'
+      path: '/lovable/email/auth/webhook'
+      fullPath: '/lovable/email/auth/webhook'
+      preLoaderRoute: typeof LovableEmailAuthWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/lovable/email/auth/preview': {
@@ -440,11 +412,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LovableEmailAuthPreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/lovable/email/auth/webhook': {
-      id: '/lovable/email/auth/webhook'
-      path: '/lovable/email/auth/webhook'
-      fullPath: '/lovable/email/auth/webhook'
-      preLoaderRoute: typeof LovableEmailAuthWebhookRouteImport
+    '/api/public/hooks/sync-market-data': {
+      id: '/api/public/hooks/sync-market-data'
+      path: '/api/public/hooks/sync-market-data'
+      fullPath: '/api/public/hooks/sync-market-data'
+      preLoaderRoute: typeof ApiPublicHooksSyncMarketDataRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/scan-precision': {
+      id: '/api/public/hooks/scan-precision'
+      path: '/api/public/hooks/scan-precision'
+      fullPath: '/api/public/hooks/scan-precision'
+      preLoaderRoute: typeof ApiPublicHooksScanPrecisionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/scan-context': {
+      id: '/api/public/hooks/scan-context'
+      path: '/api/public/hooks/scan-context'
+      fullPath: '/api/public/hooks/scan-context'
+      preLoaderRoute: typeof ApiPublicHooksScanContextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/deliver-alerts': {
+      id: '/api/public/hooks/deliver-alerts'
+      path: '/api/public/hooks/deliver-alerts'
+      fullPath: '/api/public/hooks/deliver-alerts'
+      preLoaderRoute: typeof ApiPublicHooksDeliverAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/hooks/backfill-scan': {
+      id: '/api/public/hooks/backfill-scan'
+      path: '/api/public/hooks/backfill-scan'
+      fullPath: '/api/public/hooks/backfill-scan'
+      preLoaderRoute: typeof ApiPublicHooksBackfillScanRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -495,3 +495,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
