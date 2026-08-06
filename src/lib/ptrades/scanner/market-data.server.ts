@@ -132,8 +132,28 @@ async function withTimeout<T>(
     () => controller.abort(new MarketDataError(`${operation} timed out after ${ms}ms`, "TIMEOUT")),
     ms,
   );
+  // The timeout must RESOLVE the caller, not merely signal the task. A task
+  // parked behind the provider's serialised request queue cannot observe its
+  // abort until it is dequeued, so awaiting it directly let a single stuck read
+  // hold the whole sync pass — and its lock — open indefinitely.
+  const aborted = new Promise<never>((_, reject) => {
+    const onAbort = () => {
+      const reason = controller.signal.reason;
+      reject(
+        reason instanceof Error
+          ? reason
+          : new MarketDataError(`${operation} was cancelled`, "TIMEOUT"),
+      );
+    };
+    if (controller.signal.aborted) onAbort();
+    else controller.signal.addEventListener("abort", onAbort, { once: true });
+  });
+
   try {
-    return await task(controller.signal);
+    const running = task(controller.signal);
+    // The orphaned task may still reject later; never surface that globally.
+    running.catch(() => {});
+    return await Promise.race([running, aborted]);
   } catch (error) {
     if (controller.signal.aborted) {
       const reason = controller.signal.reason;
@@ -146,6 +166,7 @@ async function withTimeout<T>(
     externalSignal?.removeEventListener("abort", abortFromExternal);
   }
 }
+
 
 /** Only transient transport failures are retried; config errors never are. */
 function retryable(error: unknown): boolean {
