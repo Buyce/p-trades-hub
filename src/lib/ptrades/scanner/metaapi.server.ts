@@ -107,6 +107,9 @@ async function get<T>(
   return serialize(async () => {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
+      // The caller may have already given up while this task sat in the queue;
+      // retrying then only steals the slot from a live request.
+      if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
       try {
         return await request<T>(host, path, query, signal);
       } catch (error) {
@@ -118,6 +121,7 @@ async function get<T>(
     }
     throw lastError;
   }, signal);
+
 }
 
 
